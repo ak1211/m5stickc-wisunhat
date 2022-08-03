@@ -301,8 +301,8 @@ struct Ampere {
   //
   std::string show() const {
     // 整数部と小数部
-    auto r = std::make_pair(r_deciA / 10, r_deciA * 10 % 10);
-    auto t = std::make_pair(t_deciA / 10, t_deciA * 10 % 10);
+    auto r = std::make_pair(r_deciA / 10, r_deciA % 10);
+    auto t = std::make_pair(t_deciA / 10, t_deciA % 10);
     std::string s;
     s += "R: " + std::to_string(r.first) + "." + std::to_string(r.second) +
          " A, T: " + std::to_string(t.first) + "." + std::to_string(t.second) +
