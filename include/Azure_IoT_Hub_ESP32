@@ -1,0 +1,22 @@
+// Copyright (c) 2022 Akihiro Yamamoto.
+// Licensed under the MIT License <https://spdx.org/licenses/MIT.html>
+// See LICENSE file in the project root for full license information.
+//
+#pragma once
+
+#include "AzIoTSasToken.h"
+#include <M5StickCPlus.h>
+#include <array>
+#include <mqtt_client.h>
+#include <string>
+
+// Wifi
+extern std::string_view IOT_CONFIG_WIFI_SSID;
+extern std::string_view IOT_CONFIG_WIFI_PASSWORD;
+extern std::string_view IOT_CONFIG_IOTHUB_FQDN;
+extern std::string_view IOT_CONFIG_DEVICE_ID;
+extern std::string_view IOT_CONFIG_DEVICE_KEY;
+
+extern bool establishConnection();
+extern void sendTelemetry(const std::string &string_telemetry);
+extern void telemetry_loop();

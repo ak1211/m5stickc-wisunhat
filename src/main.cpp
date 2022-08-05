@@ -2,18 +2,33 @@
 // Licensed under the MIT License <https://spdx.org/licenses/MIT.html>
 // See LICENSE file in the project root for full license information.
 //
+#include "Azure_IoT_Hub_ESP32"
 #include <M5StickCPlus.h>
 #include <cstring>
+#include <ctime>
 #include <map>
 #include <optional>
 #include <string>
 #include <vector>
 
-//
+// ここは機微情報アブナイアブナイ
+// vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
+// Wifi
+std::string_view IOT_CONFIG_WIFI_SSID{"************"};
+std::string_view IOT_CONFIG_WIFI_PASSWORD{"********"};
+// Azure IoT
+std::string_view IOT_CONFIG_IOTHUB_FQDN{"**************.azure-devices.net"};
+std::string_view IOT_CONFIG_DEVICE_ID{"************"};
+std::string_view IOT_CONFIG_DEVICE_KEY{
+    "********************************************"};
 // Bルート接続文字列
-//
 static constexpr std::string_view BPASSWORD{"000000000000"};
 static constexpr std::string_view BID{"00000000000000000000000000000000"};
+// アブナイアブナイ
+// ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+// データーベースのパーティションキーであるセンサーＩＤ
+static constexpr std::string_view sensor_id{"smartmeter"};
 
 // BP35A1と会話できるポート番号
 constexpr int CommPortRx{26};
@@ -301,8 +316,8 @@ struct Ampere {
   //
   std::string show() const {
     // 整数部と小数部
-    auto r = std::make_pair(r_deciA / 10, r_deciA * 10 % 10);
-    auto t = std::make_pair(t_deciA / 10, t_deciA * 10 % 10);
+    auto r = std::make_pair(r_deciA / 10, r_deciA % 10);
+    auto t = std::make_pair(t_deciA / 10, t_deciA % 10);
     std::string s;
     s += "R: " + std::to_string(r.first) + "." + std::to_string(r.second) +
          " A, T: " + std::to_string(t.first) + "." + std::to_string(t.second) +
@@ -351,6 +366,50 @@ struct CumulativeWattHour {
     std::sprintf(buff, "%4d/%2d/%2d %02d:%02d:%02d %d", year, month, day, hour,
                  minutes, seconds, cumlative_watt_hour);
     return std::string(buff);
+  }
+  // 電力量
+  std::string to_string_kwh(std::optional<Coefficient> optcoeff,
+                            Unit unit) const {
+    uint32_t cwh = cumlative_watt_hour;
+    // 係数(無い場合の係数は1)
+    if (optcoeff.has_value()) {
+      cwh = cwh * optcoeff.value().coefficient;
+    }
+    // 文字にする
+    std::string str_kwh = std::to_string(cwh);
+    // 1kwhの位置に小数点を移動する
+    int powers_of_10 = unit.get_powers_of_10();
+    if (powers_of_10 > 0) { // 小数点を右に移動する
+      // '0'を必要な数だけ用意して
+      std::string zeros(powers_of_10, '0');
+      // 必要な'0'を入れた後に小数点を入れる
+      str_kwh += zeros + ".";
+    } else if (powers_of_10 == 0) { // 10の0乗ってのは1だから
+      // 小数点はここに入る
+      str_kwh += ".";
+    } else if (powers_of_10 < 0) { // 小数点を左に移動する
+      // powers_of_10は負数だからend()に足し算すると減る
+      auto it = str_kwh.end() + powers_of_10;
+      // 小数点を挿入する
+      str_kwh.insert(it, '.');
+    }
+    return str_kwh;
+  }
+  // 時刻をISO8601形式で得る
+  std::optional<std::string> get_iso8601() const {
+    // 秒が0xFFの応答を返してくることがあるが有効な値ではない
+    if (seconds == 0xFF) {
+      return std::nullopt;
+    }
+    char buffer[sizeof("2022-08-01T00:00:00+09:00")]{};
+    std::snprintf(buffer, sizeof(buffer), "%04d-%02d-%02dT%02d:%02d:%02d+09:00",
+                  year, month, day, hour, minutes, seconds);
+    //
+    if (time < 0) {
+      return std::nullopt;
+    } else {
+      return std::string(buffer);
+    }
   }
   //
   bool operator==(const CumulativeWattHour &other) const {
@@ -425,6 +484,9 @@ public:
   }
 };
 
+// メッセージを表示する関数
+typedef void (*DisplayMessageT)(const char *);
+
 //
 //
 //
@@ -460,8 +522,6 @@ public:
         commport{stream},
         b_route_connection_string{br},
         smart_meter_ident{} {}
-  // メッセージを表示する関数
-  typedef void (*DisplayMessageT)(const char *);
   // BP35A1を起動して接続する
   bool boot(DisplayMessageT display_message) {
     // エコーバック抑制
@@ -924,6 +984,7 @@ public:
 // 測定値表示
 //
 template <class T> class MeasurementDisplay {
+  // 表示用の変換関数
   typedef std::string (*ConvertFn)(std::optional<T>);
   //
   int size;
@@ -1043,6 +1104,9 @@ static std::string to_str_watt(std::optional<SmartWhm::Watt>);
 static std::string to_str_ampere(std::optional<SmartWhm::Ampere>);
 static std::string
     to_str_cumlative_wh(std::optional<SmartWhm::CumulativeWattHour>);
+static void send_watt_to_IotHub(SmartWhm::Watt w);
+static void send_ampere_to_IotHub(SmartWhm::Ampere ampere);
+static void send_cwh_to_IotHub(SmartWhm::CumulativeWattHour cwh);
 
 // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
 // グローバル変数
@@ -1077,7 +1141,17 @@ void setup() {
   M5.Lcd.setTextSize(2);
   //
   Serial2.begin(115200, SERIAL_8N1, CommPortRx, CommPortTx);
-  delay(1000);
+  //
+  display_boot_message("connect to IoT Hub\n");
+  if (!establishConnection()) {
+    display_boot_message("can't connect to IotHub, bye\n");
+    ESP_LOGD(MAIN, "can't connect to IotHub");
+    delay(10000);
+    esp_restart();
+  }
+  M5.Lcd.fillScreen(BLACK);
+  M5.Lcd.setCursor(0, 0);
+  //
   static BP35A1 bp35a1_instance(Serial2,
                                 BP35A1::BRouteConnectionString{BID, BPASSWORD});
   if (!bp35a1_instance.boot(display_boot_message)) {
@@ -1107,8 +1181,8 @@ void loop() {
   //
   static std::array<char, 256> buffer{};
   static int remains = 0;
-  // この関数の実行400回に1回メッセージを送るという意味
-  constexpr int CYCLE{400};
+  // この関数の実行300回に1回メッセージを送るという意味
+  constexpr int CYCLE{300};
 
   // プログレスバーを表示する
   {
@@ -1255,6 +1329,8 @@ void loop() {
             ESP_LOGD(MAIN, "%s", w.show().c_str());
             // 測定値を表示する
             measurement_watt.update(w);
+            // IoTHubへ送信する
+            send_watt_to_IotHub(w);
           } else {
             ESP_LOGD(MAIN, "pdc is should be 4 bytes, this is %d bytes.",
                      frame->edata.pdc);
@@ -1269,6 +1345,8 @@ void loop() {
             ESP_LOGD(MAIN, "%s", a.show().c_str());
             // 測定値を表示する
             measurement_ampere.update(a);
+            // IoTHubへ送信する
+            send_ampere_to_IotHub(a);
           } else {
             ESP_LOGD(MAIN, "pdc is should be 4 bytes, this is %d bytes.",
                      frame->edata.pdc);
@@ -1292,6 +1370,8 @@ void loop() {
               ESP_LOGD(MAIN, "unit: %s", whm_unit.value().show().c_str());
             }
             measurement_cumlative_wh.update(cwh);
+            // IoTHubへ送信する
+            send_cwh_to_IotHub(cwh);
           } else {
             ESP_LOGD(MAIN, "pdc is should be 11 bytes, this is %d bytes.",
                      frame->edata.pdc);
@@ -1304,8 +1384,9 @@ void loop() {
     }
   }
   //
+  telemetry_loop();
   M5.update();
-  delay(50);
+  delay(100);
 }
 
 //
@@ -1330,8 +1411,8 @@ static std::string to_str_ampere(std::optional<SmartWhm::Ampere> ampere) {
   uint16_t r_deciA = ampere.value().get_deciampere_R();
   uint16_t t_deciA = ampere.value().get_deciampere_T();
   // 整数部と小数部
-  auto r = std::make_pair(r_deciA / 10, r_deciA * 10 % 10);
-  auto t = std::make_pair(t_deciA / 10, t_deciA * 10 % 10);
+  auto r = std::make_pair(r_deciA / 10, r_deciA % 10);
+  auto t = std::make_pair(t_deciA / 10, t_deciA % 10);
   char buff[100]{'\0'};
   std::sprintf(buff, "R:%2d.%01d A, T:%2d.%01d A", r.first, r.second, t.first,
                t.second);
@@ -1362,28 +1443,63 @@ to_str_cumlative_wh(std::optional<SmartWhm::CumulativeWattHour> watt_hour) {
   // 単位
   if (whm_unit.has_value()) {
     // 文字にする
-    std::string str_kwh = std::to_string(cwh);
-    // 1kwhの位置に小数点を移動する
-    int powers_of_10 = whm_unit.value().get_powers_of_10();
-    if (powers_of_10 > 0) { // 小数点を右に移動する
-      // '0'を必要な数だけ用意して
-      std::string zeros(powers_of_10, '0');
-      // 必要な'0'を入れた後に小数点を入れる
-      str_kwh += zeros + ".";
-    } else if (powers_of_10 == 0) { // 10の0乗ってのは1だから
-      // 小数点はここに入る
-      str_kwh += ".";
-    } else if (powers_of_10 < 0) { // 小数点を左に移動する
-      // powers_of_10は負数だからend()に足し算すると減る
-      auto it = str_kwh.end() + powers_of_10;
-      // 小数点を挿入する
-      str_kwh.insert(it, '.');
-    }
-    // 小数点を入れたら出力バッファに追加する
+    std::string str_kwh = wh.to_string_kwh(whm_coefficient, whm_unit.value());
+    // 出力バッファに追加する
     output += " " + str_kwh + " kwh";
   } else {
     // 単位がないならそのまま出す
     output += " " + std::to_string(cwh);
   }
   return output;
+}
+
+//
+static std::string iso8601formatUTC(std::time_t utctime) {
+  struct tm tm;
+  gmtime_r(&utctime, &tm);
+  std::array<char, 30> buffer;
+  std::strftime(buffer.data(), buffer.size(), "%Y-%m-%dT%H:%M:%SZ", &tm);
+  return std::string{buffer.data()};
+}
+
+// IoTHubに送信
+static void send_watt_to_IotHub(SmartWhm::Watt w) {
+  std::time_t now = std::time(nullptr);
+  std::string measured_at{iso8601formatUTC(now)};
+  std::string payload{"{'sensorId':'" + std::string(sensor_id) + "'" +
+                      ",'measured_at':'" + measured_at + "'" +
+                      ",'instant_watt':" + std::to_string(w.watt) + "}"};
+  sendTelemetry(payload);
+}
+
+// IoTHubに送信
+static void send_ampere_to_IotHub(SmartWhm::Ampere ampere) {
+  std::time_t now = std::time(nullptr);
+  std::string measured_at{iso8601formatUTC(now)};
+  // 整数部と小数部
+  std::string ri{std::to_string(ampere.r_deciA / 10)};
+  std::string rf{std::to_string(ampere.r_deciA % 10)};
+  std::string ti{std::to_string(ampere.t_deciA / 10)};
+  std::string tf{std::to_string(ampere.t_deciA % 10)};
+  std::string payload{"{'sensorId':'" + std::string(sensor_id) + "'" +
+                      ",'measured_at':'" + measured_at + "'" +
+                      ",'instant_ampere_R':" + ri + "." + rf +
+                      ",'instant_ampere_T':" + ti + "." + tf + "}"};
+  sendTelemetry(payload);
+}
+
+// IoTHubに送信
+static void send_cwh_to_IotHub(SmartWhm::CumulativeWattHour cwh) {
+  // UTCで得る
+  std::optional<std::string> optiso8601 = cwh.get_iso8601();
+  if (optiso8601.has_value() && whm_unit.has_value()) {
+    SmartWhm::Unit unit = whm_unit.value();
+    // 積算電力量(kwh)
+    std::string cumlative_kwh{cwh.to_string_kwh(whm_coefficient, unit)};
+    //
+    std::string payload{"{'sensorId':'" + std::string(sensor_id) + "'" +
+                        ",'measured_at':'" + optiso8601.value() + "'" +
+                        ",'cumlative_kwh':" + cumlative_kwh + "}"};
+    sendTelemetry(payload);
+  }
 }
