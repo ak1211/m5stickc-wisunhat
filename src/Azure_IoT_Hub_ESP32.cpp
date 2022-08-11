@@ -255,7 +255,7 @@ static int initializeMqttClient() {
   mqtt_config.password = (const char *)az_span_ptr(sasToken.Get());
 #endif
 
-  mqtt_config.keepalive = 30;
+  mqtt_config.keepalive = 120;
   mqtt_config.disable_clean_session = 0;
   mqtt_config.disable_auto_reconnect = false;
   mqtt_config.event_handle = mqtt_event_handler;
@@ -305,10 +305,10 @@ static void getTelemetryPayload(const std::string &string_telemetry,
                     az_span_size(original_payload) - az_span_size(payload) - 1);
 }
 
-void sendTelemetry(const std::string &string_telemetry) {
+bool sendTelemetry(const std::string &string_telemetry) {
   az_span telemetry = AZ_SPAN_FROM_BUFFER(telemetry_payload);
 
-  ESP_LOGI(TELEMETRY, "Sending telemetry ...");
+  ESP_LOGD(TELEMETRY, "Sending telemetry ...");
 
   // The topic could be obtained just once during setup,
   // however if properties are used the topic need to be generated again to
@@ -316,7 +316,7 @@ void sendTelemetry(const std::string &string_telemetry) {
   if (az_result_failed(az_iot_hub_client_telemetry_get_publish_topic(
           &client, NULL, telemetry_topic, sizeof(telemetry_topic), NULL))) {
     ESP_LOGE(TELEMETRY, "Failed az_iot_hub_client_telemetry_get_publish_topic");
-    return;
+    return false;
   }
 
   getTelemetryPayload(string_telemetry, telemetry, &telemetry);
@@ -325,20 +325,21 @@ void sendTelemetry(const std::string &string_telemetry) {
           mqtt_client, telemetry_topic, (const char *)az_span_ptr(telemetry),
           az_span_size(telemetry), MQTT_QOS1, DO_NOT_RETAIN_MSG) == 0) {
     ESP_LOGE(TELEMETRY, "Failed publishing");
+    return false;
   } else {
-    ESP_LOGI(TELEMETRY, "Message published successfully");
+    ESP_LOGD(TELEMETRY, "Message published successfully");
+    return true;
   }
 }
 
-void telemetry_loop() {
+void checkTelemetry() {
   if (WiFi.status() != WL_CONNECTED) {
-    connectToWiFi();
-  }
-#ifndef IOT_CONFIG_USE_X509_CERT
-  else if (sasToken.IsExpired()) {
+    ESP_LOGI(TELEMETRY, "WiFi reconnect");
+    WiFi.disconnect();
+    WiFi.reconnect();
+  } else if (sasToken.IsExpired()) {
     ESP_LOGI(TELEMETRY, "SAS token expired; reconnecting with a new one.");
     (void)esp_mqtt_client_destroy(mqtt_client);
     initializeMqttClient();
   }
-#endif
 }
