@@ -73,7 +73,12 @@ def plot(df, filename, tz):
     axs[0].set_xlim(xlim)
     axs[0].set_ylabel('kWh')
     axs[0].set_title('cumulative amounts of electric power', fontsize=18)
-    axs[0].plot(df['cumlativeKwh'].dropna(), 's-')
+    v = df['cumlativeKwh'].dropna()
+    x = v.index.tolist()
+    y = v.tolist()
+    axs[0].set_ylim((v.min(), v.max()))
+    axs[0].fill_between(x, y, color="lightblue", alpha=0.5)
+    axs[0].plot(v, color="blue", marker='o', clip_on=False)
     axs[0].grid(which='both', axis='both')
     #
     axs[1].xaxis.set_major_locator(major_locator)
@@ -83,7 +88,10 @@ def plot(df, filename, tz):
     axs[1].set_xlim(xlim)
     axs[1].set_ylabel('W')
     axs[1].set_title('instantaneous electric power', fontsize=18)
-    axs[1].plot(df['instantWatt'].dropna(), 's-')
+    v = df['instantWatt'].dropna()
+    axs[1].fill_between(v.index.tolist(), v.tolist(),
+                        color="lightblue", alpha=0.5)
+    axs[1].plot(v, color="blue", marker='o', clip_on=False)
     axs[1].grid(which='both', axis='both')
     #
     axs[2].xaxis.set_major_locator(major_locator)
@@ -94,7 +102,10 @@ def plot(df, filename, tz):
     axs[2].set_ylabel('A')
     axs[2].set_title(
         'R-phase instantaneous electric current', fontsize=18)
-    axs[2].plot(df['instantAmpereR'].dropna(), 's-')
+    v = df['instantAmpereR'].dropna()
+    axs[2].fill_between(v.index.tolist(), v.tolist(),
+                        color="lightblue", alpha=0.5)
+    axs[2].plot(v, color="blue", marker='o', clip_on=False)
     axs[2].grid(which='both', axis='both')
     #
     axs[3].xaxis.set_major_locator(major_locator)
@@ -105,7 +116,10 @@ def plot(df, filename, tz):
     axs[3].set_ylabel('A')
     axs[3].set_title(
         'T-phase instantaneous electric current', fontsize=18)
-    axs[3].plot(df['instantAmpereT'].dropna(), 's-')
+    v = df['instantAmpereT'].dropna()
+    axs[3].fill_between(v.index.tolist(), v.tolist(),
+                        color="lightblue", alpha=0.5)
+    axs[3].plot(v, color="blue", marker='o', clip_on=False)
     axs[3].grid(which='both', axis='both')
     #
 #    fig.tight_layout()
