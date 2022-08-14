@@ -64,7 +64,7 @@ def plot(df, filename, tz):
     xlim = [df.index[0].astimezone(tz).replace(hour=0, minute=0, second=0, microsecond=0),
             df.index[-1]]
     #
-    fig, axs = plt.subplots(4, 1, figsize=(32, 16))
+    fig, axs = plt.subplots(3, 1, figsize=(48, 24))
     #
     axs[0].xaxis.set_major_locator(major_locator)
     axs[0].xaxis.set_major_formatter(major_formatter)
@@ -77,7 +77,7 @@ def plot(df, filename, tz):
     x = v.index.tolist()
     y = v.tolist()
     axs[0].set_ylim((v.min(), v.max()))
-    axs[0].fill_between(x, y, color="lightblue", alpha=0.5)
+    axs[0].fill_between(x, y, color="lightblue", alpha=1.0)
     axs[0].plot(v, color="blue", marker='o', clip_on=False)
     axs[0].grid(which='both', axis='both')
     #
@@ -88,11 +88,18 @@ def plot(df, filename, tz):
     axs[1].set_xlim(xlim)
     axs[1].set_ylabel('W')
     axs[1].set_title('instantaneous electric power', fontsize=18)
-    v = df['instantWatt'].dropna()
-    axs[1].fill_between(v.index.tolist(), v.tolist(),
-                        color="lightblue", alpha=0.5)
-    axs[1].plot(v, color="blue", marker='o', clip_on=False)
+    x = df['instantWatt'].dropna().index.tolist()
+    v = df['instantWatt'].dropna().tolist()
+    axs[1].fill_between(x, v, color="lightblue", alpha=1.0)
+    axs[1].plot(x, v, color="blue", marker='o', clip_on=False)
     axs[1].grid(which='both', axis='both')
+    peak_index = np.argmax(v)
+    axs[1].annotate(' {}\n {:.0f} W'.format(datetime.strftime(x[peak_index], '%H:%M:%S as %Z'), v[peak_index]),
+                    xy=(x[peak_index], v[peak_index]),
+                    size=15,
+                    xytext=(xlim[-1], v[peak_index]+1),
+                    color='red',
+                    arrowprops=dict(color="red", arrowstyle="wedge,tail_width=1."))
     #
     axs[2].xaxis.set_major_locator(major_locator)
     axs[2].xaxis.set_major_formatter(major_formatter)
@@ -101,26 +108,24 @@ def plot(df, filename, tz):
     axs[2].set_xlim(xlim)
     axs[2].set_ylabel('A')
     axs[2].set_title(
-        'R-phase instantaneous electric current', fontsize=18)
-    v = df['instantAmpereR'].dropna()
-    axs[2].fill_between(v.index.tolist(), v.tolist(),
-                        color="lightblue", alpha=0.5)
-    axs[2].plot(v, color="blue", marker='o', clip_on=False)
+        'instantaneous electric current', fontsize=18)
+    x = df['instantAmpereR'].dropna().index.tolist()
+    r = df['instantAmpereR'].dropna().tolist()
+    t = df['instantAmpereT'].dropna().tolist()
+    r_plus_t = [a+b for(a, b) in zip(r, t)]
+    axs[2].stackplot(x, r, t, colors=['lightcoral', 'lightblue'], alpha=1.0,
+                     labels=['R-phase', 'T-phase'])
+    axs[2].legend(loc='upper left')
+    axs[2].plot(x, r, color="maroon", marker='o', clip_on=False)
+    axs[2].plot(x, r_plus_t, color="blue", marker='o', clip_on=False)
     axs[2].grid(which='both', axis='both')
-    #
-    axs[3].xaxis.set_major_locator(major_locator)
-    axs[3].xaxis.set_major_formatter(major_formatter)
-    axs[3].xaxis.set_minor_locator(minor_locator)
-    axs[3].xaxis.set_minor_formatter(minor_formatter)
-    axs[3].set_xlim(xlim)
-    axs[3].set_ylabel('A')
-    axs[3].set_title(
-        'T-phase instantaneous electric current', fontsize=18)
-    v = df['instantAmpereT'].dropna()
-    axs[3].fill_between(v.index.tolist(), v.tolist(),
-                        color="lightblue", alpha=0.5)
-    axs[3].plot(v, color="blue", marker='o', clip_on=False)
-    axs[3].grid(which='both', axis='both')
+    peak_index = np.argmax(r_plus_t)
+    axs[2].annotate(' {}\n {:.1f} A'.format(datetime.strftime(x[peak_index], '%H:%M:%S as %Z'), r_plus_t[peak_index]),
+                    xy=(x[peak_index], r_plus_t[peak_index]),
+                    size=15,
+                    xytext=(xlim[-1], r_plus_t[peak_index]+1),
+                    color='red',
+                    arrowprops=dict(color="red", arrowstyle="wedge,tail_width=1."))
     #
 #    fig.tight_layout()
     fig.savefig(filename)
