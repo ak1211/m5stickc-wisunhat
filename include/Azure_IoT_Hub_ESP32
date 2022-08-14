@@ -19,4 +19,5 @@ extern std::string_view IOT_CONFIG_DEVICE_KEY;
 
 extern bool establishConnection();
 extern bool sendTelemetry(const std::string &string_telemetry);
+extern void checkWiFi();
 extern void checkTelemetry();

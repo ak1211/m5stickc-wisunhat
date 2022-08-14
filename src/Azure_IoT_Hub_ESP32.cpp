@@ -332,12 +332,25 @@ bool sendTelemetry(const std::string &string_telemetry) {
   }
 }
 
-void checkTelemetry() {
+void checkWiFi() {
+  constexpr std::clock_t INTERVAL = 30 * CLOCKS_PER_SEC;
+  static std::clock_t previous = 0L;
+  std::clock_t current = std::clock();
+
+  if (current - previous < INTERVAL) {
+    return;
+  }
+
   if (WiFi.status() != WL_CONNECTED) {
     ESP_LOGI(TELEMETRY, "WiFi reconnect");
     WiFi.disconnect();
     WiFi.reconnect();
-  } else if (sasToken.IsExpired()) {
+  }
+  previous = current;
+}
+
+void checkTelemetry() {
+  if (sasToken.IsExpired()) {
     ESP_LOGI(TELEMETRY, "SAS token expired; reconnecting with a new one.");
     (void)esp_mqtt_client_destroy(mqtt_client);
     initializeMqttClient();

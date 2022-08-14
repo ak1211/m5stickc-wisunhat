@@ -1464,8 +1464,11 @@ void loop() {
       telemetryFIFO.pop();
     }
   }
+  // WiFi接続検査
+  checkWiFi();
   //
   checkTelemetry();
+  //
   M5.update();
   delay(10);
 }
