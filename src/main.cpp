@@ -297,11 +297,11 @@ static std::string iso8601formatUTC(std::time_t utctime) {
 //
 
 // 瞬時電力
-struct Watt {
+struct InstantWatt {
   int32_t watt;            // 瞬時電力(単位 W)
   std::time_t measured_at; // 測定時間
   //
-  Watt(std::array<uint8_t, 4> array, std::time_t at) : measured_at{at} {
+  InstantWatt(std::array<uint8_t, 4> array, std::time_t at) : measured_at{at} {
     watt = (array[0] << 24) | (array[1] << 16) | (array[2] << 8) | array[3];
   }
   //
@@ -313,18 +313,16 @@ struct Watt {
                        ",'measuredAt':'" + iso8601_at + "'" +
                        ",'instantWatt':" + std::to_string(watt) + "}"};
   }
-  //
-  bool operator==(const Watt &other) const { return (watt == other.watt); }
-  bool operator!=(const Watt &other) const { return !(*this == other); }
 };
 
 // 瞬時電流
-struct Ampere {
+struct InstantAmpere {
   int16_t r_deciA;         // R相電流(単位 1/10A == 1 deci A)
   int16_t t_deciA;         // T相電流(単位 1/10A == 1 deci A)
   std::time_t measured_at; // 測定時間
   //
-  Ampere(std::array<uint8_t, 4> array, std::time_t at) : measured_at{at} {
+  InstantAmpere(std::array<uint8_t, 4> array, std::time_t at)
+      : measured_at{at} {
     // R相電流
     uint16_t r_u16 = (array[0] << 8) | array[1];
     r_deciA = static_cast<int16_t>(r_u16);
@@ -367,11 +365,6 @@ struct Ampere {
   // ミリアンペア単位で得る
   int32_t get_milliampere_R() const { return r_deciA * 1000 / 10; }
   int32_t get_milliampere_T() const { return t_deciA * 1000 / 10; }
-  //
-  bool operator==(const Ampere &other) const {
-    return (r_deciA == other.r_deciA) && (t_deciA == other.t_deciA);
-  }
-  bool operator!=(const Ampere &other) const { return !(*this == other); }
 };
 
 // 定時積算電力量
@@ -488,18 +481,7 @@ struct CumulativeWattHour {
     std::snprintf(buffer, sizeof(buffer), "%04d-%02d-%02dT%02d:%02d:%02d+09:00",
                   year(), month(), day(), hour(), minutes(), seconds());
     //
-    if (time < 0) {
-      return std::nullopt;
-    } else {
-      return std::string(buffer);
-    }
-  }
-  //
-  bool operator==(const CumulativeWattHour &other) const {
-    return rawSource == other.rawSource;
-  }
-  bool operator!=(const CumulativeWattHour &other) const {
-    return !(*this == other);
+    return std::string(buffer);
   }
 };
 } // namespace SmartWhm
@@ -1180,8 +1162,8 @@ void send_measurement_request(BP35A1 *bp35a1) {
 }
 
 // 前方参照
-static std::string to_str_watt(std::optional<SmartWhm::Watt>);
-static std::string to_str_ampere(std::optional<SmartWhm::Ampere>);
+static std::string to_str_watt(std::optional<SmartWhm::InstantWatt>);
+static std::string to_str_ampere(std::optional<SmartWhm::InstantAmpere>);
 static std::string
     to_str_cumlative_wh(std::optional<SmartWhm::CumulativeWattHour>);
 
@@ -1191,9 +1173,9 @@ static std::string
 // BP35A1 初期化が完了するまでnull
 BP35A1 *bp35a1(nullptr);
 // 測定量表示用
-static MeasurementDisplay<SmartWhm::Watt> measurement_watt{
+static MeasurementDisplay<SmartWhm::InstantWatt> measurement_watt{
     2, 4, YELLOW, std::make_pair(10, 10), to_str_watt};
-static MeasurementDisplay<SmartWhm::Ampere> measurement_ampere{
+static MeasurementDisplay<SmartWhm::InstantAmpere> measurement_ampere{
     1, 4, WHITE, std::make_pair(10, 10 + 48), to_str_ampere};
 static MeasurementDisplay<SmartWhm::CumulativeWattHour>
     measurement_cumlative_wh{1, 4, WHITE, std::make_pair(10, 10 + 48 + 24),
@@ -1259,8 +1241,8 @@ void loop() {
   static std::queue<std::string> telemetryFIFO{};
   //
   static int remains = 0;
-  // この関数の実行2500回に1回メッセージを送るという意味
-  constexpr int CYCLE{2500};
+  // この関数の実行3000回に1回メッセージを送るという意味
+  constexpr int CYCLE{3000};
 
   // プログレスバーを表示する
   {
@@ -1282,7 +1264,7 @@ void loop() {
   // メッセージ受信処理
   //
   std::optional<Response> opt = bp35a1->watch_response();
-  if (opt) {
+  if (opt.has_value()) {
     Response r = opt.value();
     ESP_LOGD(MAIN, "%s", r.show().c_str());
     if (r.tag == Response::Tag::EVENT) {
@@ -1402,9 +1384,10 @@ void loop() {
         case 0xE7: // 瞬時電力値 W
         {
           if (frame->edata.pdc == 0x04) { // 4バイト
-            auto w = SmartWhm::Watt({frame->edata.edt[0], frame->edata.edt[1],
-                                     frame->edata.edt[2], frame->edata.edt[3]},
-                                    std::time(nullptr));
+            auto w = SmartWhm::InstantWatt(
+                {frame->edata.edt[0], frame->edata.edt[1], frame->edata.edt[2],
+                 frame->edata.edt[3]},
+                std::time(nullptr));
             ESP_LOGD(MAIN, "%s", w.show().c_str());
             // 測定値を表示する
             measurement_watt.update(w);
@@ -1418,10 +1401,10 @@ void loop() {
         case 0xE8: // 瞬時電流値
         {
           if (frame->edata.pdc == 0x04) { // 4バイト
-            auto a =
-                SmartWhm::Ampere({frame->edata.edt[0], frame->edata.edt[1],
-                                  frame->edata.edt[2], frame->edata.edt[3]},
-                                 std::time(nullptr));
+            auto a = SmartWhm::InstantAmpere(
+                {frame->edata.edt[0], frame->edata.edt[1], frame->edata.edt[2],
+                 frame->edata.edt[3]},
+                std::time(nullptr));
             ESP_LOGD(MAIN, "%s", a.show().c_str());
             // 測定値を表示する
             measurement_ampere.update(a);
@@ -1478,7 +1461,7 @@ void loop() {
 //
 
 // 瞬時電力量
-static std::string to_str_watt(std::optional<SmartWhm::Watt> watt) {
+static std::string to_str_watt(std::optional<SmartWhm::InstantWatt> watt) {
   if (!watt.has_value()) {
     return std::string("---- W");
   }
@@ -1488,7 +1471,8 @@ static std::string to_str_watt(std::optional<SmartWhm::Watt> watt) {
 };
 
 // 瞬時電流
-static std::string to_str_ampere(std::optional<SmartWhm::Ampere> ampere) {
+static std::string
+to_str_ampere(std::optional<SmartWhm::InstantAmpere> ampere) {
   if (!ampere.has_value()) {
     return std::string("R:--.- A, T:--.- A");
   }

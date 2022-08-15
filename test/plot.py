@@ -14,7 +14,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import math
 import itertools
-from matplotlib.dates import DayLocator, HourLocator, DateFormatter
+from matplotlib.dates import DayLocator, HourLocator, MinuteLocator, DateFormatter
 from pytz import timezone
 from datetime import datetime, timedelta
 from dateutil import parser
@@ -58,8 +58,11 @@ def plot(df, filename, tz):
     #
     major_formatter = DateFormatter('%a\n%Y-%m-%d\n%H:%M:%S\n%Z', tz=tz)
     major_locator = DayLocator(tz=tz)
-    minor_formatter = DateFormatter('%H', tz=tz)
-    minor_locator = HourLocator(byhour=range(0, 24, 1), tz=tz)
+    minor_formatter = DateFormatter('%H:%M', tz=tz)
+    # 1時間単位
+    #minor_locator = HourLocator(byhour=range(0, 24, 1), tz=tz)
+    # 30分単位
+    minor_locator = MinuteLocator(byminute=range(0, 24*60, 30), tz=tz)
     #
     xlim = [df.index[0].astimezone(tz).replace(hour=0, minute=0, second=0, microsecond=0),
             df.index[-1]]
@@ -77,8 +80,14 @@ def plot(df, filename, tz):
     x = v.index.tolist()
     y = v.tolist()
     axs[0].set_ylim((v.min(), v.max()))
-    axs[0].fill_between(x, y, color="lightblue", alpha=1.0)
+    # 折れ線グラフとx軸の間を塗りつぶす
+    #axs[0].fill_between(x, y, color="lightblue", alpha=1.0)
+    # 折れ線グラフ
     axs[0].plot(v, color="blue", marker='o', clip_on=False)
+    # 30分の幅
+    width = 30/(24*60)
+    # 棒グラフ
+    axs[0].bar(x, y, width=width, color="lightblue", align="edge")
     axs[0].grid(which='both', axis='both')
     #
     axs[1].xaxis.set_major_locator(major_locator)
