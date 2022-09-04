@@ -4,19 +4,22 @@
 //
 #pragma once
 
-#include "AzIoTSasToken.h"
 #include <M5StickCPlus.h>
-#include <array>
-#include <mqtt_client.h>
+#include <cstdint>
 #include <string>
 
 // Wifi
-extern std::string_view IOT_CONFIG_WIFI_SSID;
-extern std::string_view IOT_CONFIG_WIFI_PASSWORD;
-extern std::string_view IOT_CONFIG_IOTHUB_FQDN;
-extern std::string_view IOT_CONFIG_DEVICE_ID;
-extern std::string_view IOT_CONFIG_DEVICE_KEY;
+extern std::string_view WIFI_SSID;
+extern std::string_view WIFI_PASSWORD;
+// AWS IoT
+extern std::string_view AWS_IOT_DEVICE_ID;
+extern std::string_view AWS_IOT_ROOT_CA;
+extern std::string_view AWS_IOT_CERTIFICATE;
+extern std::string_view AWS_IOT_PRIVATE_KEY;
+extern std::string_view AWS_IOT_ENDPOINT;
+extern const uint8_t AWS_IOT_QOS;
 
+//
 extern bool establishConnection();
 extern bool sendTelemetry(const std::string &string_telemetry);
 extern void checkWiFi();

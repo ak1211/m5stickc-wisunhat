@@ -2,9 +2,11 @@
 // Licensed under the MIT License <https://spdx.org/licenses/MIT.html>
 // See LICENSE file in the project root for full license information.
 //
-#include "Azure_IoT_Hub_ESP32"
+#include "credentials.h"
 #include <M5StickCPlus.h>
 #undef min
+#include <ArduinoJson.h>
+#include <Telemetry>
 #include <cstring>
 #include <ctime>
 #include <map>
@@ -13,24 +15,8 @@
 #include <string>
 #include <vector>
 
-// ここは機微情報アブナイアブナイ
-// vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
-// Wifi
-std::string_view IOT_CONFIG_WIFI_SSID{"************"};
-std::string_view IOT_CONFIG_WIFI_PASSWORD{"********"};
-// Azure IoT
-std::string_view IOT_CONFIG_IOTHUB_FQDN{"**************.azure-devices.net"};
-std::string_view IOT_CONFIG_DEVICE_ID{"************"};
-std::string_view IOT_CONFIG_DEVICE_KEY{
-    "********************************************"};
-// Bルート接続文字列
-static constexpr std::string_view BPASSWORD{"************"};
-static constexpr std::string_view BID{"********************************"};
-// アブナイアブナイ
-// ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
 // データーベースのパーティションキーであるセンサーＩＤ
-static constexpr std::string_view sensor_id{"smartmeter"};
+static constexpr std::string_view SENSOR_ID{"smartmeter"};
 
 // BP35A1と会話できるポート番号
 constexpr int CommPortRx{26};
@@ -309,9 +295,15 @@ struct InstantWatt {
   // 送信用メッセージに変換する
   std::string convert_to_telemetry_message() const {
     std::string iso8601_at{iso8601formatUTC(measured_at)};
-    return std::string{"{'sensorId':'" + std::string(sensor_id) + "'" +
-                       ",'measuredAt':'" + iso8601_at + "'" +
-                       ",'instantWatt':" + std::to_string(watt) + "}"};
+    constexpr std::size_t Capacity{JSON_OBJECT_SIZE(100)};
+    StaticJsonDocument<Capacity> doc;
+    doc["device_id"] = AWS_IOT_DEVICE_ID;
+    doc["sensor_id"] = SENSOR_ID;
+    doc["measured_at"] = iso8601_at;
+    doc["instant_watt"] = std::to_string(watt);
+    std::string output;
+    serializeJson(doc, output);
+    return output;
   }
 };
 
@@ -345,15 +337,24 @@ struct InstantAmpere {
   // 送信用メッセージに変換する
   std::string convert_to_telemetry_message() const {
     std::string iso8601_at{iso8601formatUTC(measured_at)};
+    constexpr std::size_t Capacity{JSON_OBJECT_SIZE(100)};
+    StaticJsonDocument<Capacity> doc;
+    doc["device_id"] = AWS_IOT_DEVICE_ID;
+    doc["sensor_id"] = SENSOR_ID;
+    doc["measured_at"] = iso8601_at;
     // 整数部と小数部
     std::string ri{std::to_string(r_deciA / 10)};
     std::string rf{std::to_string(r_deciA % 10)};
+    std::string r{ri + "." + rf};
+    doc["instant_ampere_R"] = r;
+    //
     std::string ti{std::to_string(t_deciA / 10)};
     std::string tf{std::to_string(t_deciA % 10)};
-    return std::string{"{'sensorId':'" + std::string(sensor_id) + "'" +
-                       ",'measuredAt':'" + iso8601_at + "'" +
-                       ",'instantAmpereR':" + ri + "." + rf +
-                       ",'instantAmpereT':" + ti + "." + tf + "}"};
+    std::string t{ti + "." + tf};
+    doc["instant_ampere_T"] = t;
+    std::string output;
+    serializeJson(doc, output);
+    return output;
   }
 
   // アンペア単位で得る
@@ -370,32 +371,35 @@ struct InstantAmpere {
 // 定時積算電力量
 struct CumulativeWattHour {
   // 生の受信値
-  std::array<uint8_t, 11> rawSource;
+  using OriginalPayload = std::array<uint8_t, 11>;
+  OriginalPayload originalPayload;
   // 乗数(無い場合の乗数は1)
   std::optional<SmartWhm::Coefficient> opt_coefficient;
   // 単位
   std::optional<SmartWhm::Unit> opt_unit;
   //
-  CumulativeWattHour(std::array<uint8_t, 11> array,
+  CumulativeWattHour(OriginalPayload array,
                      std::optional<SmartWhm::Coefficient> coeff,
                      std::optional<SmartWhm::Unit> unit)
-      : rawSource{array}, opt_coefficient{coeff}, opt_unit{unit} {}
+      : originalPayload{array}, opt_coefficient{coeff}, opt_unit{unit} {}
   // 年
-  uint16_t year() const { return (rawSource[0] << 8) | rawSource[1]; }
+  uint16_t year() const {
+    return (originalPayload[0] << 8) | originalPayload[1];
+  }
   // 月
-  uint8_t month() const { return rawSource[2]; }
+  uint8_t month() const { return originalPayload[2]; }
   // 日
-  uint8_t day() const { return rawSource[3]; }
+  uint8_t day() const { return originalPayload[3]; }
   // 時
-  uint8_t hour() const { return rawSource[4]; }
+  uint8_t hour() const { return originalPayload[4]; }
   // 分
-  uint8_t minutes() const { return rawSource[5]; }
+  uint8_t minutes() const { return originalPayload[5]; }
   // 秒
-  uint8_t seconds() const { return rawSource[6]; }
+  uint8_t seconds() const { return originalPayload[6]; }
   // 積算電力量
   uint32_t cumlative_watt_hour() const {
-    return (rawSource[7] << 24) | (rawSource[8] << 16) | (rawSource[9] << 8) |
-           rawSource[10];
+    return (originalPayload[7] << 24) | (originalPayload[8] << 16) |
+           (originalPayload[9] << 8) | originalPayload[10];
   }
   //
   std::string show() const {
@@ -406,42 +410,35 @@ struct CumulativeWattHour {
   }
   // 送信用メッセージに変換する
   std::string convert_to_telemetry_message() const {
+    constexpr std::size_t Capacity{JSON_OBJECT_SIZE(100)};
+    StaticJsonDocument<Capacity> doc;
+    doc["device_id"] = AWS_IOT_DEVICE_ID;
+    doc["sensor_id"] = SENSOR_ID;
+#if 0
     // 生の受信値
-    std::string rawSource{"'rawSource':"};
-    rawSource += "[";
-    for (uint8_t v : rawSource) {
-      char work[100]{'\0'};
-      std::sprintf(work, "0x%02X", v);
-      rawSource += std::string(work) + ",";
+    JsonArray array = doc.createNestedArray("original_payload");
+    for (auto &v : originalPayload) {
+      array.add(v);
     }
-    rawSource.pop_back();
-    rawSource += "]";
+#endif
     // 時刻をISO8601形式で得る
-    std::optional<std::string> optiso8601 = get_iso8601();
+    std::optional<std::string> opt_iso8601 = get_iso8601();
+    if (opt_iso8601.has_value()) {
+      doc["measured_at"] = opt_iso8601.value();
+    }
     // 積算電力量(kwh)
     std::optional<std::string> opt_cumlative_kwh = to_string_kwh();
-    // 送信用メッセージを組み立てる
-    std::string sensorId{"'sensorId':'" + std::string(sensor_id) + "'"};
-    std::string measuredAt{"'measuredAt':'" + optiso8601.value_or("NA") + "'"};
-    std::string unit{"'unit':" + (opt_unit.has_value()
-                                      ? std::to_string(opt_unit.value().unit)
-                                      : "'NA'")};
-    std::string coeff{"'coeff':" +
-                      (opt_coefficient.has_value()
-                           ? std::to_string(opt_coefficient.value().coefficient)
-                           : "'NA'")};
-    // 積算電力量(kwh)
-    std::string cumlativeKwh{
-        "'cumlativeKwh':" +
-        (opt_cumlative_kwh.has_value() ? opt_cumlative_kwh.value() : "'NA'")};
-    //
-    return std::string{"{" + sensorId + "," + measuredAt + "," + unit + "," +
-                       coeff + "," + rawSource + "," + cumlativeKwh + "}"};
+    if (opt_cumlative_kwh.has_value()) {
+      doc["cumlative_kwh"] = opt_cumlative_kwh.value();
+    }
+    std::string output;
+    serializeJson(doc, output);
+    return output;
   }
   // 電力量
   std::optional<std::string> to_string_kwh() const {
     if (!opt_unit.has_value()) {
-      ESP_LOGI(MAIN, "unspecificated unit of cumulative watt hour");
+      ESP_LOGI(MAIN, "unspecificated unit of cumulative kilo-watt hour");
       return std::nullopt;
     }
     SmartWhm::Unit unit = opt_unit.value();
@@ -1241,8 +1238,20 @@ void loop() {
   static std::queue<std::string> telemetryFIFO{};
   //
   static int remains = 0;
-  // この関数の実行3000回に1回メッセージを送るという意味
-  constexpr int CYCLE{3000};
+  // この関数の実行4000回に1回メッセージを送るという意味
+  constexpr int CYCLE{4000};
+
+  //
+  M5.update();
+  // WiFi接続検査
+  checkWiFi();
+  checkTelemetry();
+  // 送信するべき測定値があればIoTHubへ送信する
+  if (!telemetryFIFO.empty()) {
+    if (sendTelemetry(telemetryFIFO.front())) {
+      telemetryFIFO.pop();
+    }
+  }
 
   // プログレスバーを表示する
   {
@@ -1392,7 +1401,7 @@ void loop() {
             // 測定値を表示する
             measurement_watt.update(w);
             // 送信バッファへ追加する
-            telemetryFIFO.push(w.convert_to_telemetry_message());
+            telemetryFIFO.emplace(w.convert_to_telemetry_message());
           } else {
             ESP_LOGD(MAIN, "pdc is should be 4 bytes, this is %d bytes.",
                      frame->edata.pdc);
@@ -1409,7 +1418,7 @@ void loop() {
             // 測定値を表示する
             measurement_ampere.update(a);
             // 送信バッファへ追加する
-            telemetryFIFO.push(a.convert_to_telemetry_message());
+            telemetryFIFO.emplace(a.convert_to_telemetry_message());
           } else {
             ESP_LOGD(MAIN, "pdc is should be 4 bytes, this is %d bytes.",
                      frame->edata.pdc);
@@ -1428,7 +1437,7 @@ void loop() {
             // 測定値を表示する
             measurement_cumlative_wh.update(cwh);
             // 送信バッファへ追加する
-            telemetryFIFO.push(cwh.convert_to_telemetry_message());
+            telemetryFIFO.emplace(cwh.convert_to_telemetry_message());
           } else {
             ESP_LOGD(MAIN, "pdc is should be 11 bytes, this is %d bytes.",
                      frame->edata.pdc);
@@ -1440,19 +1449,6 @@ void loop() {
       }
     }
   }
-  // 送信するべき測定値があればIoTHubへ送信する
-  if (!telemetryFIFO.empty()) {
-    auto front = telemetryFIFO.front();
-    if (sendTelemetry(front)) {
-      telemetryFIFO.pop();
-    }
-  }
-  // WiFi接続検査
-  checkWiFi();
-  //
-  checkTelemetry();
-  //
-  M5.update();
   delay(10);
 }
 
