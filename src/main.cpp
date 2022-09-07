@@ -7,13 +7,18 @@
 #undef min
 #include <ArduinoJson.h>
 #include <Telemetry>
+#include <WiFi.h>
 #include <cstring>
 #include <ctime>
+#include <esp_sntp.h>
 #include <map>
 #include <optional>
 #include <queue>
 #include <string>
 #include <vector>
+
+// time zone = Asia_Tokyo(UTC+9)
+static constexpr char TZ_TIME_ZONE[] = "JST-9";
 
 // データーベースのパーティションキーであるセンサーＩＤ
 static constexpr std::string_view SENSOR_ID{"smartmeter"};
@@ -293,7 +298,7 @@ struct InstantWatt {
   //
   std::string show() const { return std::to_string(watt) + " W"; }
   // 送信用メッセージに変換する
-  std::string convert_to_telemetry_message() const {
+  std::string watt_to_telemetry_message() const {
     std::string iso8601_at{iso8601formatUTC(measured_at)};
     constexpr std::size_t Capacity{JSON_OBJECT_SIZE(100)};
     StaticJsonDocument<Capacity> doc;
@@ -335,7 +340,7 @@ struct InstantAmpere {
     return s;
   }
   // 送信用メッセージに変換する
-  std::string convert_to_telemetry_message() const {
+  std::string ampere_to_telemetry_message() const {
     std::string iso8601_at{iso8601formatUTC(measured_at)};
     constexpr std::size_t Capacity{JSON_OBJECT_SIZE(100)};
     StaticJsonDocument<Capacity> doc;
@@ -409,7 +414,7 @@ struct CumulativeWattHour {
     return std::string(buff);
   }
   // 送信用メッセージに変換する
-  std::string convert_to_telemetry_message() const {
+  std::string cwh_to_telemetry_message() const {
     constexpr std::size_t Capacity{JSON_OBJECT_SIZE(100)};
     StaticJsonDocument<Capacity> doc;
     doc["device_id"] = AWS_IOT_DEVICE_ID;
@@ -1180,100 +1185,116 @@ static MeasurementDisplay<SmartWhm::CumulativeWattHour>
 // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 //
+static bool connectToWiFi(std::size_t retry_count = 100) {
+  if (WiFi.status() == WL_CONNECTED) {
+    ESP_LOGD(MAIN, "WIFI connected, pass");
+    return true;
+  }
+  ESP_LOGI(MAIN, "Connecting to WIFI SSID %s", WIFI_SSID.data());
+
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(WIFI_SSID.data(), WIFI_PASSWORD.data());
+  for (std::size_t retry = 0; retry < retry_count; ++retry) {
+    if (WiFi.status() == WL_CONNECTED) {
+      break;
+    }
+    delay(500);
+    Serial.print(".");
+  }
+
+  Serial.println("");
+
+  if (WiFi.status() == WL_CONNECTED) {
+    ESP_LOGI(MAIN, "WiFi connected, IP address: %s",
+             WiFi.localIP().toString().c_str());
+    return true;
+  } else {
+    return false;
+  }
+}
+//
+static bool initializeTime(std::size_t retry_count = 100) {
+  ESP_LOGI(MAIN, "Setting time using SNTP");
+
+  configTzTime(TZ_TIME_ZONE, "ntp.nict.jp", "time.google.com",
+               "ntp.jst.mfeed.ad.jp");
+  //
+  for (std::size_t retry = 0; retry < retry_count; ++retry) {
+    delay(500);
+    if (sntp_get_sync_status() == SNTP_SYNC_STATUS_COMPLETED) {
+      char buf[50];
+      time_t now = time(nullptr);
+      ESP_LOGI(MAIN, "local time: \"%s\"", asctime_r(localtime(&now), buf));
+      ESP_LOGI(MAIN, "Time initialized!");
+      return true;
+    }
+  }
+  //
+  ESP_LOGE(MAIN, "SNTP sync failed");
+  return false;
+}
+
+//
+static bool establishConnection() {
+  connectToWiFi();
+  bool ok = true;
+  ok = ok ? initializeTime() : ok;
+  ok = ok ? connectToAwsIot() : ok;
+  return ok;
+}
+
+//
+static bool checkWiFi(std::size_t retry_count = 100) {
+  constexpr std::clock_t INTERVAL = 30 * CLOCKS_PER_SEC;
+  static std::clock_t previous = 0L;
+  std::clock_t current = std::clock();
+
+  if (current - previous < INTERVAL) {
+    return true;
+  }
+
+  for (std::size_t retry = 0; retry < retry_count; ++retry) {
+    if (WiFi.status() != WL_CONNECTED) {
+      ESP_LOGI(MAIN, "WiFi reconnect");
+      WiFi.disconnect(true);
+      WiFi.reconnect();
+      establishConnection();
+    }
+  }
+
+  if (WiFi.status() != WL_CONNECTED) {
+    return false;
+  } else {
+    previous = current;
+    return true;
+  }
+}
+
+//
 // bootメッセージ表示用
 //
 void display_boot_message(const char *s) { M5.Lcd.print(s); }
 
-//
-// Arduinoのsetup()関数
-//
-void setup() {
-  M5.begin(true, true, true);
-  M5.Lcd.setRotation(3);
-  M5.Lcd.setTextSize(2);
-  //
-  Serial2.begin(115200, SERIAL_8N1, CommPortRx, CommPortTx);
-  //
-  display_boot_message("connect to IoT Hub\n");
-  if (!establishConnection()) {
-    display_boot_message("can't connect to IotHub, bye\n");
-    ESP_LOGD(MAIN, "can't connect to IotHub");
-    delay(10000);
-    esp_restart();
-  }
-  M5.Lcd.fillScreen(BLACK);
-  M5.Lcd.setCursor(0, 0);
-  //
-  static BP35A1 bp35a1_instance(Serial2,
-                                BP35A1::BRouteConnectionString{BID, BPASSWORD});
-  if (!bp35a1_instance.boot(display_boot_message)) {
-    display_boot_message("boot error, bye");
-    ESP_LOGD(MAIN, "boot error");
-    delay(10000);
-    esp_restart();
-  }
-  // 初期化が完了したのでグローバルにセットする
-  bp35a1 = &bp35a1_instance;
-  //
-  ESP_LOGD(MAIN, "setup success");
-
-  //
-  // ディスプレイ表示
-  //
-  M5.Lcd.fillScreen(BLACK);
-  measurement_watt.update(std::nullopt);
-  measurement_ampere.update(std::nullopt);
-  measurement_cumlative_wh.update(std::nullopt);
-}
+// IoT Hub送信用バッファ
+static std::queue<std::string> telemetryFIFO{};
 
 //
-// Arduinoのloop()関数
+// スマートメーターからのメッセージ受信処理
 //
-void loop() {
+static void receive_smartmeter_task(void *) {
   // 乗数(無い場合の乗数は1)
   static std::optional<SmartWhm::Coefficient> whm_coefficient{std::nullopt};
   // 単位
   static std::optional<SmartWhm::Unit> whm_unit{std::nullopt};
-  // IoT Hub送信用バッファ
-  static std::queue<std::string> telemetryFIFO{};
-  //
-  static int remains = 0;
-  // この関数の実行4000回に1回メッセージを送るという意味
-  constexpr int CYCLE{4000};
 
-  //
-  M5.update();
-  // WiFi接続検査
-  checkWiFi();
-  checkTelemetry();
-  // 送信するべき測定値があればIoTHubへ送信する
-  if (!telemetryFIFO.empty()) {
-    if (sendTelemetry(telemetryFIFO.front())) {
-      telemetryFIFO.pop();
+  while (1) {
+    vTaskDelay(10);
+    //
+    std::optional<Response> opt = bp35a1->watch_response();
+    if (!opt.has_value()) {
+      continue;
     }
-  }
-
-  // プログレスバーを表示する
-  {
-    int bar_width = M5.Lcd.width() * (CYCLE - remains) / CYCLE;
-    int y = M5.Lcd.height() - 2;
-    M5.Lcd.fillRect(bar_width, y, M5.Lcd.width(), M5.Lcd.height(), BLACK);
-    M5.Lcd.fillRect(0, y, bar_width, M5.Lcd.height(), YELLOW);
-  }
-
-  //
-  // 定期メッセージ送信処理
-  //
-  if (remains == 0) {
-    send_measurement_request(bp35a1);
-  }
-  remains = (remains + 1) % CYCLE;
-
-  //
-  // メッセージ受信処理
-  //
-  std::optional<Response> opt = bp35a1->watch_response();
-  if (opt.has_value()) {
+    // メッセージ受信処理
     Response r = opt.value();
     ESP_LOGD(MAIN, "%s", r.show().c_str());
     if (r.tag == Response::Tag::EVENT) {
@@ -1401,7 +1422,7 @@ void loop() {
             // 測定値を表示する
             measurement_watt.update(w);
             // 送信バッファへ追加する
-            telemetryFIFO.emplace(w.convert_to_telemetry_message());
+            telemetryFIFO.emplace(w.watt_to_telemetry_message());
           } else {
             ESP_LOGD(MAIN, "pdc is should be 4 bytes, this is %d bytes.",
                      frame->edata.pdc);
@@ -1418,7 +1439,7 @@ void loop() {
             // 測定値を表示する
             measurement_ampere.update(a);
             // 送信バッファへ追加する
-            telemetryFIFO.emplace(a.convert_to_telemetry_message());
+            telemetryFIFO.emplace(a.ampere_to_telemetry_message());
           } else {
             ESP_LOGD(MAIN, "pdc is should be 4 bytes, this is %d bytes.",
                      frame->edata.pdc);
@@ -1437,7 +1458,7 @@ void loop() {
             // 測定値を表示する
             measurement_cumlative_wh.update(cwh);
             // 送信バッファへ追加する
-            telemetryFIFO.emplace(cwh.convert_to_telemetry_message());
+            telemetryFIFO.emplace(cwh.cwh_to_telemetry_message());
           } else {
             ESP_LOGD(MAIN, "pdc is should be 11 bytes, this is %d bytes.",
                      frame->edata.pdc);
@@ -1449,6 +1470,103 @@ void loop() {
       }
     }
   }
+}
+
+//
+// FreeRTOSタスクハンドル
+//
+static TaskHandle_t RECEIVE_SMARTMETER_TASK_HANDLE = nullptr;
+
+//
+// Arduinoのsetup()関数
+//
+void setup() {
+  M5.begin(true, true, true);
+  M5.Lcd.setRotation(3);
+  M5.Lcd.setTextSize(2);
+  //
+  Serial2.begin(115200, SERIAL_8N1, CommPortRx, CommPortTx);
+  //
+  display_boot_message("connect to IoT Hub\n");
+  if (!establishConnection()) {
+    display_boot_message("can't connect to IotHub, bye\n");
+    ESP_LOGD(MAIN, "can't connect to IotHub");
+    delay(10000);
+    esp_restart();
+  }
+  M5.Lcd.fillScreen(BLACK);
+  M5.Lcd.setCursor(0, 0);
+  //
+  static BP35A1 bp35a1_instance(Serial2,
+                                BP35A1::BRouteConnectionString{BID, BPASSWORD});
+  if (!bp35a1_instance.boot(display_boot_message)) {
+    display_boot_message("boot error, bye");
+    ESP_LOGD(MAIN, "boot error");
+    delay(10000);
+    esp_restart();
+  }
+  // 初期化が完了したのでグローバルにセットする
+  bp35a1 = &bp35a1_instance;
+  //
+  ESP_LOGD(MAIN, "setup success");
+
+  //
+  // ディスプレイ表示
+  //
+  M5.Lcd.fillScreen(BLACK);
+  measurement_watt.update(std::nullopt);
+  measurement_ampere.update(std::nullopt);
+  measurement_cumlative_wh.update(std::nullopt);
+
+  ESP_LOGD(MAIN, "run task");
+  // FreeRTOS タスク登録
+  xTaskCreatePinnedToCore(receive_smartmeter_task, "receive_task", 4096,
+                          nullptr, 1, &RECEIVE_SMARTMETER_TASK_HANDLE, 1);
+}
+
+//
+// Arduinoのloop()関数
+//
+void loop() {
+  //
+  static int remains = 0;
+  // この関数の実行4000回に1回メッセージを送るという意味
+  constexpr int CYCLE{4000};
+
+  //
+  M5.update();
+  // WiFi接続検査
+  if (checkWiFi() == false) {
+    // WiFiの接続に失敗しているのでシステムリセットして復帰する
+    esp_restart();
+  }
+  // MQTT接続検査
+  checkTelemetry();
+  // 送信するべき測定値があればIoTHubへ送信する
+  if (!telemetryFIFO.empty()) {
+    if (sendTelemetry(telemetryFIFO.front())) {
+      vTaskSuspend(RECEIVE_SMARTMETER_TASK_HANDLE);
+      telemetryFIFO.pop();
+      vTaskResume(RECEIVE_SMARTMETER_TASK_HANDLE);
+    }
+  }
+
+  // プログレスバーを表示する
+  {
+    int bar_width = M5.Lcd.width() * (CYCLE - remains) / CYCLE;
+    int y = M5.Lcd.height() - 2;
+    M5.Lcd.fillRect(bar_width, y, M5.Lcd.width(), M5.Lcd.height(), BLACK);
+    M5.Lcd.fillRect(0, y, bar_width, M5.Lcd.height(), YELLOW);
+  }
+
+  //
+  // 定期メッセージ送信処理
+  //
+  if (remains == 0) {
+    send_measurement_request(bp35a1);
+  }
+  remains = (remains + 1) % CYCLE;
+  //
   delay(10);
 }
 

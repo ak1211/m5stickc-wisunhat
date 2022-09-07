@@ -20,7 +20,6 @@ extern std::string_view AWS_IOT_ENDPOINT;
 extern const uint8_t AWS_IOT_QOS;
 
 //
-extern bool establishConnection();
+extern bool connectToAwsIot(std::size_t retry_count = 100);
 extern bool sendTelemetry(const std::string &string_telemetry);
-extern void checkWiFi();
 extern void checkTelemetry();
