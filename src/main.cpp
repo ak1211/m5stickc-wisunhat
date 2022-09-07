@@ -1275,31 +1275,107 @@ static bool checkWiFi(std::size_t retry_count = 100) {
 //
 void display_boot_message(const char *s) { M5.Lcd.print(s); }
 
-// IoT Hub送信用バッファ
-static std::queue<std::string> telemetryFIFO{};
+//
+// Arduinoのsetup()関数
+//
+void setup() {
+  M5.begin(true, true, true);
+  M5.Lcd.setRotation(3);
+  M5.Lcd.setTextSize(2);
+  //
+  Serial2.begin(115200, SERIAL_8N1, CommPortRx, CommPortTx);
+  //
+  display_boot_message("connect to IoT Hub\n");
+  if (!establishConnection()) {
+    display_boot_message("can't connect to IotHub, bye\n");
+    ESP_LOGD(MAIN, "can't connect to IotHub");
+    delay(10000);
+    esp_restart();
+  }
+  M5.Lcd.fillScreen(BLACK);
+  M5.Lcd.setCursor(0, 0);
+  //
+  static BP35A1 bp35a1_instance(Serial2,
+                                BP35A1::BRouteConnectionString{BID, BPASSWORD});
+  if (!bp35a1_instance.boot(display_boot_message)) {
+    display_boot_message("boot error, bye");
+    ESP_LOGD(MAIN, "boot error");
+    delay(10000);
+    esp_restart();
+  }
+  // 初期化が完了したのでグローバルにセットする
+  bp35a1 = &bp35a1_instance;
+  //
+  ESP_LOGD(MAIN, "setup success");
+
+  //
+  // ディスプレイ表示
+  //
+  M5.Lcd.fillScreen(BLACK);
+  measurement_watt.update(std::nullopt);
+  measurement_ampere.update(std::nullopt);
+  measurement_cumlative_wh.update(std::nullopt);
+}
 
 //
-// スマートメーターからのメッセージ受信処理
+// Arduinoのloop()関数
 //
-static void receive_smartmeter_task(void *) {
+void loop() {
   // 乗数(無い場合の乗数は1)
   static std::optional<SmartWhm::Coefficient> whm_coefficient{std::nullopt};
   // 単位
   static std::optional<SmartWhm::Unit> whm_unit{std::nullopt};
+  // IoT Hub送信用バッファ
+  static std::queue<std::string> telemetryFIFO{};
+  //
+  static int remains = 0;
+  // この関数の実行4000回に1回メッセージを送るという意味
+  constexpr int CYCLE{4000};
 
-  while (1) {
-    vTaskDelay(10);
-    //
-    std::optional<Response> opt = bp35a1->watch_response();
-    if (!opt.has_value()) {
-      continue;
+  //
+  M5.update();
+  // WiFi接続検査
+  if (checkWiFi() == false) {
+    // WiFiの接続に失敗しているのでシステムリセットして復帰する
+    esp_restart();
+  }
+  // MQTT接続検査
+  checkTelemetry();
+  // 送信するべき測定値があればIoTHubへ送信する
+  if (!telemetryFIFO.empty()) {
+    if (sendTelemetry(telemetryFIFO.front())) {
+      telemetryFIFO.pop();
     }
+  }
+
+  // プログレスバーを表示する
+  {
+    int bar_width = M5.Lcd.width() * (CYCLE - remains) / CYCLE;
+    int y = M5.Lcd.height() - 2;
+    M5.Lcd.fillRect(bar_width, y, M5.Lcd.width(), M5.Lcd.height(), BLACK);
+    M5.Lcd.fillRect(0, y, bar_width, M5.Lcd.height(), YELLOW);
+  }
+  //
+  // 定期メッセージ送信処理
+  //
+  if (remains == 0) {
+    send_measurement_request(bp35a1);
+  }
+  remains = (remains + 1) % CYCLE;
+  //
+  std::optional<Response> opt = bp35a1->watch_response();
+  if (opt.has_value()) {
     // メッセージ受信処理
     Response r = opt.value();
     ESP_LOGD(MAIN, "%s", r.show().c_str());
     if (r.tag == Response::Tag::EVENT) {
       int num = std::strtol(r.keyval["NUM"].c_str(), nullptr, 16);
       switch (num) {
+      case 0x21: // EVENT 21 :
+                 // UDP送信処理が完了した
+      {
+        ESP_LOGD(MAIN, "UDP transmission successful.");
+      } break;
       case 0x24: // EVENT 24 :
                  // PANAによる接続過程でエラーが発生した(接続が完了しなかった)
       {
@@ -1470,103 +1546,6 @@ static void receive_smartmeter_task(void *) {
       }
     }
   }
-}
-
-//
-// FreeRTOSタスクハンドル
-//
-static TaskHandle_t RECEIVE_SMARTMETER_TASK_HANDLE = nullptr;
-
-//
-// Arduinoのsetup()関数
-//
-void setup() {
-  M5.begin(true, true, true);
-  M5.Lcd.setRotation(3);
-  M5.Lcd.setTextSize(2);
-  //
-  Serial2.begin(115200, SERIAL_8N1, CommPortRx, CommPortTx);
-  //
-  display_boot_message("connect to IoT Hub\n");
-  if (!establishConnection()) {
-    display_boot_message("can't connect to IotHub, bye\n");
-    ESP_LOGD(MAIN, "can't connect to IotHub");
-    delay(10000);
-    esp_restart();
-  }
-  M5.Lcd.fillScreen(BLACK);
-  M5.Lcd.setCursor(0, 0);
-  //
-  static BP35A1 bp35a1_instance(Serial2,
-                                BP35A1::BRouteConnectionString{BID, BPASSWORD});
-  if (!bp35a1_instance.boot(display_boot_message)) {
-    display_boot_message("boot error, bye");
-    ESP_LOGD(MAIN, "boot error");
-    delay(10000);
-    esp_restart();
-  }
-  // 初期化が完了したのでグローバルにセットする
-  bp35a1 = &bp35a1_instance;
-  //
-  ESP_LOGD(MAIN, "setup success");
-
-  //
-  // ディスプレイ表示
-  //
-  M5.Lcd.fillScreen(BLACK);
-  measurement_watt.update(std::nullopt);
-  measurement_ampere.update(std::nullopt);
-  measurement_cumlative_wh.update(std::nullopt);
-
-  ESP_LOGD(MAIN, "run task");
-  // FreeRTOS タスク登録
-  xTaskCreatePinnedToCore(receive_smartmeter_task, "receive_task", 4096,
-                          nullptr, 1, &RECEIVE_SMARTMETER_TASK_HANDLE, 1);
-}
-
-//
-// Arduinoのloop()関数
-//
-void loop() {
-  //
-  static int remains = 0;
-  // この関数の実行4000回に1回メッセージを送るという意味
-  constexpr int CYCLE{4000};
-
-  //
-  M5.update();
-  // WiFi接続検査
-  if (checkWiFi() == false) {
-    // WiFiの接続に失敗しているのでシステムリセットして復帰する
-    esp_restart();
-  }
-  // MQTT接続検査
-  checkTelemetry();
-  // 送信するべき測定値があればIoTHubへ送信する
-  if (!telemetryFIFO.empty()) {
-    if (sendTelemetry(telemetryFIFO.front())) {
-      vTaskSuspend(RECEIVE_SMARTMETER_TASK_HANDLE);
-      telemetryFIFO.pop();
-      vTaskResume(RECEIVE_SMARTMETER_TASK_HANDLE);
-    }
-  }
-
-  // プログレスバーを表示する
-  {
-    int bar_width = M5.Lcd.width() * (CYCLE - remains) / CYCLE;
-    int y = M5.Lcd.height() - 2;
-    M5.Lcd.fillRect(bar_width, y, M5.Lcd.width(), M5.Lcd.height(), BLACK);
-    M5.Lcd.fillRect(0, y, bar_width, M5.Lcd.height(), YELLOW);
-  }
-
-  //
-  // 定期メッセージ送信処理
-  //
-  if (remains == 0) {
-    send_measurement_request(bp35a1);
-  }
-  remains = (remains + 1) % CYCLE;
-  //
   delay(10);
 }
 
