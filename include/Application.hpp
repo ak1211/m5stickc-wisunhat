@@ -4,8 +4,6 @@
 //
 #pragma once
 
-#include <M5StickCPlus.h>
-#include <cstdint>
 #include <string>
 
 // Wifi
@@ -19,7 +17,11 @@ extern std::string_view AWS_IOT_PRIVATE_KEY;
 extern std::string_view AWS_IOT_ENDPOINT;
 extern const uint8_t AWS_IOT_QOS;
 
-//
-extern bool connectToAwsIot(std::size_t retry_count = 100);
-extern bool sendTelemetry(const std::string &string_telemetry);
-extern void checkTelemetry();
+// データーベースのパーティションキーであるセンサーＩＤ
+const std::string_view SENSOR_ID{"smartmeter"};
+
+// ログ出し用
+const char MAIN[] = "MAIN";
+const char SEND[] = "SEND";
+const char RECEIVE[] = "RECEIVE";
+const char TELEMETRY[] = "TELEMETRY";

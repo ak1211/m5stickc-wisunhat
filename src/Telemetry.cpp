@@ -2,17 +2,15 @@
 // Licensed under the MIT License <https://spdx.org/licenses/MIT.html>
 // See LICENSE file in the project root for full license information.
 //
+#include "Application.hpp"
 #include <PubSubClient.h>
-#include <Telemetry>
+#include <Telemetry.hpp>
 #include <WiFi.h>
 #include <WiFiClient.h>
 #include <WiFiClientSecure.h>
 #include <ctime>
 #include <esp_log.h>
 #include <esp_sntp.h>
-
-// ログ出し用
-static constexpr char TELEMETRY[] = "TELEMETRY";
 
 //
 static constexpr uint16_t AWS_IOT_MQTT_PORT{8883};
