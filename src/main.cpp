@@ -108,12 +108,16 @@ void send_measurement_request(Bp35a1 *bp35a1) {
               SmartWhm::EchonetLiteEPC::Number_of_effective_digits,
           }},
       // 定時積算電力量計測値(正方向計測値)
+      // 積算履歴収集日
       DispatchList{
           one_shot,
           true,
-          "request amounts of electric power",
-          {SmartWhm::EchonetLiteEPC::
-               Cumulative_amounts_of_electric_energy_measured_at_fixed_time}},
+          "request amounts of electric power / day for historical data 1",
+          {
+              SmartWhm::EchonetLiteEPC::
+                  Cumulative_amounts_of_electric_energy_measured_at_fixed_time,
+              SmartWhm::EchonetLiteEPC::Day_for_which_the_historcal_data_1,
+          }},
       //
       // 定期的に繰り返して送る要求
       //
@@ -496,7 +500,17 @@ void loop() {
                    prop->pdc);
         }
       } break;
-      case 0xE7: // 瞬時電力値 W
+      case 0xE5: // 積算履歴収集日１
+      {
+        if (prop->pdc == 0x01) { // 1バイト
+          uint8_t day = prop->edt[0];
+          ESP_LOGD(MAIN, "day of historical 1: (%d)", day);
+        } else {
+          ESP_LOGD(MAIN, "pdc is should be 1 bytes, this is %d bytes.",
+                   prop->pdc);
+        }
+      } break;
+      case 0xE7: // 瞬時電力値
       {
         if (prop->pdc == 0x04) { // 4バイト
           auto w = SmartWhm::InstantWatt(

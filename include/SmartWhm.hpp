@@ -132,8 +132,9 @@ public:
     Measured_instantaneous_power = 0xE7,       // 瞬時電力計測値
     Measured_instantaneous_currents = 0xE8,    // 瞬時電流計測値
     Cumulative_amounts_of_electric_energy_measured_at_fixed_time =
-        0xEA, // 定時積算電力量計測値
-              // (正方向計測値)
+        0xEA,                                  // 定時積算電力量計測値
+                                               // (正方向計測値)
+    Day_for_which_the_historcal_data_2 = 0xED, // 積算履歴収集日２
   };
 
   // 通信用のフレームを作る
