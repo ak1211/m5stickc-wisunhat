@@ -70,18 +70,42 @@ enum class EchonetLiteESV : uint8_t {
 struct EchonetLiteFrame {
   uint8_t ehd1;            // ECHONET Lite 電文ヘッダー 1
   uint8_t ehd2;            // ECHONET Lite 電文ヘッダー 2
-  uint8_t tid1;            // トランザクションID
-  uint8_t tid2;            // トランザクションID
+  uint16_t tid;            // トランザクションID
   struct EchonetLiteData { // ECHONET Lite データ (EDATA)
     uint8_t seoj[3];       // 送信元ECHONET Liteオブジェクト指定
     uint8_t deoj[3];       // 相手元ECHONET Liteオブジェクト指定
     uint8_t esv;           // ECHONET Liteサービス
     uint8_t opc;           // 処理プロパティ数
-    uint8_t epc;           // ECHONET Liteプロパティ
-    uint8_t pdc;           // EDTのバイト数
-    uint8_t edt[];         // プロパティ値データ
+    struct EchonetLiteProp {
+      uint8_t epc;   // ECHONET Liteプロパティ
+      uint8_t pdc;   // EDTのバイト数
+      uint8_t edt[]; // プロパティ値データ
+    } props[1];
   } edata;
 };
+using EchonetLiteData = EchonetLiteFrame::EchonetLiteData;
+using EchonetLiteProp = EchonetLiteFrame::EchonetLiteData::EchonetLiteProp;
+
+//
+//
+//
+std::vector<std::vector<uint8_t>>
+splitToEchonetLiteData(const EchonetLiteData &edata) {
+  std::vector<std::vector<uint8_t>> ret;
+  auto ptr = reinterpret_cast<const uint8_t *>(&edata.props[0]);
+  for (std::size_t idx = 0; idx < edata.opc; ++idx) {
+    uint8_t epc = *ptr++;
+    uint8_t pdc = *ptr++;
+    std::vector<uint8_t> v;
+    v.push_back(epc);
+    v.push_back(pdc);
+    std::copy_n(ptr, pdc, std::back_inserter(v));
+    ptr += pdc;
+    ret.emplace_back(std::move(v));
+  }
+
+  return ret;
+}
 
 //
 // 接続相手のスマートメーター
@@ -113,30 +137,52 @@ public:
   };
 
   // 通信用のフレームを作る
-  static std::vector<uint8_t> make_get_frame(uint8_t tid1, uint8_t tid2,
-                                             EchonetLiteESV esv,
-                                             EchonetLiteEPC epc) {
-    EchonetLiteFrame frame;
-    frame.ehd1 = EchonetLiteEHD1; // ECHONET Lite 電文ヘッダー 1
-    frame.ehd2 = EchonetLiteEHD2; // ECHONET Lite 電文ヘッダー 2
-    frame.tid1 = tid1;
-    frame.tid2 = tid2;
-    // メッセージの送り元(sender : 自分自身)
-    std::array<uint8_t, 3> sender = HomeController::EchonetLiteEOJ();
-    std::copy(sender.begin(), sender.end(), frame.edata.seoj);
-    // メッセージの行き先(destination : スマートメーター)
-    std::array<uint8_t, 3> destination = SmartWhm::EchonetLiteEOJ();
-    std::copy(destination.begin(), destination.end(), frame.edata.deoj);
+  static std::vector<uint8_t>
+  make_echonet_lite_frame(uint16_t tid, EchonetLiteESV esv,
+                          std::vector<EchonetLiteEPC> epcs) {
     //
-    frame.edata.esv = static_cast<uint8_t>(esv);
-    frame.edata.opc = 1; // 要求は1つのみ
-    frame.edata.epc = static_cast<uint8_t>(epc);
-    frame.edata.pdc = 0; // この後に続くEDTはないので0
-
-    // vectorへ変換して返却する
-    uint8_t *begin = reinterpret_cast<uint8_t *>(&frame);
-    uint8_t *end = begin + sizeof(frame);
-    return std::vector<uint8_t>{begin, end};
+    std::vector<uint8_t> echonet_lite_frame;
+    // bytes#1
+    // EHD1: ECHONET Lite 電文ヘッダー 1
+    echonet_lite_frame.push_back(EchonetLiteEHD1);
+    // bytes#2
+    // EHD2: ECHONET Lite 電文ヘッダー 2
+    echonet_lite_frame.push_back(EchonetLiteEHD2);
+    // bytes#3 and bytes#4
+    // TID: トランザクションID
+    echonet_lite_frame.push_back(reinterpret_cast<uint8_t *>(&tid)[0]);
+    echonet_lite_frame.push_back(reinterpret_cast<uint8_t *>(&tid)[1]);
+    //
+    // EDATA
+    //
+    // bytes#5 and bytes#6 adn bytes#7
+    // SEOJ: メッセージの送り元(sender : 自分自身)
+    std::array<uint8_t, 3> sender = HomeController::EchonetLiteEOJ();
+    echonet_lite_frame.push_back(sender[0]);
+    echonet_lite_frame.push_back(sender[1]);
+    echonet_lite_frame.push_back(sender[2]);
+    // bytes#8 and bytes#9 adn bytes#10
+    // DEOJ: メッセージの行き先(destination : スマートメーター)
+    std::array<uint8_t, 3> destination = SmartWhm::EchonetLiteEOJ();
+    echonet_lite_frame.push_back(destination[0]);
+    echonet_lite_frame.push_back(destination[1]);
+    echonet_lite_frame.push_back(destination[2]);
+    // bytes#11
+    // ESV : ECHONET Lite サービスコード
+    echonet_lite_frame.push_back(static_cast<uint8_t>(esv));
+    // bytes#12
+    // OPC: 処理プロパティ数
+    echonet_lite_frame.push_back(epcs.size());
+    //
+    // EPC, PDC, EDTを繰り返す
+    //
+    for (auto &epc : epcs) {
+      // EPC: ECHONET Liteプロパティ
+      echonet_lite_frame.push_back(static_cast<uint8_t>(epc));
+      // PDC: EDTのバイト数
+      echonet_lite_frame.push_back(0); // この後に続くEDTはないので0を入れる
+    }
+    return echonet_lite_frame;
   }
 
   //
@@ -146,10 +192,15 @@ public:
       std::sprintf(buffer, "%02X", b);
       return std::string{buffer};
     };
+    auto convert_word = [](uint16_t w) -> std::string {
+      char buffer[100]{'\0'};
+      std::sprintf(buffer, "%04X", w);
+      return std::string{buffer};
+    };
     std::string s;
     s += "EHD1:" + convert_byte(frame.ehd1) + ",";
     s += "EHD2:" + convert_byte(frame.ehd2) + ",";
-    s += "TID:" + convert_byte(frame.tid1) + convert_byte(frame.tid2) + ",";
+    s += "TID:" + convert_word(frame.tid) + ",";
     s += "SEOJ:" + convert_byte(frame.edata.seoj[0]) +
          convert_byte(frame.edata.seoj[1]) + convert_byte(frame.edata.seoj[2]) +
          ",";
@@ -158,11 +209,20 @@ public:
          ",";
     s += "ESV:" + convert_byte(frame.edata.esv) + ",";
     s += "OPC:" + convert_byte(frame.edata.opc) + ",";
-    s += "EPC:" + convert_byte(frame.edata.epc) + ",";
-    s += "PDC:" + convert_byte(frame.edata.pdc) + ",";
-    s += "EDT:";
-    for (std::size_t i = 0; i < frame.edata.pdc; ++i) {
-      s += convert_byte(frame.edata.edt[i]);
+    //
+    std::vector<std::vector<uint8_t>> vv = splitToEchonetLiteData(frame.edata);
+    for (const auto &v : vv) {
+      s += "[";
+      auto prop = reinterpret_cast<const EchonetLiteProp *>(v.data());
+      s += "EPC:" + convert_byte(prop->epc) + ",";
+      s += "PDC:" + convert_byte(prop->pdc) + ",";
+      if (prop->pdc >= 1) {
+        s += "EDT:";
+        for (std::size_t i = 0; i < prop->pdc; ++i) {
+          s += convert_byte(prop->edt[i]);
+        }
+      }
+      s += "] ";
     }
     return s;
   }

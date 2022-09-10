@@ -47,8 +47,10 @@ void checkTelemetry() {
     ESP_LOGI(TELEMETRY, "MQTT reconnect");
     connectToAwsIot();
   }
-  mqtt_client.loop();
 }
+
+//
+bool loopTelemetry() { return mqtt_client.loop(); }
 
 //
 bool sendTelemetry(const std::string &string_telemetry) {
