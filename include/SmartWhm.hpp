@@ -333,6 +333,10 @@ public:
       watt = (array[0] << 24) | (array[1] << 16) | (array[2] << 8) | array[3];
     }
     //
+    bool equal_value(const InstantWatt &other) {
+      return this->watt == other.watt;
+    }
+    //
     std::string show() const { return std::to_string(watt) + " W"; }
     // 送信用メッセージに変換する
     std::string watt_to_telemetry_message() const {
@@ -364,6 +368,11 @@ public:
       uint16_t t_u16 = (array[2] << 8) | array[3];
       t_deciA = static_cast<int16_t>(t_u16);
       //
+    }
+    //
+    bool equal_value(const InstantAmpere &other) {
+      return (this->r_deciA == other.r_deciA) &&
+             (this->t_deciA == other.t_deciA);
     }
     //
     std::string show() const {
@@ -442,6 +451,12 @@ public:
     uint32_t cumlative_watt_hour() const {
       return (originalPayload[7] << 24) | (originalPayload[8] << 16) |
              (originalPayload[9] << 8) | originalPayload[10];
+    }
+    //
+    bool equal_value(const CumulativeWattHour &other) {
+      return std::equal(std::begin(this->originalPayload),
+                        std::end(this->originalPayload),
+                        std::begin(other.originalPayload));
     }
     //
     std::string show() const {

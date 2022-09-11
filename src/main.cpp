@@ -40,7 +40,8 @@ template <class T> class MeasurementDisplay {
   int cursor_x;
   int cursor_y;
   ConvertFn to_string;
-  std::string nowstr; // 現在表示中の文字
+  std::optional<T> current_value; // 現在表示中の値
+  std::optional<T> next_value;    // 次回に表示する値
 
 public:
   MeasurementDisplay(int text_size, int font, int text_color,
@@ -51,26 +52,59 @@ public:
         cursor_x{cursor_xy.first},
         cursor_y{cursor_xy.second},
         to_string{to_string_fn},
-        nowstr{} {}
+        current_value{std::nullopt},
+        next_value{std::nullopt} {}
   //
-  void update(std::optional<T> next) {
-    std::string nextstr = to_string(next);
-    // 値に変化がない
-    if (nowstr == nextstr) {
-      return;
-    }
-    M5.Lcd.setTextSize(size);
-    // 黒色で現在表示中の文字を上書きする
-    M5.Lcd.setTextColor(BLACK);
-    M5.Lcd.setCursor(cursor_x, cursor_y, font);
-    M5.Lcd.print(nowstr.c_str());
+  MeasurementDisplay &set(std::optional<T> next) {
+    current_value = next_value;
+    next_value = next;
+    return *this;
+  }
+  //
+  MeasurementDisplay &update(bool forced_repaint = false) {
+    // 値に変化がある場合のみ更新する
+    bool work_on = true;
     //
-    // 現在値を表示する
-    M5.Lcd.setTextColor(color);
-    M5.Lcd.setCursor(cursor_x, cursor_y, font);
-    M5.Lcd.print(nextstr.c_str());
-    // 更新
-    nowstr = nextstr;
+    auto a = current_value.has_value();
+    auto b = next_value.has_value();
+    //
+    if (a == true && b == true) { // 双方の値がある
+      auto cur = current_value.value();
+      auto next = next_value.value();
+      if (cur.equal_value(next)) {
+        // 値に変化がないので何もしない
+        work_on = false;
+      } else {
+        // 値に変化があるので更新する
+        work_on = true;
+      }
+    } else if (a == false && b == false) { // 双方の値がない
+      // 値に変化がないので何もしない
+      work_on = false;
+    } else { // 片方のみ値がある
+      // 値に変化があるので更新する
+      work_on = true;
+    }
+    //
+    if (forced_repaint || work_on) {
+      //
+      std::string current = to_string(current_value);
+      std::string next = to_string(next_value);
+      //
+      M5.Lcd.setTextSize(size);
+      // 黒色で現在表示中の文字を上書きする
+      M5.Lcd.setTextColor(BLACK);
+      M5.Lcd.setCursor(cursor_x, cursor_y, font);
+      M5.Lcd.print(current.c_str());
+      //
+      // 現在値を表示する
+      M5.Lcd.setTextColor(color);
+      M5.Lcd.setCursor(cursor_x, cursor_y, font);
+      M5.Lcd.print(next.c_str());
+      // 更新
+      current_value = next_value;
+    }
+    return *this;
   }
 };
 
@@ -322,9 +356,9 @@ void setup() {
   // ディスプレイ表示
   //
   M5.Lcd.fillScreen(BLACK);
-  measurement_watt.update(std::nullopt);
-  measurement_ampere.update(std::nullopt);
-  measurement_cumlative_wh.update(std::nullopt);
+  measurement_watt.update(true);
+  measurement_ampere.update(true);
+  measurement_cumlative_wh.update(true);
 
   //
   // FreeRTOSタスク起動
@@ -380,9 +414,9 @@ void loop() {
           esp_restart();
         }
         M5.Lcd.fillScreen(BLACK);
-        measurement_watt.update(std::nullopt);
-        measurement_ampere.update(std::nullopt);
-        measurement_cumlative_wh.update(std::nullopt);
+        measurement_watt.set(std::nullopt).update();
+        measurement_ampere.set(std::nullopt).update();
+        measurement_cumlative_wh.set(std::nullopt).update();
       } break;
       case 0x29: // ライフタイムが経過して期限切れになった
       {
@@ -517,10 +551,10 @@ void loop() {
               {prop->edt[0], prop->edt[1], prop->edt[2], prop->edt[3]},
               std::time(nullptr));
           ESP_LOGD(MAIN, "%s", w.show().c_str());
-          // 測定値を表示する
-          measurement_watt.update(w);
           // 送信バッファへ追加する
           to_sending_message_fifo.emplace(w.watt_to_telemetry_message());
+          // 表示処理はアイドル時にするので, ここでは測定値をセットするのみ
+          measurement_watt.set(w);
         } else {
           ESP_LOGD(MAIN, "pdc is should be 4 bytes, this is %d bytes.",
                    prop->pdc);
@@ -533,10 +567,10 @@ void loop() {
               {prop->edt[0], prop->edt[1], prop->edt[2], prop->edt[3]},
               std::time(nullptr));
           ESP_LOGD(MAIN, "%s", a.show().c_str());
-          // 測定値を表示する
-          measurement_ampere.update(a);
           // 送信バッファへ追加する
           to_sending_message_fifo.emplace(a.ampere_to_telemetry_message());
+          // 表示処理はアイドル時にするので, ここでは測定値をセットするのみ
+          measurement_ampere.set(a);
         } else {
           ESP_LOGD(MAIN, "pdc is should be 4 bytes, this is %d bytes.",
                    prop->pdc);
@@ -552,10 +586,10 @@ void loop() {
           auto cwh =
               SmartWhm::CumulativeWattHour(memory, whm_coefficient, whm_unit);
           ESP_LOGD(MAIN, "%s", cwh.show().c_str());
-          // 測定値を表示する
-          measurement_cumlative_wh.update(cwh);
           // 送信バッファへ追加する
           to_sending_message_fifo.emplace(cwh.cwh_to_telemetry_message());
+          // 表示処理はアイドル時にするので, ここでは測定値をセットするのみ
+          measurement_cumlative_wh.set(cwh);
         } else {
           ESP_LOGD(MAIN, "pdc is should be 11 bytes, this is %d bytes.",
                    prop->pdc);
@@ -574,6 +608,10 @@ void loop() {
     //
     // スマートメーターからのメッセージ受信処理が無い場合にそれ以外の処理をする
     //
+    // 測定値を表示する
+    measurement_watt.update();
+    measurement_ampere.update();
+    measurement_cumlative_wh.update();
     // 送信するべき測定値があればIoTHubへ送信する
     if (!to_sending_message_fifo.empty()) {
       if (sendTelemetry(to_sending_message_fifo.front())) {
