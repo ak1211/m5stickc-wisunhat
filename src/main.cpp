@@ -420,12 +420,15 @@ void loop() {
   static std::queue<Bp35a1::Response> received_message_fifo{};
   // IoT Hub送信用バッファ
   static std::queue<std::string> to_sending_message_fifo{};
-  // 現在時刻
+  //
   using namespace std::chrono;
+  // スマートメーターにメッセージを送信した時間
+  static time_point time_of_sent_message_to_smart_whm{system_clock::now()};
+  // 現在時刻
   time_point current_time = system_clock::now();
-  auto epoch = current_time.time_since_epoch();
-  auto millis = duration_cast<milliseconds>(epoch);
-  auto seconds = millis.count() / 1000 % 60;
+  auto current_epoch = current_time.time_since_epoch();
+  auto current_millis = duration_cast<milliseconds>(current_epoch);
+  auto current_seconds = current_millis.count() / 1000 % 60;
 
   // (あれば)２５個連続でメッセージを受信する
   for (std::size_t count = 0; count < 25; ++count) {
@@ -441,7 +444,7 @@ void loop() {
   //
   // 送信処理と受信処理は1秒ごとに交互に行う
   //
-  if (seconds % 2 == 0) {
+  if (current_seconds % 2 == 0) {
     if (!to_sending_message_fifo.empty()) {
       // 送信するべき測定値があればIoTHubへ送信する
       if (sendTelemetry(to_sending_message_fifo.front())) {
@@ -484,10 +487,13 @@ void loop() {
   loopTelemetry();
 
   // プログレスバーを表示する
-  render_progress_bar(1000 * (60000 - (millis.count() % 60000)) / 60000);
+  render_progress_bar(1000 * (60000 - (current_millis.count() % 60000)) /
+                      60000);
 
   // 毎分0秒にスマートメーターに要求を出す
-  if (seconds == 0) {
+  if (auto dt = duration_cast<seconds>(current_time -
+                                       time_of_sent_message_to_smart_whm);
+      (current_seconds == 0) && (dt >= seconds{1})) {
     std::vector<SmartWhm::EchonetLiteEPC> epcs{};
     //
     if (!smart_watt_hour_meter.whm_unit.has_value()) {
@@ -524,6 +530,8 @@ void loop() {
     if (!bp35a1->send_request(epcs)) {
       ESP_LOGD(MAIN, "request NG");
     }
+    // 送信時間を記録する
+    time_of_sent_message_to_smart_whm = current_time;
   }
 
   //
