@@ -23,13 +23,17 @@ public:
   //
   //
   //
-  class Response {
-  public:
+  struct Response {
+    // 受信した時間
+    std::time_t created_at;
     // 受信したイベントの種類
-    enum class Tag { EVENT, EPANDESC, ERXUDP };
+    enum class Tag { EVENT, EPANDESC, ERXUDP, UNKNOWN };
     Tag tag;
     // key-valueストア
     std::map<std::string, std::string> keyval;
+    //
+    Response(std::time_t at, Tag t, std::map<std::string, std::string> &&kv)
+        : created_at{at}, tag{t}, keyval{std::move(kv)} {}
     //
     std::string show() const {
       std::string s;
@@ -42,6 +46,9 @@ public:
         break;
       case Tag::ERXUDP:
         s += "ERXUDP ";
+        break;
+      case Tag::UNKNOWN:
+        s += "UNKNOWN";
         break;
       default:
         s += "??? ";
@@ -186,7 +193,7 @@ public:
       // いったん止める
       delay(100);
       //
-      std::string str = read_line_without_crln<256>();
+      std::string str = read_line_without_crln<512>();
       if (str.length() > 0) {
         return str;
       }
@@ -328,7 +335,7 @@ public:
   // 成功ならtrue, それ以外ならfalse
   bool has_ok() {
     for (std::size_t retry = 0; retry < retry_limits; ++retry) {
-      std::string str = read_line_without_crln<256>();
+      std::string str = read_line_without_crln<512>();
       if (str.length() == 0) {
         delay(100);
         continue;
@@ -372,7 +379,7 @@ public:
   }
   // 受信
   std::optional<Response> watch_response() {
-    std::optional<std::string> opt_tag = get_token<256>();
+    std::optional<std::string> opt_tag = get_token<512>();
     if (!opt_tag.has_value()) {
       return std::nullopt;
     }
@@ -393,20 +400,20 @@ public:
             "PARAM",  // イベント固有の引数
         };
         //
-        Response response;
-        response.tag = Response::Tag::EVENT; // "EVENT"
+        std::map<std::string, std::string> kv{};
         for (const auto &key : keys) {
-          auto opt_token = get_token<256>();
+          auto opt_token = get_token<512>();
           if (opt_token.has_value()) {
             // 値を得る
-            response.keyval.insert(std::make_pair(key, opt_token.value()));
+            kv.insert(std::make_pair(key, opt_token.value()));
           } else {
             // 値が不足している
             // 3番目のパラメータがないことがあるので
             // とくに何もしません
           }
         }
-        return response;
+        return Response(std::time(nullptr), Response::Tag::EVENT,
+                        std::move(kv));
       }();
     } else if (opt_tag.value() == std::string_view("EPANDESC")) {
       //
@@ -424,13 +431,12 @@ public:
             "PairID" // (IEが含まれる場合)相手から受信したPairing ID
         };
         //
-        Response r;
-        r.tag = Response::Tag::EPANDESC; // "EPANDESC"
+        std::map<std::string, std::string> kv{};
         for (const auto &it : items) {
           std::string line;
           for (int retry = 1; retry <= retry_limits; ++retry) {
             // 次の行を得る
-            line = read_line_without_crln<256>();
+            line = read_line_without_crln<512>();
             if (line.length() > 0) {
               break;
             }
@@ -440,23 +446,24 @@ public:
           std::string_view sv{line};
           size_t pos = sv.find(":");
           if (pos == std::string::npos) {
-            // 違う行が入ってきたのでバッファをそのままにして脱出する
-            return r;
+            // 予想と違う行が入ってきたので,今ある値を返す
+            return Response(std::time(nullptr), Response::Tag::EPANDESC,
+                            std::move(kv));
           }
           std::string left{sv, 0, pos};
           std::string right{sv, pos + 1, sv.length()};
           // 先頭に空白があるからここではfindで確認する
           // キーが一致したらmapに入れる
           if (left.find(it) != std::string::npos) {
-            r.keyval.insert(std::make_pair(it, right));
+            kv.insert(std::make_pair(it, right));
           }
         }
         // keyvalue数の一致確認
-        if (r.keyval.size() != items.size()) {
-          ESP_LOGE(MAIN, "Mismatched size : %d, %d", r.keyval.size(),
-                   items.size());
+        if (kv.size() != items.size()) {
+          ESP_LOGE(MAIN, "Mismatched size : %d, %d", kv.size(), items.size());
         }
-        return r;
+        return Response(std::time(nullptr), Response::Tag::EPANDESC,
+                        std::move(kv));
       }();
     } else if (opt_tag.value() == std::string_view("ERXUDP")) {
       //
@@ -483,13 +490,12 @@ public:
             // ここからデータなんだけどバイナリ形式だから特別扱いする。
         };
         //
-        Response response;
-        response.tag = Response::Tag::ERXUDP; // "ERXUDP"
+        std::map<std::string, std::string> kv;
         for (const auto &key : keys) {
-          auto opt_token = get_token<256>();
+          auto opt_token = get_token<512>();
           if (opt_token.has_value()) {
             // 値を得る
-            response.keyval.insert(std::make_pair(key, opt_token.value()));
+            kv.insert(std::make_pair(key, opt_token.value()));
           } else {
             // 値が不足している
             return std::nullopt;
@@ -499,7 +505,7 @@ public:
         // データはバイナリで送られてくるので, テキスト形式に変換する。
         //
         std::size_t datalen =
-            std::strtol(response.keyval["DATALEN"].c_str(), nullptr, 16);
+            std::strtol(kv.at("DATALEN").c_str(), nullptr, 16);
         // メモリーを確保して
         std::vector<uint8_t> vect{};
         vect.resize(datalen);
@@ -508,8 +514,9 @@ public:
         // バイナリからテキスト形式に変換する
         std::string textformat = Response::binary_to_text(vect);
         // key-valueストアに入れる
-        response.keyval.insert(std::make_pair("DATA", textformat));
-        return response;
+        kv.insert(std::make_pair("DATA", textformat));
+        return Response(std::time(nullptr), Response::Tag::ERXUDP,
+                        std::move(kv));
       }();
     } else {
       //

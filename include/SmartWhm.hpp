@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <ctime>
 #include <map>
+#include <queue>
 #include <string>
 #include <vector>
 
@@ -137,97 +138,6 @@ public:
     Day_for_which_the_historcal_data_2 = 0xED, // 積算履歴収集日２
   };
 
-  // 通信用のフレームを作る
-  static std::vector<uint8_t>
-  make_echonet_lite_frame(uint16_t tid, EchonetLiteESV esv,
-                          std::vector<EchonetLiteEPC> epcs) {
-    //
-    std::vector<uint8_t> echonet_lite_frame;
-    // bytes#1
-    // EHD1: ECHONET Lite 電文ヘッダー 1
-    echonet_lite_frame.push_back(EchonetLiteEHD1);
-    // bytes#2
-    // EHD2: ECHONET Lite 電文ヘッダー 2
-    echonet_lite_frame.push_back(EchonetLiteEHD2);
-    // bytes#3 and bytes#4
-    // TID: トランザクションID
-    echonet_lite_frame.push_back(reinterpret_cast<uint8_t *>(&tid)[0]);
-    echonet_lite_frame.push_back(reinterpret_cast<uint8_t *>(&tid)[1]);
-    //
-    // EDATA
-    //
-    // bytes#5 and bytes#6 adn bytes#7
-    // SEOJ: メッセージの送り元(sender : 自分自身)
-    std::array<uint8_t, 3> sender = HomeController::EchonetLiteEOJ();
-    echonet_lite_frame.push_back(sender[0]);
-    echonet_lite_frame.push_back(sender[1]);
-    echonet_lite_frame.push_back(sender[2]);
-    // bytes#8 and bytes#9 adn bytes#10
-    // DEOJ: メッセージの行き先(destination : スマートメーター)
-    std::array<uint8_t, 3> destination = SmartWhm::EchonetLiteEOJ();
-    echonet_lite_frame.push_back(destination[0]);
-    echonet_lite_frame.push_back(destination[1]);
-    echonet_lite_frame.push_back(destination[2]);
-    // bytes#11
-    // ESV : ECHONET Lite サービスコード
-    echonet_lite_frame.push_back(static_cast<uint8_t>(esv));
-    // bytes#12
-    // OPC: 処理プロパティ数
-    echonet_lite_frame.push_back(epcs.size());
-    //
-    // EPC, PDC, EDTを繰り返す
-    //
-    for (auto &epc : epcs) {
-      // EPC: ECHONET Liteプロパティ
-      echonet_lite_frame.push_back(static_cast<uint8_t>(epc));
-      // PDC: EDTのバイト数
-      echonet_lite_frame.push_back(0); // この後に続くEDTはないので0を入れる
-    }
-    return echonet_lite_frame;
-  }
-
-  //
-  static std::string show(const EchonetLiteFrame &frame) {
-    auto convert_byte = [](uint8_t b) -> std::string {
-      char buffer[100]{'\0'};
-      std::sprintf(buffer, "%02X", b);
-      return std::string{buffer};
-    };
-    auto convert_word = [](uint16_t w) -> std::string {
-      char buffer[100]{'\0'};
-      std::sprintf(buffer, "%04X", w);
-      return std::string{buffer};
-    };
-    std::string s;
-    s += "EHD1:" + convert_byte(frame.ehd1) + ",";
-    s += "EHD2:" + convert_byte(frame.ehd2) + ",";
-    s += "TID:" + convert_word(frame.tid) + ",";
-    s += "SEOJ:" + convert_byte(frame.edata.seoj[0]) +
-         convert_byte(frame.edata.seoj[1]) + convert_byte(frame.edata.seoj[2]) +
-         ",";
-    s += "DEOJ:" + convert_byte(frame.edata.deoj[0]) +
-         convert_byte(frame.edata.deoj[1]) + convert_byte(frame.edata.deoj[2]) +
-         ",";
-    s += "ESV:" + convert_byte(frame.edata.esv) + ",";
-    s += "OPC:" + convert_byte(frame.edata.opc) + ",";
-    //
-    std::vector<std::vector<uint8_t>> vv = splitToEchonetLiteData(frame.edata);
-    for (const auto &v : vv) {
-      s += "[";
-      auto prop = reinterpret_cast<const EchonetLiteProp *>(v.data());
-      s += "EPC:" + convert_byte(prop->epc) + ",";
-      s += "PDC:" + convert_byte(prop->pdc) + ",";
-      if (prop->pdc >= 1) {
-        s += "EDT:";
-        for (std::size_t i = 0; i < prop->pdc; ++i) {
-          s += convert_byte(prop->edt[i]);
-        }
-      }
-      s += "] ";
-    }
-    return s;
-  }
-
   // 係数
   struct Coefficient {
     uint32_t coefficient;
@@ -309,15 +219,6 @@ public:
       return std::string(it->second.description);
     }
   };
-
-  //
-  static std::string iso8601formatUTC(std::time_t utctime) {
-    struct tm tm;
-    gmtime_r(&utctime, &tm);
-    std::array<char, 30> buffer;
-    std::strftime(buffer.data(), buffer.size(), "%Y-%m-%dT%H:%M:%SZ", &tm);
-    return std::string{buffer.data()};
-  }
 
   //
   // 測定値
@@ -539,4 +440,222 @@ public:
       return std::string(buffer);
     }
   };
+
+public:
+  // クラス変数
+  std::optional<Coefficient> whm_coefficient; // 乗数(無い場合の乗数は1)
+  std::optional<Unit> whm_unit;               // 単位
+  std::optional<uint8_t> day_for_which_the_historcal; // 積算履歴収集日
+  std::optional<InstantWatt> instant_watt;            // 瞬時電力
+  std::optional<InstantAmpere> instant_ampere;        // 瞬時電流
+  std::optional<CumulativeWattHour> cumlative_watt_hour; // 定時積算電力量
+  //
+  SmartWhm()
+      : whm_coefficient{std::nullopt},
+        whm_unit{std::nullopt},
+        day_for_which_the_historcal{std::nullopt} {}
+
+  //
+  static std::string show(const EchonetLiteFrame &frame) {
+    auto convert_byte = [](uint8_t b) -> std::string {
+      char buffer[100]{'\0'};
+      std::sprintf(buffer, "%02X", b);
+      return std::string{buffer};
+    };
+    auto convert_word = [](uint16_t w) -> std::string {
+      char buffer[100]{'\0'};
+      std::sprintf(buffer, "%04X", w);
+      return std::string{buffer};
+    };
+    std::string s;
+    s += "EHD1:" + convert_byte(frame.ehd1) + ",";
+    s += "EHD2:" + convert_byte(frame.ehd2) + ",";
+    s += "TID:" + convert_word(frame.tid) + ",";
+    s += "SEOJ:" + convert_byte(frame.edata.seoj[0]) +
+         convert_byte(frame.edata.seoj[1]) + convert_byte(frame.edata.seoj[2]) +
+         ",";
+    s += "DEOJ:" + convert_byte(frame.edata.deoj[0]) +
+         convert_byte(frame.edata.deoj[1]) + convert_byte(frame.edata.deoj[2]) +
+         ",";
+    s += "ESV:" + convert_byte(frame.edata.esv) + ",";
+    s += "OPC:" + convert_byte(frame.edata.opc) + ",";
+    //
+    std::vector<std::vector<uint8_t>> vv = splitToEchonetLiteData(frame.edata);
+    for (const auto &v : vv) {
+      s += "[";
+      auto prop = reinterpret_cast<const EchonetLiteProp *>(v.data());
+      s += "EPC:" + convert_byte(prop->epc) + ",";
+      s += "PDC:" + convert_byte(prop->pdc) + ",";
+      if (prop->pdc >= 1) {
+        s += "EDT:";
+        for (std::size_t i = 0; i < prop->pdc; ++i) {
+          s += convert_byte(prop->edt[i]);
+        }
+      }
+      s += "] ";
+    }
+    return s;
+  }
+
+  // 通信用のフレームを作る
+  static std::vector<uint8_t>
+  make_echonet_lite_frame(uint16_t tid, EchonetLiteESV esv,
+                          std::vector<EchonetLiteEPC> epcs) {
+    //
+    std::vector<uint8_t> echonet_lite_frame;
+    // bytes#1
+    // EHD1: ECHONET Lite 電文ヘッダー 1
+    echonet_lite_frame.push_back(EchonetLiteEHD1);
+    // bytes#2
+    // EHD2: ECHONET Lite 電文ヘッダー 2
+    echonet_lite_frame.push_back(EchonetLiteEHD2);
+    // bytes#3 and bytes#4
+    // TID: トランザクションID
+    echonet_lite_frame.push_back(reinterpret_cast<uint8_t *>(&tid)[0]);
+    echonet_lite_frame.push_back(reinterpret_cast<uint8_t *>(&tid)[1]);
+    //
+    // EDATA
+    //
+    // bytes#5 and bytes#6 adn bytes#7
+    // SEOJ: メッセージの送り元(sender : 自分自身)
+    std::array<uint8_t, 3> sender = HomeController::EchonetLiteEOJ();
+    echonet_lite_frame.push_back(sender[0]);
+    echonet_lite_frame.push_back(sender[1]);
+    echonet_lite_frame.push_back(sender[2]);
+    // bytes#8 and bytes#9 adn bytes#10
+    // DEOJ: メッセージの行き先(destination : スマートメーター)
+    std::array<uint8_t, 3> destination = SmartWhm::EchonetLiteEOJ();
+    echonet_lite_frame.push_back(destination[0]);
+    echonet_lite_frame.push_back(destination[1]);
+    echonet_lite_frame.push_back(destination[2]);
+    // bytes#11
+    // ESV : ECHONET Lite サービスコード
+    echonet_lite_frame.push_back(static_cast<uint8_t>(esv));
+    // bytes#12
+    // OPC: 処理プロパティ数
+    echonet_lite_frame.push_back(epcs.size());
+    //
+    // EPC, PDC, EDTを繰り返す
+    //
+    for (auto &epc : epcs) {
+      // EPC: ECHONET Liteプロパティ
+      echonet_lite_frame.push_back(static_cast<uint8_t>(epc));
+      // PDC: EDTのバイト数
+      echonet_lite_frame.push_back(0); // この後に続くEDTはないので0を入れる
+    }
+    return echonet_lite_frame;
+  }
+
+  //
+  static std::string iso8601formatUTC(std::time_t utctime) {
+    struct tm tm;
+    gmtime_r(&utctime, &tm);
+    std::array<char, 30> buffer;
+    std::strftime(buffer.data(), buffer.size(), "%Y-%m-%dT%H:%M:%SZ", &tm);
+    return std::string{buffer.data()};
+  }
+  //
+  // 低圧スマート電力量計クラスのイベントを処理する
+  //
+  void
+  process_echonet_lite_frame(std::time_t at, const EchonetLiteFrame &frame,
+                             std::queue<std::string> &to_sending_message_fifo) {
+    for (const auto &v : splitToEchonetLiteData(frame.edata)) {
+      // EchonetLiteプロパティ
+      const EchonetLiteProp *prop =
+          reinterpret_cast<const EchonetLiteProp *>(v.data());
+      switch (prop->epc) {
+      case 0xD3:                 // 係数
+        if (prop->pdc == 0x04) { // 4バイト
+          auto coeff = SmartWhm::Coefficient(
+              {prop->edt[0], prop->edt[1], prop->edt[2], prop->edt[3]});
+          ESP_LOGD(MAIN, "%s", coeff.show().c_str());
+          whm_coefficient = coeff;
+        } else {
+          // 係数が無い場合は１倍となる
+          whm_coefficient = std::nullopt;
+          ESP_LOGD(MAIN, "no coefficient");
+        }
+        break;
+      case 0xD7:                 // 積算電力量有効桁数
+        if (prop->pdc == 0x01) { // 1バイト
+          auto digits = SmartWhm::EffectiveDigits(prop->edt[0]);
+          ESP_LOGD(MAIN, "%s", digits.show().c_str());
+        } else {
+          ESP_LOGD(MAIN, "pdc is should be 1 bytes, this is %d bytes.",
+                   prop->pdc);
+        }
+        break;
+      case 0xE1: // 積算電力量単位 (正方向、逆方向計測値)
+        if (prop->pdc == 0x01) { // 1バイト
+          auto unit = SmartWhm::Unit(prop->edt[0]);
+          ESP_LOGD(MAIN, "%s", unit.show().c_str());
+          whm_unit = unit;
+        } else {
+          ESP_LOGD(MAIN, "pdc is should be 1 bytes, this is %d bytes.",
+                   prop->pdc);
+        }
+        break;
+      case 0xE5:                 // 積算履歴収集日１
+        if (prop->pdc == 0x01) { // 1バイト
+          uint8_t day = prop->edt[0];
+          ESP_LOGD(MAIN, "day of historical 1: (%d)", day);
+          day_for_which_the_historcal = day;
+        } else {
+          ESP_LOGD(MAIN, "pdc is should be 1 bytes, this is %d bytes.",
+                   prop->pdc);
+        }
+        break;
+      case 0xE7:                 // 瞬時電力値
+        if (prop->pdc == 0x04) { // 4バイト
+          auto watt = SmartWhm::InstantWatt(
+              {prop->edt[0], prop->edt[1], prop->edt[2], prop->edt[3]}, at);
+          ESP_LOGD(MAIN, "%s", watt.show().c_str());
+          // 送信バッファへ追加する
+          to_sending_message_fifo.emplace(watt.watt_to_telemetry_message());
+          //
+          instant_watt = watt;
+        } else {
+          ESP_LOGD(MAIN, "pdc is should be 4 bytes, this is %d bytes.",
+                   prop->pdc);
+        }
+        break;
+      case 0xE8:                 // 瞬時電流値
+        if (prop->pdc == 0x04) { // 4バイト
+          auto ampere = SmartWhm::InstantAmpere(
+              {prop->edt[0], prop->edt[1], prop->edt[2], prop->edt[3]}, at);
+          ESP_LOGD(MAIN, "%s", ampere.show().c_str());
+          // 送信バッファへ追加する
+          to_sending_message_fifo.emplace(ampere.ampere_to_telemetry_message());
+          //
+          instant_ampere = ampere;
+        } else {
+          ESP_LOGD(MAIN, "pdc is should be 4 bytes, this is %d bytes.",
+                   prop->pdc);
+        }
+        break;
+      case 0xEA:                 // 定時積算電力量
+        if (prop->pdc == 0x0B) { // 11バイト
+          // std::to_arrayの登場はC++20からなのでこんなことになった
+          std::array<uint8_t, 11> memory;
+          std::copy_n(prop->edt, 11, memory.begin());
+          //
+          auto cwh =
+              SmartWhm::CumulativeWattHour(memory, whm_coefficient, whm_unit);
+          ESP_LOGD(MAIN, "%s", cwh.show().c_str());
+          // 送信バッファへ追加する
+          to_sending_message_fifo.emplace(cwh.cwh_to_telemetry_message());
+          //
+          cumlative_watt_hour = cwh;
+        } else {
+          ESP_LOGD(MAIN, "pdc is should be 11 bytes, this is %d bytes.",
+                   prop->pdc);
+        }
+        break;
+      default:
+        ESP_LOGD(MAIN, "unknown epc: 0x%x", prop->epc);
+        break;
+      }
+    }
+  }
 };

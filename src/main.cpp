@@ -11,6 +11,7 @@
 #include "Telemetry.hpp"
 #include <ArduinoJson.h>
 #include <WiFi.h>
+#include <chrono>
 #include <cstring>
 #include <ctime>
 #include <esp_sntp.h>
@@ -108,90 +109,6 @@ public:
   }
 };
 
-// スマートメーターに定期的に要求を送る
-void send_measurement_request(Bp35a1 *bp35a1) {
-  //
-  struct DispatchList {
-    using UpdateFn = std::function<void(DispatchList *)>;
-    //
-    UpdateFn update;     // 更新
-    bool run;            // これがtrueなら実行する
-    const char *message; // ログに送るメッセージ
-    std::vector<SmartWhm::EchonetLiteEPC> epcs; // 要求
-  };
-  // 1回のみ実行する場合
-  DispatchList::UpdateFn one_shot = [](DispatchList *d) { d->run = false; };
-  // 繰り返し実行する場合
-  DispatchList::UpdateFn continueous = [](DispatchList *d) { d->run = true; };
-  //
-  static std::array<DispatchList, 3> dispach_list = {
-      //
-      // 起動時に1回のみ送る要求
-      //
-      // 係数
-      // 積算電力量単位
-      // 積算電力量有効桁数
-      DispatchList{
-          one_shot,
-          true,
-          "request coefficient / unit for whm / request number of effective "
-          "digits",
-          {
-              SmartWhm::EchonetLiteEPC::Coefficient,
-              SmartWhm::EchonetLiteEPC::Unit_for_cumulative_amounts,
-              SmartWhm::EchonetLiteEPC::Number_of_effective_digits,
-          }},
-      // 定時積算電力量計測値(正方向計測値)
-      // 積算履歴収集日
-      DispatchList{
-          one_shot,
-          true,
-          "request amounts of electric power / day for historical data 1",
-          {
-              SmartWhm::EchonetLiteEPC::
-                  Cumulative_amounts_of_electric_energy_measured_at_fixed_time,
-              SmartWhm::EchonetLiteEPC::Day_for_which_the_historcal_data_1,
-          }},
-      //
-      // 定期的に繰り返して送る要求
-      //
-      // 瞬時電力要求
-      // 瞬時電流要求
-      DispatchList{continueous,
-                   true,
-                   "request inst-epower and inst-current",
-                   {SmartWhm::EchonetLiteEPC::Measured_instantaneous_power,
-                    SmartWhm::EchonetLiteEPC::Measured_instantaneous_currents}},
-  };
-
-  // 関数から抜けた後も保存しておくイテレータ
-  static decltype(dispach_list)::iterator itr{dispach_list.begin()};
-
-  // 次
-  auto next_itr = [](decltype(dispach_list)::iterator itr)
-      -> decltype(dispach_list)::iterator {
-    if (itr == dispach_list.end()) {
-      return dispach_list.begin();
-    }
-    return itr + 1;
-  };
-
-  // 実行フラグが立ってないなら, 次に送る
-  for (; !itr->run; itr = next_itr(itr)) {
-  }
-
-  // 実行
-  ESP_LOGD(MAIN, "%s", itr->message);
-  if (bp35a1->send_request(itr->epcs)) {
-  } else {
-    ESP_LOGD(MAIN, "request NG");
-  }
-  itr->update(itr); // 結果がどうあれ更新する
-
-  // 次
-  itr = next_itr(itr);
-}
-
 // 前方参照
 static std::string to_str_watt(std::optional<SmartWhm::InstantWatt>);
 static std::string to_str_ampere(std::optional<SmartWhm::InstantAmpere>);
@@ -274,7 +191,7 @@ static bool establishConnection() {
 
 //
 static bool checkWiFi(std::size_t retry_count = 100) {
-  constexpr std::clock_t INTERVAL = 30 * CLOCKS_PER_SEC;
+  constexpr std::clock_t INTERVAL = 10 * CLOCKS_PER_SEC;
   static std::clock_t previous = 0L;
   std::clock_t current = std::clock();
 
@@ -283,18 +200,20 @@ static bool checkWiFi(std::size_t retry_count = 100) {
   }
 
   for (std::size_t retry = 0; retry < retry_count; ++retry) {
-    if (WiFi.status() != WL_CONNECTED) {
+    if (WiFi.status() == WL_CONNECTED) {
+      break;
+    } else {
       ESP_LOGI(MAIN, "WiFi reconnect");
       WiFi.disconnect(true);
       WiFi.reconnect();
       establishConnection();
     }
   }
+  previous = current;
 
   if (WiFi.status() != WL_CONNECTED) {
     return false;
   } else {
-    previous = current;
     return true;
   }
 }
@@ -368,277 +287,244 @@ void setup() {
 }
 
 //
+// BP35A1から受信したイベントを処理する
+//
+static void process_event(const Bp35a1::Response &r) {
+  switch (std::strtol(r.keyval.at("NUM").c_str(), nullptr, 16)) {
+  case 0x21: // EVENT 21 :
+             // UDP送信処理が完了した
+    ESP_LOGD(MAIN, "UDP transmission successful.");
+    break;
+  case 0x24: // EVENT 24 :
+             // PANAによる接続過程でエラーが発生した(接続が完了しなかった)
+    ESP_LOGD(MAIN, "reconnect");
+    // 再接続を試みる
+    M5.Lcd.fillScreen(BLACK);
+    M5.Lcd.setCursor(0, 0);
+    display_boot_message("reconnect");
+    if (!bp35a1->connect(display_boot_message)) {
+      display_boot_message("reconnect error, try to reboot");
+      ESP_LOGD(MAIN, "reconnect error, try to reboot");
+      delay(5000);
+      esp_restart();
+    }
+    M5.Lcd.fillScreen(BLACK);
+    measurement_watt.set(std::nullopt).update();
+    measurement_ampere.set(std::nullopt).update();
+    measurement_cumlative_wh.set(std::nullopt).update();
+    break;
+  case 0x29: // ライフタイムが経過して期限切れになった
+    ESP_LOGD(MAIN, "session timeout occurred");
+    break;
+  default:
+    break;
+  }
+}
+
+//
+// ノードプロファイルクラスのEchonetLiteフレームを処理する
+//
+static void process_node_profile_class_frame(const EchonetLiteFrame &frame) {
+  for (const auto &v : splitToEchonetLiteData(frame.edata)) {
+    auto prop = reinterpret_cast<const EchonetLiteProp *>(v.data());
+    switch (prop->epc) {
+    case 0xD5:              // インスタンスリスト通知
+      if (prop->pdc >= 4) { // 4バイト以上
+        ESP_LOGD(MAIN, "instances list");
+        uint8_t total_number_of_instances = prop->edt[0];
+        const EchonetLiteObjectCode *p =
+            reinterpret_cast<const EchonetLiteObjectCode *>(&prop->edt[1]);
+        //
+        ESP_LOGD(MAIN, "total number of instances: %d",
+                 total_number_of_instances);
+        std::string str;
+        for (uint8_t i = 0; i < total_number_of_instances; ++i) {
+          char buffer[10]{'\0'};
+          std::sprintf(buffer, "%02X%02X%02X", p[i].class_group,
+                       p[i].class_code, p[i].instance_code);
+          str += std::string(buffer) + ",";
+        }
+        str.pop_back(); // 最後の,を削る
+        ESP_LOGD(MAIN, "list of object code(EOJ): %s", str.c_str());
+      }
+      //
+      // 通知されているのは自分自身だろうから
+      // なにもしませんよ
+      //
+      break;
+    default:
+      break;
+    }
+  }
+}
+
+//
+// BP35A1から受信したERXUDPイベントを処理する
+//
+static void process_erxudp(const Bp35a1::Response &r,
+                           SmartWhm &smart_watt_hour_meter,
+                           std::queue<std::string> &to_sending_message_fifo) {
+  //
+  // key-valueストアに入れるときにテキスト形式に変換してあるので元のバイナリに戻す
+  //
+  // ペイロード(テキスト形式)
+  std::string_view textformat = r.keyval.at("DATA");
+  // ペイロード(バイナリ形式)
+  std::vector<uint8_t> binaryformat =
+      Bp35a1::Response::text_to_binary(textformat);
+  // EchonetLiteFrameに変換
+  EchonetLiteFrame *frame =
+      reinterpret_cast<EchonetLiteFrame *>(binaryformat.data());
+  // フレームヘッダの確認
+  if (frame->ehd1 == EchonetLiteEHD1 && frame->ehd2 == EchonetLiteEHD2) {
+    // EchonetLiteフレームだった
+    ESP_LOGD(MAIN, "%s", SmartWhm::show(*frame).c_str());
+    //
+    auto const seoj = std::array<uint8_t, 3>{
+        frame->edata.seoj[0], frame->edata.seoj[1], frame->edata.seoj[2]};
+    if (seoj == NodeProfileClass::EchonetLiteEOJ()) {
+      // ノードプロファイルクラス
+      process_node_profile_class_frame(*frame);
+    } else if (seoj == SmartWhm::EchonetLiteEOJ()) {
+      // 低圧スマート電力量計クラス
+      smart_watt_hour_meter.process_echonet_lite_frame(r.created_at, *frame,
+                                                       to_sending_message_fifo);
+    } else {
+      ESP_LOGD(MAIN, "Unknown SEOJ: [0x%x, 0x%x, 0x%x]", seoj[0], seoj[1],
+               seoj[2]);
+    }
+  } else {
+    ESP_LOGD(MAIN, "unknown frame header: [0x%x, 0x%x]", frame->ehd1,
+             frame->ehd2);
+    return;
+  }
+}
+
+//
+// プログレスバーを表示する
+//
+static void render_progress_bar(uint32_t permille) {
+  int32_t bar_width = M5.Lcd.width() * permille / 1000;
+  int32_t y = M5.Lcd.height() - 2;
+  M5.Lcd.fillRect(bar_width, y, M5.Lcd.width(), M5.Lcd.height(), BLACK);
+  M5.Lcd.fillRect(0, y, bar_width, M5.Lcd.height(), YELLOW);
+}
+
+//
 // Arduinoのloop()関数
 //
 void loop() {
-  // 乗数(無い場合の乗数は1)
-  static std::optional<SmartWhm::Coefficient> whm_coefficient{std::nullopt};
-  // 単位
-  static std::optional<SmartWhm::Unit> whm_unit{std::nullopt};
-  // スマートメーターからのメッセージ受信バッファ
-  static std::queue<std::string_view> smart_whm_received_message_fifo{};
+  // スマートメーター
+  static SmartWhm smart_watt_hour_meter{};
+  // メッセージ受信バッファ
+  static std::queue<Bp35a1::Response> received_message_fifo{};
   // IoT Hub送信用バッファ
   static std::queue<std::string> to_sending_message_fifo{};
-  //
-  static int remains = 0;
-  // この関数の実行4000回に1回メッセージを送るという意味
-  constexpr int CYCLE{4000};
+  // 現在時刻
+  using namespace std::chrono;
+  time_point current_time = system_clock::now();
+  auto epoch = current_time.time_since_epoch();
+  auto millis = duration_cast<milliseconds>(epoch);
+  auto seconds = millis.count() / 1000 % 60;
 
-  loopTelemetry();
+  // (あれば)２５個連続でメッセージを受信する
+  for (std::size_t count = 0; count < 25; ++count) {
+    std::optional<Bp35a1::Response> r = bp35a1->watch_response();
+    if (r.has_value()) {
+      auto val = r.value();
+      received_message_fifo.push(std::move(val));
+    } else {
+      break;
+    }
+  }
+
   //
-  std::optional<Bp35a1::Response> opt = bp35a1->watch_response();
-  if (opt.has_value()) {
-    // メッセージ受信処理
-    Bp35a1::Response r = opt.value();
-    ESP_LOGD(MAIN, "%s", r.show().c_str());
-    if (r.tag == Bp35a1::Response::Tag::EVENT) {
-      int num = std::strtol(r.keyval["NUM"].c_str(), nullptr, 16);
-      switch (num) {
-      case 0x21: // EVENT 21 :
-                 // UDP送信処理が完了した
-      {
-        ESP_LOGD(MAIN, "UDP transmission successful.");
-      } break;
-      case 0x24: // EVENT 24 :
-                 // PANAによる接続過程でエラーが発生した(接続が完了しなかった)
-      {
-        ESP_LOGD(MAIN, "reconnect");
-        // 再接続を試みる
-        M5.Lcd.fillScreen(BLACK);
-        M5.Lcd.setCursor(0, 0);
-        display_boot_message("reconnect");
-        if (!bp35a1->connect(display_boot_message)) {
-          display_boot_message("reconnect error, try to reboot");
-          ESP_LOGD(MAIN, "reconnect error, try to reboot");
-          delay(5000);
-          esp_restart();
-        }
-        M5.Lcd.fillScreen(BLACK);
-        measurement_watt.set(std::nullopt).update();
-        measurement_ampere.set(std::nullopt).update();
-        measurement_cumlative_wh.set(std::nullopt).update();
-      } break;
-      case 0x29: // ライフタイムが経過して期限切れになった
-      {
-        ESP_LOGD(MAIN, "session timeout occurred");
-      } break;
-      default:
-        break;
-      }
-    } else if (r.tag == Bp35a1::Response::Tag::ERXUDP) {
-      // key-valueストアに入れるときにテキスト形式に変換してあるので元のバイナリに戻す
-      std::size_t datalen =
-          std::strtol(r.keyval["DATALEN"].data(), nullptr, 16);
-      // テキスト形式
-      std::string_view textformat = r.keyval["DATA"];
-      // 変換後のバイナリ
-      std::vector<uint8_t> binaryformat =
-          Bp35a1::Response::text_to_binary(textformat);
-      // EchonetLiteFrameに変換
-      EchonetLiteFrame *frame =
-          reinterpret_cast<EchonetLiteFrame *>(binaryformat.data());
-      ESP_LOGD(MAIN, "%s", SmartWhm::show(*frame).c_str());
-      //
-      const std::array<uint8_t, 3> seoj{
-          frame->edata.seoj[0], frame->edata.seoj[1], frame->edata.seoj[2]};
-      if (seoj == NodeProfileClass::EchonetLiteEOJ()) {
-        std::vector<std::vector<uint8_t>> vv =
-            splitToEchonetLiteData(frame->edata);
-        for (const auto &v : vv) {
-          auto prop = reinterpret_cast<const EchonetLiteProp *>(v.data());
-          switch (prop->epc) {
-          case 0xD5: // インスタンスリスト通知
-          {
-            if (prop->pdc >= 4) { // 4バイト以上
-              ESP_LOGD(MAIN, "instances list");
-              uint8_t total_number_of_instances = prop->edt[0];
-              const EchonetLiteObjectCode *p =
-                  reinterpret_cast<const EchonetLiteObjectCode *>(
-                      &prop->edt[1]);
-              //
-              ESP_LOGD(MAIN, "total number of instances: %d",
-                       total_number_of_instances);
-              std::string str;
-              for (uint8_t i = 0; i < total_number_of_instances; ++i) {
-                char buffer[10]{'\0'};
-                std::sprintf(buffer, "%02X%02X%02X", p[i].class_group,
-                             p[i].class_code, p[i].instance_code);
-                str += std::string(buffer) + ",";
-              }
-              str.pop_back(); // 最後の,を削る
-              ESP_LOGD(MAIN, "list of object code(EOJ): %s", str.c_str());
-            }
-            //
-            // 通知されているのは自分自身だろうから
-            // なにもしませんよ
-            //
-          } break;
-          default:
-            break;
-          }
-        }
-      } else if (seoj == SmartWhm::EchonetLiteEOJ()) {
-        //
-        // 低圧スマートメーターからやってきたメッセージだった
-        //
-        // FIFOに積んでおいて後で処理する
-        smart_whm_received_message_fifo.emplace(std::move(textformat));
-      }
-    }
-  } else if (!smart_whm_received_message_fifo.empty()) {
-    //
-    // スマートメーターからのメッセージがない間にFIFOに積んでおいた処理をする
-    //
-    // 変換後のバイナリ
-    std::vector<uint8_t> binaryformat = Bp35a1::Response::text_to_binary(
-        smart_whm_received_message_fifo.front());
-    // EchonetLiteFrameに変換
-    EchonetLiteFrame *frame =
-        reinterpret_cast<EchonetLiteFrame *>(binaryformat.data());
-    std::vector<std::vector<uint8_t>> vv = splitToEchonetLiteData(frame->edata);
-    for (const auto &v : vv) {
-      const EchonetLiteProp *prop =
-          reinterpret_cast<const EchonetLiteProp *>(v.data());
-      switch (prop->epc) {
-      case 0xD3: // 係数
-      {
-        if (prop->pdc == 0x04) { // 4バイト
-          auto c = SmartWhm::Coefficient(
-              {prop->edt[0], prop->edt[1], prop->edt[2], prop->edt[3]});
-          ESP_LOGD(MAIN, "%s", c.show().c_str());
-          whm_coefficient = c;
-        } else {
-          // 係数が無い場合は１倍となる
-          whm_coefficient = std::nullopt;
-          ESP_LOGD(MAIN, "no coefficient");
-        }
-      } break;
-      case 0xD7: // 積算電力量有効桁数
-      {
-        if (prop->pdc == 0x01) { // 1バイト
-          auto digits = SmartWhm::EffectiveDigits(prop->edt[0]);
-          ESP_LOGD(MAIN, "%s", digits.show().c_str());
-        } else {
-          ESP_LOGD(MAIN, "pdc is should be 1 bytes, this is %d bytes.",
-                   prop->pdc);
-        }
-      } break;
-      case 0xE1: // 積算電力量単位 (正方向、逆方向計測値)
-      {
-        if (prop->pdc == 0x01) { // 1バイト
-          auto unit = SmartWhm::Unit(prop->edt[0]);
-          ESP_LOGD(MAIN, "%s", unit.show().c_str());
-          whm_unit = unit;
-        } else {
-          ESP_LOGD(MAIN, "pdc is should be 1 bytes, this is %d bytes.",
-                   prop->pdc);
-        }
-      } break;
-      case 0xE5: // 積算履歴収集日１
-      {
-        if (prop->pdc == 0x01) { // 1バイト
-          uint8_t day = prop->edt[0];
-          ESP_LOGD(MAIN, "day of historical 1: (%d)", day);
-        } else {
-          ESP_LOGD(MAIN, "pdc is should be 1 bytes, this is %d bytes.",
-                   prop->pdc);
-        }
-      } break;
-      case 0xE7: // 瞬時電力値
-      {
-        if (prop->pdc == 0x04) { // 4バイト
-          auto w = SmartWhm::InstantWatt(
-              {prop->edt[0], prop->edt[1], prop->edt[2], prop->edt[3]},
-              std::time(nullptr));
-          ESP_LOGD(MAIN, "%s", w.show().c_str());
-          // 送信バッファへ追加する
-          to_sending_message_fifo.emplace(w.watt_to_telemetry_message());
-          // 表示処理はアイドル時にするので, ここでは測定値をセットするのみ
-          measurement_watt.set(w);
-        } else {
-          ESP_LOGD(MAIN, "pdc is should be 4 bytes, this is %d bytes.",
-                   prop->pdc);
-        }
-      } break;
-      case 0xE8: // 瞬時電流値
-      {
-        if (prop->pdc == 0x04) { // 4バイト
-          auto a = SmartWhm::InstantAmpere(
-              {prop->edt[0], prop->edt[1], prop->edt[2], prop->edt[3]},
-              std::time(nullptr));
-          ESP_LOGD(MAIN, "%s", a.show().c_str());
-          // 送信バッファへ追加する
-          to_sending_message_fifo.emplace(a.ampere_to_telemetry_message());
-          // 表示処理はアイドル時にするので, ここでは測定値をセットするのみ
-          measurement_ampere.set(a);
-        } else {
-          ESP_LOGD(MAIN, "pdc is should be 4 bytes, this is %d bytes.",
-                   prop->pdc);
-        }
-      } break;
-      case 0xEA: // 定時積算電力量
-      {
-        if (prop->pdc == 0x0B) { // 11バイト
-          // std::to_arrayの登場はC++20からなのでこんなことになった
-          std::array<uint8_t, 11> memory;
-          std::copy_n(prop->edt, 11, memory.begin());
-          //
-          auto cwh =
-              SmartWhm::CumulativeWattHour(memory, whm_coefficient, whm_unit);
-          ESP_LOGD(MAIN, "%s", cwh.show().c_str());
-          // 送信バッファへ追加する
-          to_sending_message_fifo.emplace(cwh.cwh_to_telemetry_message());
-          // 表示処理はアイドル時にするので, ここでは測定値をセットするのみ
-          measurement_cumlative_wh.set(cwh);
-        } else {
-          ESP_LOGD(MAIN, "pdc is should be 11 bytes, this is %d bytes.",
-                   prop->pdc);
-        }
-      } break;
-      default:
-        ESP_LOGD(MAIN, "unknown epc: 0x%x", prop->epc);
-        break;
-      }
-    }
-    //
-    // 処理したメッセージをFIFOから消す
-    //
-    smart_whm_received_message_fifo.pop();
-  } else {
-    //
-    // スマートメーターからのメッセージ受信処理が無い場合にそれ以外の処理をする
-    //
-    // 測定値を表示する
-    measurement_watt.update();
-    measurement_ampere.update();
-    measurement_cumlative_wh.update();
-    // 送信するべき測定値があればIoTHubへ送信する
+  // 送信処理と受信処理は1秒ごとに交互に行う
+  //
+  if (seconds % 2 == 0) {
     if (!to_sending_message_fifo.empty()) {
+      // 送信するべき測定値があればIoTHubへ送信する
       if (sendTelemetry(to_sending_message_fifo.front())) {
+        // 処理したメッセージをFIFOから消す
         to_sending_message_fifo.pop();
       }
     }
-    //
-    // 定期メッセージ送信処理
-    //
-    if (remains == 0) {
-      send_measurement_request(bp35a1);
+  } else {
+    if (!received_message_fifo.empty()) {
+      // メッセージ受信処理
+      Bp35a1::Response r = received_message_fifo.front();
+      ESP_LOGD(MAIN, "%s", r.show().c_str());
+      switch (r.tag) {
+      case Bp35a1::Response::Tag::EVENT:
+        // イベント受信処理
+        process_event(r);
+        break;
+      case Bp35a1::Response::Tag::ERXUDP:
+        // ERXUDPを処理する
+        process_erxudp(r, smart_watt_hour_meter, to_sending_message_fifo);
+        // 測定値をセットする
+        measurement_watt.set(smart_watt_hour_meter.instant_watt);
+        measurement_ampere.set(smart_watt_hour_meter.instant_ampere);
+        measurement_cumlative_wh.set(smart_watt_hour_meter.cumlative_watt_hour);
+        break;
+      default:
+        break;
+      }
+      // 処理したメッセージをFIFOから消す
+      received_message_fifo.pop();
     }
   }
 
+  // 測定値を更新する
+  measurement_watt.update();
+  measurement_ampere.update();
+  measurement_cumlative_wh.update();
   //
   M5.update();
+  loopTelemetry();
 
   // プログレスバーを表示する
-  {
-    int bar_width = M5.Lcd.width() * (CYCLE - remains) / CYCLE;
-    int y = M5.Lcd.height() - 2;
-    M5.Lcd.fillRect(bar_width, y, M5.Lcd.width(), M5.Lcd.height(), BLACK);
-    M5.Lcd.fillRect(0, y, bar_width, M5.Lcd.height(), YELLOW);
-  }
+  render_progress_bar(1000 * (60000 - (millis.count() % 60000)) / 60000);
 
-  //
-  remains = (remains + 1) % CYCLE;
+  // 毎分0秒にスマートメーターに要求を出す
+  if (seconds == 0) {
+    std::vector<SmartWhm::EchonetLiteEPC> epcs{};
+    //
+    if (!smart_watt_hour_meter.whm_unit.has_value()) {
+      // 係数
+      // 積算電力量単位
+      // 積算電力量有効桁数
+      epcs = {
+          SmartWhm::EchonetLiteEPC::Coefficient,
+          SmartWhm::EchonetLiteEPC::Unit_for_cumulative_amounts,
+          SmartWhm::EchonetLiteEPC::Number_of_effective_digits,
+      };
+      ESP_LOGD(MAIN, "%s",
+               "request coefficient / unit for whm / request number of "
+               "effective digits");
+    } else if (!smart_watt_hour_meter.cumlative_watt_hour.has_value() ||
+               !smart_watt_hour_meter.day_for_which_the_historcal.has_value()) {
+      // 定時積算電力量計測値(正方向計測値)
+      // 積算履歴収集日
+      epcs = {
+          SmartWhm::EchonetLiteEPC::
+              Cumulative_amounts_of_electric_energy_measured_at_fixed_time,
+          SmartWhm::EchonetLiteEPC::Day_for_which_the_historcal_data_1,
+      };
+      ESP_LOGD(MAIN, "%s",
+               "request amounts of electric power / day for historical data 1");
+    } else {
+      // 瞬時電力要求
+      // 瞬時電流要求
+      epcs = {SmartWhm::EchonetLiteEPC::Measured_instantaneous_power,
+              SmartWhm::EchonetLiteEPC::Measured_instantaneous_currents};
+      ESP_LOGD(MAIN, "%s", "request inst-epower and inst-current");
+    }
+    // スマートメーターに要求を出す
+    if (!bp35a1->send_request(epcs)) {
+      ESP_LOGD(MAIN, "request NG");
+    }
+  }
 
   //
   delay(10);
