@@ -422,13 +422,15 @@ void loop() {
   static std::queue<std::string> to_sending_message_fifo{};
   //
   using namespace std::chrono;
+  // IoT Coreにメッセージを送信した時間
+  static time_point time_of_sent_message_to_iot_core{system_clock::now()};
   // スマートメーターにメッセージを送信した時間
   static time_point time_of_sent_message_to_smart_whm{system_clock::now()};
   // 現在時刻
   time_point current_time = system_clock::now();
   auto current_epoch = current_time.time_since_epoch();
   auto current_millis = duration_cast<milliseconds>(current_epoch);
-  auto current_seconds = current_millis.count() / 1000 % 60;
+  auto current_seconds = duration_cast<seconds>(current_epoch);
 
   // (あれば)２５個連続でメッセージを受信する
   for (std::size_t count = 0; count < 25; ++count) {
@@ -441,41 +443,41 @@ void loop() {
     }
   }
 
-  //
-  // 送信処理と受信処理は1秒ごとに交互に行う
-  //
-  if (current_seconds % 2 == 0) {
-    if (!to_sending_message_fifo.empty()) {
+  // IoT Coreへ送信(1秒以上の間隔をあけて)
+  if (auto dt = duration_cast<seconds>(current_time -
+                                       time_of_sent_message_to_iot_core);
+      (dt >= seconds{1}) && (!to_sending_message_fifo.empty())) {
       // 送信するべき測定値があればIoTHubへ送信する
       if (sendTelemetry(to_sending_message_fifo.front())) {
         // 処理したメッセージをFIFOから消す
         to_sending_message_fifo.pop();
       }
+      // 送信時間を記録する
+      time_of_sent_message_to_iot_core = current_time;
+  }
+
+  // メッセージ受信処理
+  if (!received_message_fifo.empty()) {
+    Bp35a1::Response r = received_message_fifo.front();
+    ESP_LOGD(MAIN, "%s", r.show().c_str());
+    switch (r.tag) {
+    case Bp35a1::Response::Tag::EVENT:
+      // イベント受信処理
+      process_event(r);
+      break;
+    case Bp35a1::Response::Tag::ERXUDP:
+      // ERXUDPを処理する
+      process_erxudp(r, smart_watt_hour_meter, to_sending_message_fifo);
+      // 測定値をセットする
+      measurement_watt.set(smart_watt_hour_meter.instant_watt);
+      measurement_ampere.set(smart_watt_hour_meter.instant_ampere);
+      measurement_cumlative_wh.set(smart_watt_hour_meter.cumlative_watt_hour);
+      break;
+    default:
+      break;
     }
-  } else {
-    if (!received_message_fifo.empty()) {
-      // メッセージ受信処理
-      Bp35a1::Response r = received_message_fifo.front();
-      ESP_LOGD(MAIN, "%s", r.show().c_str());
-      switch (r.tag) {
-      case Bp35a1::Response::Tag::EVENT:
-        // イベント受信処理
-        process_event(r);
-        break;
-      case Bp35a1::Response::Tag::ERXUDP:
-        // ERXUDPを処理する
-        process_erxudp(r, smart_watt_hour_meter, to_sending_message_fifo);
-        // 測定値をセットする
-        measurement_watt.set(smart_watt_hour_meter.instant_watt);
-        measurement_ampere.set(smart_watt_hour_meter.instant_ampere);
-        measurement_cumlative_wh.set(smart_watt_hour_meter.cumlative_watt_hour);
-        break;
-      default:
-        break;
-      }
-      // 処理したメッセージをFIFOから消す
-      received_message_fifo.pop();
-    }
+    // 処理したメッセージをFIFOから消す
+    received_message_fifo.pop();
   }
 
   // 測定値を更新する
@@ -493,7 +495,7 @@ void loop() {
   // 毎分0秒にスマートメーターに要求を出す
   if (auto dt = duration_cast<seconds>(current_time -
                                        time_of_sent_message_to_smart_whm);
-      (current_seconds == 0) && (dt >= seconds{1})) {
+      (current_seconds.count() % 60 == 0) && (dt >= seconds{1})) {
     std::vector<SmartWhm::EchonetLiteEPC> epcs{};
     //
     if (!smart_watt_hour_meter.whm_unit.has_value()) {
@@ -590,7 +592,7 @@ to_str_cumlative_wh(std::optional<SmartWhm::CumulativeWattHour> watt_hour) {
     output += " " + opt.value() + " kwh";
   } else {
     // 単位がないならそのまま出す
-    output += " " + std::to_string(wh.cumlative_watt_hour());
+    output += " " + std::to_string(wh.raw_cumlative_watt_hour());
   }
   return output;
 }

@@ -247,7 +247,7 @@ public:
       doc["device_id"] = AWS_IOT_DEVICE_ID;
       doc["sensor_id"] = SENSOR_ID;
       doc["measured_at"] = iso8601_at;
-      doc["instant_watt"] = std::to_string(watt);
+      doc["instant_watt"] = watt;
       std::string output;
       serializeJson(doc, output);
       return output;
@@ -294,16 +294,9 @@ public:
       doc["device_id"] = AWS_IOT_DEVICE_ID;
       doc["sensor_id"] = SENSOR_ID;
       doc["measured_at"] = iso8601_at;
-      // 整数部と小数部
-      std::string ri{std::to_string(r_deciA / 10)};
-      std::string rf{std::to_string(r_deciA % 10)};
-      std::string r{ri + "." + rf};
-      doc["instant_ampere_R"] = r;
+      doc["instant_ampere_R"] = static_cast<double>(r_deciA) / 10.0;
       //
-      std::string ti{std::to_string(t_deciA / 10)};
-      std::string tf{std::to_string(t_deciA % 10)};
-      std::string t{ti + "." + tf};
-      doc["instant_ampere_T"] = t;
+      doc["instant_ampere_T"] = static_cast<double>(t_deciA) / 10.0;
       std::string output;
       serializeJson(doc, output);
       return output;
@@ -349,9 +342,19 @@ public:
     // 秒
     uint8_t seconds() const { return originalPayload[6]; }
     // 積算電力量
-    uint32_t cumlative_watt_hour() const {
+    uint32_t raw_cumlative_watt_hour() const {
       return (originalPayload[7] << 24) | (originalPayload[8] << 16) |
              (originalPayload[9] << 8) | originalPayload[10];
+    }
+    // 積算電力量
+    double cumlative_kwh(SmartWhm::Unit unit) const {
+      uint32_t cwh = raw_cumlative_watt_hour();
+      // 係数(無い場合の係数は1)
+      if (opt_coefficient.has_value()) {
+        cwh = cwh * opt_coefficient.value().coefficient;
+      }
+      int32_t powers_of_10 = unit.get_powers_of_10();
+      return cwh * std::pow(10, powers_of_10);
     }
     //
     bool equal_value(const CumulativeWattHour &other) {
@@ -363,7 +366,8 @@ public:
     std::string show() const {
       char buff[100]{'\0'};
       std::sprintf(buff, "%4d/%2d/%2d %02d:%02d:%02d %d", year(), month(),
-                   day(), hour(), minutes(), seconds(), cumlative_watt_hour());
+                   day(), hour(), minutes(), seconds(),
+                   raw_cumlative_watt_hour());
       return std::string(buff);
     }
     // 送信用メッセージに変換する
@@ -385,9 +389,8 @@ public:
         doc["measured_at"] = opt_iso8601.value();
       }
       // 積算電力量(kwh)
-      std::optional<std::string> opt_cumlative_kwh = to_string_kwh();
-      if (opt_cumlative_kwh.has_value()) {
-        doc["cumlative_kwh"] = opt_cumlative_kwh.value();
+      if (opt_unit.has_value()) {
+        doc["cumlative_kwh"] = cumlative_kwh(opt_unit.value());
       }
       std::string output;
       serializeJson(doc, output);
@@ -400,7 +403,7 @@ public:
         return std::nullopt;
       }
       SmartWhm::Unit unit = opt_unit.value();
-      uint32_t cwh = cumlative_watt_hour();
+      uint32_t cwh = raw_cumlative_watt_hour();
       // 係数(無い場合の係数は1)
       if (opt_coefficient.has_value()) {
         cwh = cwh * opt_coefficient.value().coefficient;
