@@ -7,6 +7,7 @@
 #include <M5StickCPlus.h>
 #undef min
 #include "Bp35a1.hpp"
+#include "Gauge.hpp"
 #include "SmartWhm.hpp"
 #include "Telemetry.hpp"
 #include <ArduinoJson.h>
@@ -28,106 +29,77 @@ static constexpr char TZ_TIME_ZONE[] = "JST-9";
 constexpr int CommPortRx{26};
 constexpr int CommPortTx{0};
 
-//
-// 測定値表示
-//
-template <class T> class MeasurementDisplay {
-  // 表示用の変換関数
-  typedef std::string (*ConvertFn)(std::optional<T>);
-  //
-  int size;
-  int font;
-  int color;
-  int cursor_x;
-  int cursor_y;
-  ConvertFn to_string;
-  std::optional<T> current_value; // 現在表示中の値
-  std::optional<T> next_value;    // 次回に表示する値
-
-public:
-  MeasurementDisplay(int text_size, int font, int text_color,
-                     std::pair<int, int> cursor_xy, ConvertFn to_string_fn)
-      : size{text_size},
-        font{font},
-        color{text_color},
-        cursor_x{cursor_xy.first},
-        cursor_y{cursor_xy.second},
-        to_string{to_string_fn},
-        current_value{std::nullopt},
-        next_value{std::nullopt} {}
-  //
-  MeasurementDisplay &set(std::optional<T> next) {
-    current_value = next_value;
-    next_value = next;
-    return *this;
-  }
-  //
-  MeasurementDisplay &update(bool forced_repaint = false) {
-    // 値に変化がある場合のみ更新する
-    bool work_on = true;
-    //
-    auto a = current_value.has_value();
-    auto b = next_value.has_value();
-    //
-    if (a == true && b == true) { // 双方の値がある
-      auto cur = current_value.value();
-      auto next = next_value.value();
-      if (cur.equal_value(next)) {
-        // 値に変化がないので何もしない
-        work_on = false;
-      } else {
-        // 値に変化があるので更新する
-        work_on = true;
-      }
-    } else if (a == false && b == false) { // 双方の値がない
-      // 値に変化がないので何もしない
-      work_on = false;
-    } else { // 片方のみ値がある
-      // 値に変化があるので更新する
-      work_on = true;
-    }
-    //
-    if (forced_repaint || work_on) {
-      //
-      std::string current = to_string(current_value);
-      std::string next = to_string(next_value);
-      //
-      M5.Lcd.setTextSize(size);
-      // 黒色で現在表示中の文字を上書きする
-      M5.Lcd.setTextColor(BLACK);
-      M5.Lcd.setCursor(cursor_x, cursor_y, font);
-      M5.Lcd.print(current.c_str());
-      //
-      // 現在値を表示する
-      M5.Lcd.setTextColor(color);
-      M5.Lcd.setCursor(cursor_x, cursor_y, font);
-      M5.Lcd.print(next.c_str());
-      // 更新
-      current_value = next_value;
-    }
-    return *this;
-  }
-};
-
-// 前方参照
-static std::string to_str_watt(std::optional<SmartWhm::InstantWatt>);
-static std::string to_str_ampere(std::optional<SmartWhm::InstantAmpere>);
-static std::string
-    to_str_cumlative_wh(std::optional<SmartWhm::CumulativeWattHour>);
-
 // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
 // グローバル変数
-//
+
 // BP35A1 初期化が完了するまでnull
 Bp35a1 *bp35a1(nullptr);
-// 測定量表示用
-static MeasurementDisplay<SmartWhm::InstantWatt> measurement_watt{
-    2, 4, YELLOW, std::make_pair(10, 10), to_str_watt};
-static MeasurementDisplay<SmartWhm::InstantAmpere> measurement_ampere{
-    1, 4, WHITE, std::make_pair(10, 10 + 48), to_str_ampere};
-static MeasurementDisplay<SmartWhm::CumulativeWattHour>
-    measurement_cumlative_wh{1, 4, WHITE, std::make_pair(10, 10 + 48 + 24),
-                             to_str_cumlative_wh};
+
+// 瞬時電力量
+static Gauge<SmartWhm::InstantWatt> instant_watt_gauge{
+    2, 4, YELLOW, std::make_pair(10, 10),
+    [](std::optional<SmartWhm::InstantWatt> iw) -> std::string {
+      auto result = std::string{"---- W"};
+      if (iw.has_value()) {
+        char buff[100]{'\0'};
+        std::sprintf(buff, "%4d W", iw.value().watt);
+        result = std::string(buff);
+      }
+      return result;
+    }};
+
+// 瞬時電流
+static Gauge<SmartWhm::InstantAmpere> instant_ampere_gauge{
+    1, 4, WHITE, std::make_pair(10, 10 + 48),
+    [](std::optional<SmartWhm::InstantAmpere> ia) -> std::string {
+      //
+      auto to_string = [](int32_t deci_ampere) -> std::string {
+        auto i = deci_ampere / 10; // 整数部
+        auto f = deci_ampere % 10; // 小数部
+        char buff[50]{'\0'};
+        std::sprintf(buff, "%2d.%01d", i, f);
+        return std::string(buff);
+      };
+      //
+      auto result = std::string{"R:--.- A, T:--.- A"};
+      if (ia.has_value()) {
+        auto r = to_string(ia.value().r_deciA);
+        auto t = to_string(ia.value().t_deciA);
+        result = std::string{};
+        result += "R:" + r + " A, ";
+        result += "T:" + t + " A";
+      }
+      return result;
+    }};
+
+// 積算電力量
+static Gauge<SmartWhm::CumulativeWattHour> cumulative_watt_hour_gauge{
+    1, 4, WHITE, std::make_pair(10, 10 + 48 + 24),
+    [](std::optional<SmartWhm::CumulativeWattHour> watt_hour) -> std::string {
+      std::string result = std::string{"--:-- ----------    "};
+      if (watt_hour) {
+        auto wh = watt_hour.value();
+        //
+        result = std::string{};
+        // 時間
+        {
+          char buff[100]{'\0'};
+          std::sprintf(buff, "%02d:%02d", wh.hour(), wh.minutes());
+          result += std::string(buff);
+        }
+        // 電力量
+        std::optional<std::string> opt = wh.to_string_kwh();
+        if (opt.has_value()) {
+          result += " " + opt.value() + " kwh";
+        } else {
+          // 単位がないならそのまま出す
+          result += " " + std::to_string(wh.raw_cumlative_watt_hour());
+        }
+      }
+      return result;
+    }};
+
+// グローバル変数
 // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 //
@@ -275,9 +247,9 @@ void setup() {
   // ディスプレイ表示
   //
   M5.Lcd.fillScreen(BLACK);
-  measurement_watt.update(true);
-  measurement_ampere.update(true);
-  measurement_cumlative_wh.update(true);
+  instant_watt_gauge.update(true);
+  instant_ampere_gauge.update(true);
+  cumulative_watt_hour_gauge.update(true);
 
   //
   // FreeRTOSタスク起動
@@ -309,9 +281,9 @@ static void process_event(const Bp35a1::Response &r) {
       esp_restart();
     }
     M5.Lcd.fillScreen(BLACK);
-    measurement_watt.set(std::nullopt).update();
-    measurement_ampere.set(std::nullopt).update();
-    measurement_cumlative_wh.set(std::nullopt).update();
+    instant_watt_gauge.set(std::nullopt).update();
+    instant_ampere_gauge.set(std::nullopt).update();
+    cumulative_watt_hour_gauge.set(std::nullopt).update();
     break;
   case 0x29: // ライフタイムが経過して期限切れになった
     ESP_LOGD(MAIN, "session timeout occurred");
@@ -426,11 +398,6 @@ void loop() {
   static time_point time_of_sent_message_to_iot_core{system_clock::now()};
   // スマートメーターにメッセージを送信した時間
   static time_point time_of_sent_message_to_smart_whm{system_clock::now()};
-  // 現在時刻
-  time_point current_time = system_clock::now();
-  auto current_epoch = current_time.time_since_epoch();
-  auto current_millis = duration_cast<milliseconds>(current_epoch);
-  auto current_seconds = duration_cast<seconds>(current_epoch);
 
   // (あれば)２５個連続でメッセージを受信する
   for (std::size_t count = 0; count < 25; ++count) {
@@ -438,22 +405,27 @@ void loop() {
     if (r.has_value()) {
       auto val = r.value();
       received_message_fifo.push(std::move(val));
-    } else {
-      break;
     }
+    delay(10);
   }
+
+  // 現在時刻
+  time_point current_time = system_clock::now();
+  auto current_epoch = current_time.time_since_epoch();
+  auto current_millis = duration_cast<milliseconds>(current_epoch);
+  auto current_seconds = duration_cast<seconds>(current_epoch);
 
   // IoT Coreへ送信(1秒以上の間隔をあけて)
   if (auto dt = duration_cast<seconds>(current_time -
                                        time_of_sent_message_to_iot_core);
       (dt >= seconds{1}) && (!to_sending_message_fifo.empty())) {
-      // 送信するべき測定値があればIoTHubへ送信する
-      if (sendTelemetry(to_sending_message_fifo.front())) {
-        // 処理したメッセージをFIFOから消す
-        to_sending_message_fifo.pop();
-      }
-      // 送信時間を記録する
-      time_of_sent_message_to_iot_core = current_time;
+    // 送信するべき測定値があればIoTHubへ送信する
+    if (sendTelemetry(to_sending_message_fifo.front())) {
+      // 処理したメッセージをFIFOから消す
+      to_sending_message_fifo.pop();
+    }
+    // 送信時間を記録する
+    time_of_sent_message_to_iot_core = current_time;
   }
 
   // メッセージ受信処理
@@ -469,9 +441,9 @@ void loop() {
       // ERXUDPを処理する
       process_erxudp(r, smart_watt_hour_meter, to_sending_message_fifo);
       // 測定値をセットする
-      measurement_watt.set(smart_watt_hour_meter.instant_watt);
-      measurement_ampere.set(smart_watt_hour_meter.instant_ampere);
-      measurement_cumlative_wh.set(smart_watt_hour_meter.cumlative_watt_hour);
+      instant_watt_gauge.set(smart_watt_hour_meter.instant_watt);
+      instant_ampere_gauge.set(smart_watt_hour_meter.instant_ampere);
+      cumulative_watt_hour_gauge.set(smart_watt_hour_meter.cumlative_watt_hour);
       break;
     default:
       break;
@@ -481,9 +453,9 @@ void loop() {
   }
 
   // 測定値を更新する
-  measurement_watt.update();
-  measurement_ampere.update();
-  measurement_cumlative_wh.update();
+  instant_watt_gauge.update();
+  instant_ampere_gauge.update();
+  cumulative_watt_hour_gauge.update();
   //
   M5.update();
   loopTelemetry();
@@ -493,9 +465,9 @@ void loop() {
                       60000);
 
   // 毎分0秒にスマートメーターに要求を出す
-  if (auto dt = duration_cast<seconds>(current_time -
-                                       time_of_sent_message_to_smart_whm);
-      (current_seconds.count() % 60 == 0) && (dt >= seconds{1})) {
+  if (auto elapsed = duration_cast<seconds>(current_time -
+                                            time_of_sent_message_to_smart_whm);
+      (current_seconds.count() % 60 == 0) && (elapsed >= seconds{1})) {
     std::vector<SmartWhm::EchonetLiteEPC> epcs{};
     //
     if (!smart_watt_hour_meter.whm_unit.has_value()) {
@@ -510,23 +482,40 @@ void loop() {
       ESP_LOGD(MAIN, "%s",
                "request coefficient / unit for whm / request number of "
                "effective digits");
-    } else if (!smart_watt_hour_meter.cumlative_watt_hour.has_value() ||
-               !smart_watt_hour_meter.day_for_which_the_historcal.has_value()) {
-      // 定時積算電力量計測値(正方向計測値)
-      // 積算履歴収集日
-      epcs = {
-          SmartWhm::EchonetLiteEPC::
-              Cumulative_amounts_of_electric_energy_measured_at_fixed_time,
-          SmartWhm::EchonetLiteEPC::Day_for_which_the_historcal_data_1,
-      };
-      ESP_LOGD(MAIN, "%s",
-               "request amounts of electric power / day for historical data 1");
     } else {
       // 瞬時電力要求
       // 瞬時電流要求
       epcs = {SmartWhm::EchonetLiteEPC::Measured_instantaneous_power,
               SmartWhm::EchonetLiteEPC::Measured_instantaneous_currents};
       ESP_LOGD(MAIN, "%s", "request inst-epower and inst-current");
+      //
+      // 定時積算電力量計測値(正方向計測値)
+      if (smart_watt_hour_meter.cumlative_watt_hour.has_value()) {
+        auto opt_jst =
+            smart_watt_hour_meter.cumlative_watt_hour.value().get_time_t();
+        if (opt_jst.has_value()) {
+          auto measured_at = system_clock::from_time_t(opt_jst.value());
+          auto elapsed = duration_cast<minutes>(current_time - measured_at);
+          if (elapsed >= minutes{33}) {
+            // 表示中の定時積算電力量計測値が33分より古い場合は定時積算電力量要求を出す
+            epcs.push_back(
+                SmartWhm::EchonetLiteEPC::
+                    Cumulative_amounts_of_electric_energy_measured_at_fixed_time);
+            ESP_LOGD(MAIN, "%s", "request amounts of electric power");
+          }
+        }
+      } else {
+        epcs.push_back(
+            SmartWhm::EchonetLiteEPC::
+                Cumulative_amounts_of_electric_energy_measured_at_fixed_time);
+        ESP_LOGD(MAIN, "%s", "request amounts of electric power");
+      }
+      // 積算履歴収集日
+      if (!smart_watt_hour_meter.day_for_which_the_historcal.has_value()) {
+        epcs.push_back(
+            SmartWhm::EchonetLiteEPC::Day_for_which_the_historcal_data_1);
+        ESP_LOGD(MAIN, "%s", " day for historical data 1");
+      }
     }
     // スマートメーターに要求を出す
     if (!bp35a1->send_request(epcs)) {
@@ -535,64 +524,4 @@ void loop() {
     // 送信時間を記録する
     time_of_sent_message_to_smart_whm = current_time;
   }
-
-  //
-  delay(10);
-}
-
-//
-// ディスプレイ表示用
-//
-
-// 瞬時電力量
-static std::string to_str_watt(std::optional<SmartWhm::InstantWatt> watt) {
-  if (!watt.has_value()) {
-    return std::string("---- W");
-  }
-  char buff[100]{'\0'};
-  std::sprintf(buff, "%4d W", watt.value().watt);
-  return std::string(buff);
-};
-
-// 瞬時電流
-static std::string
-to_str_ampere(std::optional<SmartWhm::InstantAmpere> ampere) {
-  if (!ampere.has_value()) {
-    return std::string("R:--.- A, T:--.- A");
-  }
-  uint16_t r_deciA = ampere.value().get_deciampere_R();
-  uint16_t t_deciA = ampere.value().get_deciampere_T();
-  // 整数部と小数部
-  auto r = std::make_pair(r_deciA / 10, r_deciA % 10);
-  auto t = std::make_pair(t_deciA / 10, t_deciA % 10);
-  char buff[100]{'\0'};
-  std::sprintf(buff, "R:%2d.%01d A, T:%2d.%01d A", r.first, r.second, t.first,
-               t.second);
-  return std::string(buff);
-};
-
-// 積算電力
-static std::string
-to_str_cumlative_wh(std::optional<SmartWhm::CumulativeWattHour> watt_hour) {
-  if (!watt_hour) {
-    return std::string("--:-- ----------    ");
-  }
-  auto wh = watt_hour.value();
-  //
-  std::string output = std::string{};
-  // 時間
-  {
-    char buff[100]{'\0'};
-    std::sprintf(buff, "%02d:%02d", wh.hour(), wh.minutes());
-    output += std::string(buff);
-  }
-  // 電力量
-  std::optional<std::string> opt = wh.to_string_kwh();
-  if (opt.has_value()) {
-    output += " " + opt.value() + " kwh";
-  } else {
-    // 単位がないならそのまま出す
-    output += " " + std::to_string(wh.raw_cumlative_watt_hour());
-  }
-  return output;
 }

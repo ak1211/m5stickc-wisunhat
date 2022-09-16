@@ -2,6 +2,7 @@
 // Licensed under the MIT License <https://spdx.org/licenses/MIT.html>
 // See LICENSE file in the project root for full license information.
 //
+#pragma once
 #include <M5StickCPlus.h>
 #undef min
 #include <SmartWhm.hpp>

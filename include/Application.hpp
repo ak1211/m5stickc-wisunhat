@@ -3,7 +3,6 @@
 // See LICENSE file in the project root for full license information.
 //
 #pragma once
-
 #include <string>
 
 // Wifi

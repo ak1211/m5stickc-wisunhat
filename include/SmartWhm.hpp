@@ -3,7 +3,6 @@
 // See LICENSE file in the project root for full license information.
 //
 #pragma once
-
 #include "Application.hpp"
 #include <ArduinoJson.h>
 #include <array>
@@ -203,10 +202,10 @@ public:
       return it->second.power10;
     }
     //
-    double to_kilowatt_hour(uint32_t v) {
+    std::optional<double> get_kilowatt_hour(uint32_t v) {
       decltype(keyval)::iterator it = keyval.find(unit);
       if (it == keyval.end()) {
-        return 0.0; // 見つからなかった
+        return std::nullopt; // 見つからなかった
       }
       return it->second.mul * static_cast<double>(v);
     }
@@ -384,7 +383,7 @@ public:
     }
 #endif
       // 時刻をISO8601形式で得る
-      std::optional<std::string> opt_iso8601 = get_iso8601();
+      std::optional<std::string> opt_iso8601 = get_iso8601_datetime();
       if (opt_iso8601.has_value()) {
         doc["measured_at"] = opt_iso8601.value();
       }
@@ -429,8 +428,8 @@ public:
       return str_kwh;
     }
     // 時刻をISO8601形式で得る
-    // 日時が0xFFなどの異常値を送ってくることがあるので確認すること。
-    std::optional<std::string> get_iso8601() const {
+    std::optional<std::string> get_iso8601_datetime() const {
+      // 日時が0xFFなどの異常値を送ってくることがあるので確認する
       // 秒が0xFFの応答を返してくることがあるが有効な値ではない
       if (seconds() == 0xFF) {
         return std::nullopt;
@@ -441,6 +440,26 @@ public:
                     day(), hour(), minutes(), seconds());
       //
       return std::string(buffer);
+    }
+    // 日本標準時で時刻をstd::time_t形式で得る
+    std::optional<std::time_t> get_time_t() const {
+      // 秒が0xFFの応答を返してくることがあるが有効な値ではない
+      if (seconds() == 0xFF) {
+        return std::nullopt;
+      }
+      //
+      std::tm at;
+      at.tm_year = year() - 1900;
+      at.tm_mon = month() - 1;
+      at.tm_mday = day();
+      at.tm_hour = hour();
+      at.tm_min = minutes();
+      at.tm_sec = seconds();
+      at.tm_wday = -1;
+      at.tm_yday = -1;
+      at.tm_isdst = -1;
+      std::time_t jst = std::mktime(&at);
+      return jst;
     }
   };
 
