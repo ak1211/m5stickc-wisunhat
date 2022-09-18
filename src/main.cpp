@@ -462,16 +462,17 @@ void loop() {
   auto current_seconds = duration_cast<seconds>(current_epoch);
 
   // IoT Coreへ送信(1秒以上の間隔をあけて)
-  if (auto elapsed = duration_cast<milliseconds>(
-          current_time - time_of_sent_message_to_iot_core);
-      (elapsed >= seconds{1}) && (!to_sending_message_fifo.empty())) {
-    // 送信するべき測定値があればIoTHubへ送信する
-    if (sendTelemetry(to_sending_message_fifo.front())) {
-      // 処理したメッセージをFIFOから消す
-      to_sending_message_fifo.pop();
+  if (auto elapsed = current_time - time_of_sent_message_to_iot_core;
+      elapsed >= seconds{1}) {
+    if (!to_sending_message_fifo.empty()) {
+      // 送信するべき測定値があればIoTHubへ送信する
+      if (sendTelemetry(to_sending_message_fifo.front())) {
+        // 処理したメッセージをFIFOから消す
+        to_sending_message_fifo.pop();
+      }
+      // 送信時間を記録する
+      time_of_sent_message_to_iot_core = current_time;
     }
-    // 送信時間を記録する
-    time_of_sent_message_to_iot_core = current_time;
   }
 
   // メッセージ受信処理
@@ -507,13 +508,13 @@ void loop() {
   loopTelemetry();
 
   // プログレスバーを表示する
-  render_progress_bar(1000 * (60000 - (current_millis.count() % 60000)) /
-                      60000);
+  const duration one_minutes = milliseconds{60000};
+  render_progress_bar(1000 * (one_minutes - (current_millis % one_minutes)) /
+                      one_minutes);
 
   // スマートメーターに要求を出す(1秒以上の間隔をあけて)
-  if (auto elapsed = duration_cast<milliseconds>(
-          current_time - time_of_sent_message_to_smart_whm);
-      (elapsed >= seconds{1})) {
+  if (auto elapsed = current_time - time_of_sent_message_to_smart_whm;
+      elapsed >= seconds{1}) {
     // 積算電力量単位がない場合に最初の要求を出す
     if (!smart_watt_hour_meter.whm_unit.has_value()) {
       if (!send_first_request()) {
