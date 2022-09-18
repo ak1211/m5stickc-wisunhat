@@ -448,16 +448,13 @@ public:
         return std::nullopt;
       }
       //
-      std::tm at;
+      std::tm at{};
       at.tm_year = year() - 1900;
       at.tm_mon = month() - 1;
       at.tm_mday = day();
       at.tm_hour = hour();
       at.tm_min = minutes();
       at.tm_sec = seconds();
-      at.tm_wday = -1;
-      at.tm_yday = -1;
-      at.tm_isdst = -1;
       std::time_t jst = std::mktime(&at);
       return jst;
     }
