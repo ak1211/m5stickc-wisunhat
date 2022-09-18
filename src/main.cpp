@@ -407,11 +407,12 @@ send_periodical_request(std::chrono::time_point<Clock, Duration> current_time,
     }
     return tm;
   };
-  using namespace std::chrono;
-  auto measured_at = system_clock::from_time_t(get_time_at());
-  auto elapsed = duration_cast<minutes>(current_time - measured_at);
-  if (elapsed >= minutes{36}) {
-    // 表示中の定時積算電力量計測値が36分より古い場合は定時積算電力量要求を出す
+  auto measured_at = std::chrono::system_clock::from_time_t(get_time_at());
+  if (auto elapsed = current_time - measured_at;
+      elapsed >= std::chrono::minutes{36}) {
+    // 表示中の定時積算電力量計測値が36分より古い場合は
+    // 定時積算電力量計測値(30分値)をつかみそこねたと判断して
+    // 定時積算電力量要求を出す
     epcs.push_back(
         SmartWhm::EchonetLiteEPC::
             Cumulative_amounts_of_electric_energy_measured_at_fixed_time);
@@ -457,9 +458,6 @@ void loop() {
   static_assert(TZ_TIME_ZONE, "JST-9");
   // 現在時刻(日本時間)
   time_point current_time = system_clock::now();
-  auto current_epoch = current_time.time_since_epoch();
-  auto current_millis = duration_cast<milliseconds>(current_epoch);
-  auto current_seconds = duration_cast<seconds>(current_epoch);
 
   // IoT Coreへ送信(1秒以上の間隔をあけて)
   if (auto elapsed = current_time - time_of_sent_message_to_iot_core;
@@ -508,9 +506,9 @@ void loop() {
   loopTelemetry();
 
   // プログレスバーを表示する
-  const duration one_minutes = milliseconds{60000};
-  render_progress_bar(1000 * (one_minutes - (current_millis % one_minutes)) /
-                      one_minutes);
+  const duration one_min_in_ms = milliseconds{60000};
+  const duration seconds_in_ms = current_time.time_since_epoch() % one_min_in_ms;
+  render_progress_bar(1000 * (one_min_in_ms - seconds_in_ms) / one_min_in_ms);
 
   // スマートメーターに要求を出す(1秒以上の間隔をあけて)
   if (auto elapsed = current_time - time_of_sent_message_to_smart_whm;
@@ -520,7 +518,7 @@ void loop() {
       if (!send_first_request()) {
         ESP_LOGD(MAIN, "request NG");
       }
-    } else if (current_seconds % 60 == seconds{0}) {
+    } else if (duration_cast<seconds>(seconds_in_ms) == seconds{0}) {
       // 毎分0秒にスマートメーターに要求を出す
       if (!send_periodical_request(current_time, smart_watt_hour_meter)) {
         ESP_LOGD(MAIN, "request NG");
