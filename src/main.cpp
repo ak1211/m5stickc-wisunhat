@@ -116,7 +116,7 @@ static bool connectToWiFi(std::size_t retry_count = 100) {
     if (WiFi.status() == WL_CONNECTED) {
       break;
     }
-    delay(500);
+    delay(1000);
     Serial.print(".");
   }
 
@@ -132,30 +132,44 @@ static bool connectToWiFi(std::size_t retry_count = 100) {
 }
 //
 static bool initializeTime(std::size_t retry_count = 100) {
+  sntp_sync_status_t status = sntp_get_sync_status();
+  //
+  if (status == SNTP_SYNC_STATUS_COMPLETED) {
+    ESP_LOGI(MAIN, "SNTP synced, pass");
+    return true;
+  }
   ESP_LOGI(MAIN, "Setting time using SNTP");
 
-  configTzTime(TZ_TIME_ZONE, "ntp.nict.jp", "time.google.com",
-               "ntp.jst.mfeed.ad.jp");
+  configTzTime(TZ_TIME_ZONE, "ntp.jst.mfeed.ad.jp", "time.cloudflare.com",
+               "ntp.nict.jp");
   //
   for (std::size_t retry = 0; retry < retry_count; ++retry) {
-    delay(500);
-    if (sntp_get_sync_status() == SNTP_SYNC_STATUS_COMPLETED) {
-      char buf[50];
-      time_t now = time(nullptr);
-      ESP_LOGI(MAIN, "local time: \"%s\"", asctime_r(localtime(&now), buf));
-      ESP_LOGI(MAIN, "Time initialized!");
-      return true;
+    status = sntp_get_sync_status();
+    if (status == SNTP_SYNC_STATUS_COMPLETED) {
+      break;
+    } else {
+      delay(1000);
+      Serial.print(".");
     }
   }
-  //
-  ESP_LOGE(MAIN, "SNTP sync failed");
-  return false;
+
+  Serial.println("");
+
+  if (status == SNTP_SYNC_STATUS_COMPLETED) {
+    char buf[50];
+    std::time_t now = std::time(nullptr);
+    ESP_LOGI(MAIN, "local time: \"%s\"", asctime_r(std::localtime(&now), buf));
+    ESP_LOGI(MAIN, "Time initialized!");
+    return true;
+  } else {
+    ESP_LOGE(MAIN, "SNTP sync failed");
+    return false;
+  }
 }
 
 //
 static bool establishConnection() {
-  connectToWiFi();
-  bool ok = true;
+  bool ok = connectToWiFi();
   ok = ok ? initializeTime() : ok;
   ok = ok ? connectToAwsIot() : ok;
   return ok;
@@ -169,6 +183,7 @@ static bool checkWiFi(std::size_t retry_count = 100) {
     } else {
       ESP_LOGI(MAIN, "WiFi reconnect");
       WiFi.reconnect();
+      delay(1000);
       establishConnection();
     }
   }
@@ -211,7 +226,7 @@ void setup() {
   if (!establishConnection()) {
     display_boot_message("can't connect to IotHub, bye\n");
     ESP_LOGD(MAIN, "can't connect to IotHub");
-    delay(10000);
+    delay(60e3);
     esp_restart();
   }
   M5.Lcd.fillScreen(BLACK);
@@ -219,9 +234,9 @@ void setup() {
   //
   static Bp35a1 bp35a1_instance(Serial2, std::make_pair(BID, BPASSWORD));
   if (!bp35a1_instance.boot(display_boot_message)) {
-    display_boot_message("boot error, bye");
-    ESP_LOGD(MAIN, "boot error");
-    delay(10000);
+    display_boot_message("smart meter connecion failed, bye");
+    ESP_LOGD(MAIN, "smart meter connecion failed");
+    delay(60e3);
     esp_restart();
   }
   // 初期化が完了したのでグローバルにセットする
@@ -400,12 +415,8 @@ send_periodical_request(std::chrono::time_point<Clock, Duration> current_time,
   // 定時積算電力量計測値(正方向計測値)
   //
   auto get_time_at = [&whm]() -> std::time_t {
-    std::time_t tm{0};
     auto &opt = whm.cumlative_watt_hour;
-    if (opt.has_value()) {
-      tm = opt.value().get_time_t().value_or(0);
-    }
-    return tm;
+    return opt.has_value() ? opt.value().get_time_t().value_or(0) : 0;
   };
   auto measured_at = std::chrono::system_clock::from_time_t(get_time_at());
   if (auto elapsed = current_time - measured_at;
@@ -459,9 +470,9 @@ void loop() {
   // 現在時刻(日本時間)
   time_point current_time = system_clock::now();
 
-  // IoT Coreへ送信(1秒以上の間隔をあけて)
+  // IoT Coreへ送信(2秒以上の間隔をあけて)
   if (auto elapsed = current_time - time_of_sent_message_to_iot_core;
-      elapsed >= seconds{1}) {
+      elapsed >= seconds{2}) {
     if (!to_sending_message_fifo.empty()) {
       // 送信するべき測定値があればIoTHubへ送信する
       if (sendTelemetry(to_sending_message_fifo.front())) {
@@ -507,8 +518,12 @@ void loop() {
 
   // プログレスバーを表示する
   const duration one_min_in_ms = milliseconds{60000};
-  const duration seconds_in_ms = current_time.time_since_epoch() % one_min_in_ms;
-  render_progress_bar(1000 * (one_min_in_ms - seconds_in_ms) / one_min_in_ms);
+  const duration seconds_in_ms = duration_cast<milliseconds>(
+      current_time.time_since_epoch() % one_min_in_ms);
+  // 毎分0秒までの残り時間(1000分率)
+  const uint32_t remains_in_permille =
+      1000 * (one_min_in_ms - seconds_in_ms) / one_min_in_ms;
+  render_progress_bar(remains_in_permille);
 
   // スマートメーターに要求を出す(1秒以上の間隔をあけて)
   if (auto elapsed = current_time - time_of_sent_message_to_smart_whm;
@@ -519,7 +534,7 @@ void loop() {
         ESP_LOGD(MAIN, "request NG");
       }
     } else if (duration_cast<seconds>(seconds_in_ms) == seconds{0}) {
-      // 毎分0秒にスマートメーターに要求を出す
+      // スマートメーターに要求を出す
       if (!send_periodical_request(current_time, smart_watt_hour_meter)) {
         ESP_LOGD(MAIN, "request NG");
       }
