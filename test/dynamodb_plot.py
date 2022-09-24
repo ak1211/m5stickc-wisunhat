@@ -105,15 +105,20 @@ def plot(df, filename_png, filename_csv, tz):
     axs[1].set_ylabel('W')
     axs[1].set_title('instantaneous electric power', fontsize=18)
     x = df['instant_watt'].dropna().index.tolist()
-    v = df['instant_watt'].dropna().tolist()
-    axs[1].fill_between(x, v, color="lightblue", alpha=1.0)
-    axs[1].plot(x, v, color="blue", marker='o', clip_on=False)
+    y = df['instant_watt'].dropna().tolist()
+    # 折れ線グラフ
+#    axs[1].plot(x, v, color="blue", marker='o', clip_on=False)
+    # 1分の幅
+    width = 1/(24*60)
+    # 棒グラフ
+    axs[1].bar(x, y, width=width, color="blue", align="edge")
     axs[1].grid(which='both', axis='both')
-    peak_index = np.argmax(v)
-    axs[1].annotate(' {}\n {:.0f} W'.format(datetime.strftime(x[peak_index], '%H:%M:%S as %Z'), v[peak_index]),
-                    xy=(x[peak_index], v[peak_index]),
+    peak_index = np.argmax(y)
+    peak = y[peak_index]
+    axs[1].annotate(' {}\n {:.0f} W'.format(datetime.strftime(x[peak_index], '%H:%M:%S as %Z'), peak),
+                    xy=(x[peak_index], peak),
                     size=15,
-                    xytext=(xlim[-1], v[peak_index]+1),
+                    xytext=(xlim[-1], peak+1),
                     color='red',
                     arrowprops=dict(color="red", arrowstyle="wedge,tail_width=1."))
     #
@@ -129,11 +134,21 @@ def plot(df, filename_png, filename_csv, tz):
     r = df['instant_ampere_R'].dropna().tolist()
     t = df['instant_ampere_T'].dropna().tolist()
     r_plus_t = [a+b for (a, b) in zip(r, t)]
-    axs[2].stackplot(x, r, t, colors=['lightcoral', 'lightblue'], alpha=1.0,
-                     labels=['R-phase', 'T-phase'])
+    # 折れ線グラフ
+#    axs[2].stackplot(x, r, t, colors=['lightcoral', 'lightblue'], alpha=1.0,
+#                     labels = ['R-phase', 'T-phase'])
+#    axs[2].plot(x, r, color="maroon", marker='o', clip_on=False)
+#    axs[2].plot(x, r_plus_t, color="blue", marker='o', clip_on=False)
+    # 積み上げ棒グラフ
+    # 1分の幅
+    width = 1/(24*60)
+    # R相電流
+    axs[2].bar(x, r, width=width, color="tomato",
+               align="edge", label="R-phase")
+    # T相電流
+    axs[2].bar(x, t, width=width, color="blue",
+               align="edge", label="T-phase", bottom=r)
     axs[2].legend(loc='upper left')
-    axs[2].plot(x, r, color="maroon", marker='o', clip_on=False)
-    axs[2].plot(x, r_plus_t, color="blue", marker='o', clip_on=False)
     axs[2].grid(which='both', axis='both')
     peak_index = np.argmax(r_plus_t)
     axs[2].annotate(' {}\n {:.1f} A'.format(datetime.strftime(x[peak_index], '%H:%M:%S as %Z'), r_plus_t[peak_index]),
@@ -145,6 +160,7 @@ def plot(df, filename_png, filename_csv, tz):
     #
 #    fig.tight_layout()
     fig.savefig(filename_png)
+    plt.close()
 
 
 def take_first_and_last_items(table):
