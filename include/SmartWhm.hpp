@@ -66,16 +66,22 @@ enum class EchonetLiteESV : uint8_t {
   INFC_Res = 0x7A, // プロパティ値通知応答
 };
 
+// トランザクションID
+union EchonetLiteTransactionId {
+  uint16_t u16;  // 2バイト表現(デフォルトコンストラクタ)
+  uint8_t u8[2]; // 1バイトの配列表現
+};
+
 // ECHONET Lite フレーム
 struct EchonetLiteFrame {
-  uint8_t ehd1;            // ECHONET Lite 電文ヘッダー 1
-  uint8_t ehd2;            // ECHONET Lite 電文ヘッダー 2
-  uint16_t tid;            // トランザクションID
-  struct EchonetLiteData { // ECHONET Lite データ (EDATA)
-    uint8_t seoj[3];       // 送信元ECHONET Liteオブジェクト指定
-    uint8_t deoj[3];       // 相手元ECHONET Liteオブジェクト指定
-    uint8_t esv;           // ECHONET Liteサービス
-    uint8_t opc;           // 処理プロパティ数
+  uint8_t ehd1;                 // ECHONET Lite 電文ヘッダー 1
+  uint8_t ehd2;                 // ECHONET Lite 電文ヘッダー 2
+  EchonetLiteTransactionId tid; // トランザクションID
+  struct EchonetLiteData {      // ECHONET Lite データ (EDATA)
+    uint8_t seoj[3];            // 送信元ECHONET Liteオブジェクト指定
+    uint8_t deoj[3];            // 相手元ECHONET Liteオブジェクト指定
+    uint8_t esv;                // ECHONET Liteサービス
+    uint8_t opc;                // 処理プロパティ数
     struct EchonetLiteProp {
       uint8_t epc;   // ECHONET Liteプロパティ
       uint8_t pdc;   // EDTのバイト数
@@ -481,15 +487,11 @@ public:
       std::sprintf(buffer, "%02X", b);
       return std::string{buffer};
     };
-    auto convert_word = [](uint16_t w) -> std::string {
-      char buffer[100]{'\0'};
-      std::sprintf(buffer, "%04X", w);
-      return std::string{buffer};
-    };
     std::string s;
     s += "EHD1:" + convert_byte(frame.ehd1) + ",";
     s += "EHD2:" + convert_byte(frame.ehd2) + ",";
-    s += "TID:" + convert_word(frame.tid) + ",";
+    s += "TID:" + convert_byte(frame.tid.u8[0]) +
+         convert_byte(frame.tid.u8[1]) + ",";
     s += "SEOJ:" + convert_byte(frame.edata.seoj[0]) +
          convert_byte(frame.edata.seoj[1]) + convert_byte(frame.edata.seoj[2]) +
          ",";
@@ -518,7 +520,7 @@ public:
 
   // 通信用のフレームを作る
   static std::vector<uint8_t>
-  make_echonet_lite_frame(uint16_t tid, EchonetLiteESV esv,
+  make_echonet_lite_frame(EchonetLiteTransactionId tid, EchonetLiteESV esv,
                           std::vector<EchonetLiteEPC> epcs) {
     //
     std::vector<uint8_t> echonet_lite_frame;

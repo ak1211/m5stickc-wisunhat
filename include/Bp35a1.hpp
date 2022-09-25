@@ -354,9 +354,10 @@ public:
     return false;
   }
   // 要求を送る
-  bool send_request(std::vector<SmartWhm::EchonetLiteEPC> epcs) {
+  bool send_request(EchonetLiteTransactionId tid,
+                    std::vector<SmartWhm::EchonetLiteEPC> epcs) {
     std::vector<uint8_t> frame =
-        SmartWhm::make_echonet_lite_frame(0x0001, EchonetLiteESV::Get, epcs);
+        SmartWhm::make_echonet_lite_frame(tid, EchonetLiteESV::Get, epcs);
     //
     auto to_string_hexd_u16 = [](uint16_t word) -> std::string {
       char buff[10]{'\0'};

@@ -331,6 +331,25 @@ static void process_node_profile_class_frame(const EchonetLiteFrame &frame) {
   }
 }
 
+// 要求時間からトランザクションIDへ変換する
+template <class Rep, class Period>
+static EchonetLiteTransactionId
+time_to_transaction_id(std::chrono::duration<Rep, Period> epoch) {
+  int32_t sec = std::chrono::duration_cast<std::chrono::seconds>(epoch).count();
+  EchonetLiteTransactionId tid{};
+  tid.u8[0] = static_cast<uint8_t>(sec / 3600 % 24);
+  tid.u8[1] = static_cast<uint8_t>(sec / 60 % 60);
+  return tid;
+}
+
+// トランザクションIDから要求時間へ変換する
+static int32_t transaction_id_to_seconds(EchonetLiteTransactionId tid) {
+  int32_t h = tid.u8[0];
+  int32_t m = tid.u8[1];
+  int32_t sec = h * 3600 + m * 60;
+  return sec;
+}
+
 //
 // BP35A1から受信したERXUDPイベントを処理する
 //
@@ -360,6 +379,17 @@ static void process_erxudp(const Bp35a1::Response &r,
       process_node_profile_class_frame(*frame);
     } else if (seoj == SmartWhm::EchonetLiteEOJ()) {
       // 低圧スマート電力量計クラス
+      //
+      auto tsec = transaction_id_to_seconds(frame->tid);
+      int32_t h = tsec / 3600 % 24;
+      int32_t m = tsec / 60 % 60;
+      ESP_LOGD(MAIN, "tid(H:M) is %02d:%02d", h, m);
+      auto epoch = std::chrono::system_clock::now().time_since_epoch();
+      auto seconds =
+          std::chrono::duration_cast<std::chrono::seconds>(epoch).count();
+      int32_t elapsed = seconds % (24 * 60 * 60) - tsec;
+      ESP_LOGI(MAIN, "Response elasped time of seconds:%4d", elapsed);
+      //
       smart_watt_hour_meter.process_echonet_lite_frame(r.created_at, *frame,
                                                        to_sending_message_fifo);
     } else {
@@ -367,7 +397,7 @@ static void process_erxudp(const Bp35a1::Response &r,
                seoj[2]);
     }
   } else {
-    ESP_LOGD(MAIN, "unknown frame header. EHD1: 0x%x, EHD2: 0x%x]", frame->ehd1,
+    ESP_LOGD(MAIN, "unknown frame header. EHD1: %X, EHD2: %X]", frame->ehd1,
              frame->ehd2);
     return;
   }
@@ -384,7 +414,9 @@ static void render_progress_bar(uint32_t permille) {
 }
 
 // スマートメーターに最初の要求を出す
-static bool send_first_request() {
+template <class Clock, class Duration>
+static bool
+send_first_request(std::chrono::time_point<Clock, Duration> current_time) {
   std::vector<SmartWhm::EchonetLiteEPC> epcs{};
   // 係数
   // 積算電力量単位
@@ -398,7 +430,8 @@ static bool send_first_request() {
            "request coefficient / unit for whm / request number of "
            "effective digits");
   // スマートメーターに要求を出す
-  return bp35a1->send_request(epcs);
+  const auto tid = time_to_transaction_id(current_time.time_since_epoch());
+  return bp35a1->send_request(tid, epcs);
 }
 
 // スマートメーターに定期的な要求を出す
@@ -414,11 +447,17 @@ send_periodical_request(std::chrono::time_point<Clock, Duration> current_time,
   ESP_LOGD(MAIN, "%s", "request inst-epower and inst-current");
   // 定時積算電力量計測値(正方向計測値)
   //
-  auto get_time_at = [&whm]() -> std::time_t {
+  std::time_t displayed_jst = [&whm]() -> std::time_t {
     auto &opt = whm.cumlative_watt_hour;
     return opt.has_value() ? opt.value().get_time_t().value_or(0) : 0;
-  };
-  auto measured_at = std::chrono::system_clock::from_time_t(get_time_at());
+  }();
+  {
+    char buf[50]{'\0'};
+    auto tm = std::chrono::system_clock::to_time_t(current_time);
+    ESP_LOGI(MAIN, "current time:%s", ctime_r(&tm, buf));
+    ESP_LOGI(MAIN, "displayed time:%s", ctime_r(&displayed_jst, buf));
+  }
+  auto measured_at = std::chrono::system_clock::from_time_t(displayed_jst);
   if (auto elapsed = current_time - measured_at;
       elapsed >= std::chrono::minutes{36}) {
     // 表示中の定時積算電力量計測値が36分より古い場合は
@@ -436,7 +475,8 @@ send_periodical_request(std::chrono::time_point<Clock, Duration> current_time,
     ESP_LOGD(MAIN, "%s", " day for historical data 1");
   }
   // スマートメーターに要求を出す
-  return bp35a1->send_request(epcs);
+  const auto tid = time_to_transaction_id(current_time.time_since_epoch());
+  return bp35a1->send_request(tid, epcs);
 }
 
 //
@@ -465,9 +505,7 @@ void loop() {
     delay(10);
   }
 
-  // システムの時間は日本時間であるはず
-  static_assert(TZ_TIME_ZONE, "JST-9");
-  // 現在時刻(日本時間)
+  // 現在時刻
   time_point current_time = system_clock::now();
 
   // IoT Coreへ送信(2秒以上の間隔をあけて)
@@ -517,8 +555,8 @@ void loop() {
   loopTelemetry();
 
   // プログレスバーを表示する
-  const duration one_min_in_ms = milliseconds{60000};
-  const duration seconds_in_ms = duration_cast<milliseconds>(
+  const milliseconds one_min_in_ms = milliseconds{60000};
+  const milliseconds seconds_in_ms = duration_cast<milliseconds>(
       current_time.time_since_epoch() % one_min_in_ms);
   // 毎分0秒までの残り時間(1000分率)
   const uint32_t remains_in_permille =
@@ -530,7 +568,7 @@ void loop() {
       elapsed >= seconds{1}) {
     // 積算電力量単位がない場合に最初の要求を出す
     if (!smart_watt_hour_meter.whm_unit.has_value()) {
-      if (!send_first_request()) {
+      if (!send_first_request(current_time)) {
         ESP_LOGD(MAIN, "request NG");
       }
     } else if (duration_cast<seconds>(seconds_in_ms) == seconds{0}) {
