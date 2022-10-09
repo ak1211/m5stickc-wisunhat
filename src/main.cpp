@@ -287,7 +287,7 @@ static void process_event(const Bp35a1::Response &r) {
     cumulative_watt_hour_gauge.set(std::nullopt).update();
     break;
   case 0x29: // ライフタイムが経過して期限切れになった
-    ESP_LOGD(MAIN, "session timeout occurred");
+    ESP_LOGI(MAIN, "session timeout occurred");
     break;
   default:
     break;

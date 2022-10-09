@@ -532,8 +532,8 @@ public:
     echonet_lite_frame.push_back(EchonetLiteEHD2);
     // bytes#3 and bytes#4
     // TID: トランザクションID
-    echonet_lite_frame.push_back(reinterpret_cast<uint8_t *>(&tid)[0]);
-    echonet_lite_frame.push_back(reinterpret_cast<uint8_t *>(&tid)[1]);
+    echonet_lite_frame.push_back(tid.u8[0]);
+    echonet_lite_frame.push_back(tid.u8[1]);
     //
     // EDATA
     //
