@@ -16,12 +16,11 @@
 // ECHONET Lite の UDP ポート番号
 const std::string_view EchonetLiteUdpPort{"0E1A"};
 
-// ECHONET Lite 電文ヘッダー 1,2
+// ECHONET Lite 電文ヘッダー
 // 0x1081で固定
 // EHD1: 0x10 (ECHONET Lite規格)
 // EHD2: 0x81 (規定電文形式)
-const uint8_t EchonetLiteEHD1{0x10};
-const uint8_t EchonetLiteEHD2{0x81};
+const std::array<uint8_t, 2> EchonetLiteEHD{0x10, 0x81};
 
 //
 // ECHONET Lite オブジェクト指定
@@ -74,8 +73,7 @@ union EchonetLiteTransactionId {
 
 // ECHONET Lite フレーム
 struct EchonetLiteFrame {
-  uint8_t ehd1;                 // ECHONET Lite 電文ヘッダー 1
-  uint8_t ehd2;                 // ECHONET Lite 電文ヘッダー 2
+  uint8_t ehd[2];               // ECHONET Lite 電文ヘッダー 1,2
   EchonetLiteTransactionId tid; // トランザクションID
   struct EchonetLiteData {      // ECHONET Lite データ (EDATA)
     uint8_t seoj[3];            // 送信元ECHONET Liteオブジェクト指定
@@ -488,8 +486,7 @@ public:
       return std::string{buffer};
     };
     std::string s;
-    s += "EHD1:" + convert_byte(frame.ehd1) + ",";
-    s += "EHD2:" + convert_byte(frame.ehd2) + ",";
+    s += "EHD:" + convert_byte(frame.ehd[0]) + convert_byte(frame.ehd[1]) + ",";
     s += "TID:" + convert_byte(frame.tid.u8[0]) +
          convert_byte(frame.tid.u8[1]) + ",";
     s += "SEOJ:" + convert_byte(frame.edata.seoj[0]) +
@@ -526,10 +523,10 @@ public:
     std::vector<uint8_t> echonet_lite_frame;
     // bytes#1
     // EHD1: ECHONET Lite 電文ヘッダー 1
-    echonet_lite_frame.push_back(EchonetLiteEHD1);
+    echonet_lite_frame.push_back(EchonetLiteEHD[0]);
     // bytes#2
     // EHD2: ECHONET Lite 電文ヘッダー 2
-    echonet_lite_frame.push_back(EchonetLiteEHD2);
+    echonet_lite_frame.push_back(EchonetLiteEHD[1]);
     // bytes#3 and bytes#4
     // TID: トランザクションID
     echonet_lite_frame.push_back(tid.u8[0]);
@@ -659,7 +656,7 @@ public:
         if (prop->pdc == 0x0B) { // 11バイト
           // std::to_arrayの登場はC++20からなのでこんなことになった
           std::array<uint8_t, 11> memory;
-          std::copy_n(prop->edt, 11, memory.begin());
+          std::copy_n(prop->edt, memory.size(), memory.begin());
           //
           auto cwh =
               SmartWhm::CumulativeWattHour(memory, whm_coefficient, whm_unit);
@@ -670,6 +667,16 @@ public:
           cumlative_watt_hour = cwh;
         } else {
           ESP_LOGD(MAIN, "pdc is should be 11 bytes, this is %d bytes.",
+                   prop->pdc);
+        }
+        break;
+      case 0xED:                 // 積算履歴収集日２
+        if (prop->pdc == 0x07) { // 7バイト
+          uint8_t day = prop->edt[0];
+          ESP_LOGD(MAIN, "day of historical 1: (%d)", day);
+          day_for_which_the_historcal = day;
+        } else {
+          ESP_LOGD(MAIN, "pdc is should be 1 bytes, this is %d bytes.",
                    prop->pdc);
         }
         break;

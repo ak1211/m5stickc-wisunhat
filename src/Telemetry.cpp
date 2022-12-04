@@ -36,7 +36,7 @@ bool connectToAwsIot(std::size_t retry_count) {
       ESP_LOGI(TELEMETRY, "MQTT Connected!");
       return true;
     }
-    delay(1000);
+    delay(100);
   }
   return false;
 }
@@ -54,6 +54,11 @@ bool loopTelemetry() { return mqtt_client.loop(); }
 
 //
 bool sendTelemetry(const std::string &string_telemetry) {
-  ESP_LOGD(TELEMETRY, "%s", string_telemetry.c_str());
-  return mqtt_client.publish(MQTT_TOPIC.c_str(), string_telemetry.c_str());
+  if (mqtt_client.connected()) {
+    ESP_LOGD(TELEMETRY, "%s", string_telemetry.c_str());
+    return mqtt_client.publish(MQTT_TOPIC.c_str(), string_telemetry.c_str());
+  } else {
+    ESP_LOGE(TELEMETRY, "MQTT is NOT connected.");
+    return false;
+  }
 }

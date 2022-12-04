@@ -130,6 +130,7 @@ static bool connectToWiFi(std::size_t retry_count = 100) {
     return false;
   }
 }
+
 //
 static bool initializeTime(std::size_t retry_count = 100) {
   sntp_sync_status_t status = sntp_get_sync_status();
@@ -176,35 +177,19 @@ static bool establishConnection() {
 }
 
 //
-static bool checkWiFi(std::size_t retry_count = 100) {
-  for (std::size_t retry = 0; retry < retry_count; ++retry) {
+static bool checkWiFi(std::chrono::seconds timeout) {
+  using namespace std::chrono;
+  time_point tp = system_clock::now() + timeout;
+  do {
     if (WiFi.isConnected()) {
-      break;
-    } else {
-      ESP_LOGI(MAIN, "WiFi reconnect");
-      WiFi.reconnect();
-      delay(1000);
-      establishConnection();
+      return true;
     }
-  }
+    // WiFi再接続シーケンス
+    ESP_LOGI(MAIN, "WiFi reconnect");
+    WiFi.reconnect();
+    delay(10);
+  } while (system_clock::now() < tp);
   return WiFi.isConnected();
-}
-
-//
-//
-//
-static void check_MQTT_connection_task(void *) {
-  while (1) {
-    delay(1000);
-    // WiFi接続検査
-    if (checkWiFi()) {
-      // MQTT接続検査
-      checkTelemetry();
-    } else {
-      // WiFiの接続に失敗しているのでシステムリセットして復帰する
-      esp_restart();
-    }
-  }
 }
 
 //
@@ -251,12 +236,6 @@ void setup() {
   instant_watt_gauge.update(true);
   instant_ampere_gauge.update(true);
   cumulative_watt_hour_gauge.update(true);
-
-  //
-  // FreeRTOSタスク起動
-  //
-  xTaskCreatePinnedToCore(check_MQTT_connection_task, "checkMQTTtask", 8192,
-                          nullptr, 2, nullptr, ARDUINO_RUNNING_CORE);
 }
 
 //
@@ -353,7 +332,7 @@ static int32_t transaction_id_to_seconds(EchonetLiteTransactionId tid) {
 //
 // BP35A1から受信したERXUDPイベントを処理する
 //
-static void process_erxudp(const Bp35a1::Response &r,
+static bool process_erxudp(const Bp35a1::Response &r,
                            SmartWhm &smart_watt_hour_meter,
                            std::queue<std::string> &to_sending_message_fifo) {
   //
@@ -368,8 +347,9 @@ static void process_erxudp(const Bp35a1::Response &r,
   EchonetLiteFrame *frame =
       reinterpret_cast<EchonetLiteFrame *>(binaryformat.data());
   // フレームヘッダの確認
-  if (frame->ehd1 == EchonetLiteEHD1 && frame->ehd2 == EchonetLiteEHD2) {
-    // EchonetLiteフレームだった
+  if (std::equal(std::begin(frame->ehd), std::end(frame->ehd),
+                 std::begin(EchonetLiteEHD), std::end(EchonetLiteEHD))) {
+    //  EchonetLiteフレームだった
     ESP_LOGD(MAIN, "%s", SmartWhm::show(*frame).c_str());
     //
     auto const seoj = std::array<uint8_t, 3>{
@@ -380,27 +360,31 @@ static void process_erxudp(const Bp35a1::Response &r,
     } else if (seoj == SmartWhm::EchonetLiteEOJ()) {
       // 低圧スマート電力量計クラス
       //
-      auto tsec = transaction_id_to_seconds(frame->tid);
-      int32_t h = tsec / 3600 % 24;
-      int32_t m = tsec / 60 % 60;
-      ESP_LOGD(MAIN, "tid(H:M) is %02d:%02d", h, m);
-      auto epoch = std::chrono::system_clock::now().time_since_epoch();
-      auto seconds =
-          std::chrono::duration_cast<std::chrono::seconds>(epoch).count();
-      int32_t elapsed = seconds % (24 * 60 * 60) - tsec;
-      ESP_LOGI(MAIN, "Response elasped time of seconds:%4d", elapsed);
+      if constexpr (false) {
+        auto tsec = transaction_id_to_seconds(frame->tid);
+        int32_t h = tsec / 3600 % 24;
+        int32_t m = tsec / 60 % 60;
+        ESP_LOGD(MAIN, "tid(H:M) is %02d:%02d", h, m);
+        auto epoch = std::chrono::system_clock::now().time_since_epoch();
+        auto seconds =
+            std::chrono::duration_cast<std::chrono::seconds>(epoch).count();
+        int32_t elapsed = seconds % (24 * 60 * 60) - tsec;
+        ESP_LOGI(MAIN, "Response elasped time of seconds:%4d", elapsed);
+      }
       //
       smart_watt_hour_meter.process_echonet_lite_frame(r.created_at, *frame,
                                                        to_sending_message_fifo);
     } else {
       ESP_LOGD(MAIN, "Unknown SEOJ: [0x%x, 0x%x, 0x%x]", seoj[0], seoj[1],
                seoj[2]);
+      return false;
     }
   } else {
-    ESP_LOGD(MAIN, "unknown frame header. EHD1: %X, EHD2: %X]", frame->ehd1,
-             frame->ehd2);
-    return;
+    ESP_LOGD(MAIN, "unknown frame header. EHD: 0x%X%X", frame->ehd[0],
+             frame->ehd[1]);
+    return false;
   }
+  return true;
 }
 
 //
@@ -415,7 +399,7 @@ static void render_progress_bar(uint32_t permille) {
 
 // スマートメーターに最初の要求を出す
 template <class Clock, class Duration>
-static bool
+static void
 send_first_request(std::chrono::time_point<Clock, Duration> current_time) {
   std::vector<SmartWhm::EchonetLiteEPC> epcs{};
   // 係数
@@ -431,12 +415,17 @@ send_first_request(std::chrono::time_point<Clock, Duration> current_time) {
            "effective digits");
   // スマートメーターに要求を出す
   const auto tid = time_to_transaction_id(current_time.time_since_epoch());
-  return bp35a1->send_request(tid, epcs);
+
+  if (bp35a1->send_request(tid, epcs)) {
+    ESP_LOGV(MAIN, "request OK");
+  } else {
+    ESP_LOGD(MAIN, "request NG");
+  }
 }
 
 // スマートメーターに定期的な要求を出す
 template <class Clock, class Duration>
-static bool
+static void
 send_periodical_request(std::chrono::time_point<Clock, Duration> current_time,
                         const SmartWhm &whm) {
   std::vector<SmartWhm::EchonetLiteEPC> epcs{};
@@ -451,7 +440,7 @@ send_periodical_request(std::chrono::time_point<Clock, Duration> current_time,
     auto &opt = whm.cumlative_watt_hour;
     return opt.has_value() ? opt.value().get_time_t().value_or(0) : 0;
   }();
-  {
+  if constexpr (false) {
     char buf[50]{'\0'};
     auto tm = std::chrono::system_clock::to_time_t(current_time);
     ESP_LOGI(MAIN, "current time:%s", ctime_r(&tm, buf));
@@ -466,17 +455,21 @@ send_periodical_request(std::chrono::time_point<Clock, Duration> current_time,
     epcs.push_back(
         SmartWhm::EchonetLiteEPC::
             Cumulative_amounts_of_electric_energy_measured_at_fixed_time);
-    ESP_LOGD(MAIN, "%s", "request amounts of electric power");
+    ESP_LOGD(MAIN, "request amounts of electric power");
   }
   // 積算履歴収集日
   if (!whm.day_for_which_the_historcal.has_value()) {
     epcs.push_back(
-        SmartWhm::EchonetLiteEPC::Day_for_which_the_historcal_data_1);
-    ESP_LOGD(MAIN, "%s", " day for historical data 1");
+        SmartWhm::EchonetLiteEPC::Day_for_which_the_historcal_data_2);
+    ESP_LOGD(MAIN, "day for historical data 2");
   }
   // スマートメーターに要求を出す
   const auto tid = time_to_transaction_id(current_time.time_since_epoch());
-  return bp35a1->send_request(tid, epcs);
+  if (bp35a1->send_request(tid, epcs)) {
+    ESP_LOGV(MAIN, "request OK");
+  } else {
+    ESP_LOGD(MAIN, "request NG");
+  }
 }
 
 //
@@ -494,35 +487,39 @@ void loop() {
   static time_point time_of_sent_message_to_iot_core{system_clock::now()};
   // スマートメーターにメッセージを送信した時間
   static time_point time_of_sent_message_to_smart_whm{system_clock::now()};
+  // スマートメーターからの応答
+  static bool had_good_response_of_smart_whm{true};
 
-  // (あれば)２５個連続でメッセージを受信する
+  // 現在時刻
+  time_point current_time_point = system_clock::now();
+
+  //
+  // (あれば)２５個連続でスマートメーターからのメッセージを受信する
+  //
   for (std::size_t count = 0; count < 25; ++count) {
     std::optional<Bp35a1::Response> r = bp35a1->watch_response();
     if (r.has_value()) {
-      auto val = r.value();
-      received_message_fifo.push(std::move(val));
+      received_message_fifo.push(r.value());
     }
     delay(10);
   }
 
-  // 現在時刻
-  time_point current_time = system_clock::now();
-
-  // IoT Coreへ送信(2秒以上の間隔をあけて)
-  if (auto elapsed = current_time - time_of_sent_message_to_iot_core;
-      elapsed >= seconds{2}) {
-    if (!to_sending_message_fifo.empty()) {
-      // 送信するべき測定値があればIoTHubへ送信する
-      if (sendTelemetry(to_sending_message_fifo.front())) {
-        // 処理したメッセージをFIFOから消す
-        to_sending_message_fifo.pop();
-      }
-      // 送信時間を記録する
-      time_of_sent_message_to_iot_core = current_time;
+  //
+  // 送信するべき測定値があればIoT Coreへ送信する(2秒以上の間隔をあけて)
+  //
+  if (auto elapsed = current_time_point - time_of_sent_message_to_iot_core;
+      !to_sending_message_fifo.empty() && elapsed >= seconds{2}) {
+    if (sendTelemetry(to_sending_message_fifo.front())) {
+      // IoT Coreへ送信したメッセージをFIFOから消す
+      to_sending_message_fifo.pop();
     }
+    // IoT Coreへの送信時間を記録する
+    time_of_sent_message_to_iot_core = current_time_point;
   }
 
-  // メッセージ受信処理
+  //
+  // スマートメーターからのメッセージ受信処理
+  //
   if (!received_message_fifo.empty()) {
     Bp35a1::Response r = received_message_fifo.front();
     ESP_LOGD(MAIN, "%s", r.show().c_str());
@@ -533,7 +530,8 @@ void loop() {
       break;
     case Bp35a1::Response::Tag::ERXUDP:
       // ERXUDPを処理する
-      process_erxudp(r, smart_watt_hour_meter, to_sending_message_fifo);
+      had_good_response_of_smart_whm =
+          process_erxudp(r, smart_watt_hour_meter, to_sending_message_fifo);
       // 測定値をセットする
       instant_watt_gauge.set(smart_watt_hour_meter.instant_watt);
       instant_ampere_gauge.set(smart_watt_hour_meter.instant_ampere);
@@ -546,7 +544,9 @@ void loop() {
     received_message_fifo.pop();
   }
 
+  //
   // 測定値を更新する
+  //
   instant_watt_gauge.update();
   instant_ampere_gauge.update();
   cumulative_watt_hour_gauge.update();
@@ -554,30 +554,59 @@ void loop() {
   M5.update();
   loopTelemetry();
 
+  //
   // プログレスバーを表示する
+  //
   const milliseconds one_min_in_ms = milliseconds{60000};
   const milliseconds seconds_in_ms = duration_cast<milliseconds>(
-      current_time.time_since_epoch() % one_min_in_ms);
+      current_time_point.time_since_epoch() % one_min_in_ms);
   // 毎分0秒までの残り時間(1000分率)
   const uint32_t remains_in_permille =
       1000 * (one_min_in_ms - seconds_in_ms) / one_min_in_ms;
   render_progress_bar(remains_in_permille);
 
+  //
   // スマートメーターに要求を出す(1秒以上の間隔をあけて)
-  if (auto elapsed = current_time - time_of_sent_message_to_smart_whm;
+  //
+  if (auto elapsed = current_time_point - time_of_sent_message_to_smart_whm;
       elapsed >= seconds{1}) {
-    // 積算電力量単位がない場合に最初の要求を出す
+    // 積算電力量単位が初期値の場合にスマートメーターに最初の要求を出す
     if (!smart_watt_hour_meter.whm_unit.has_value()) {
-      if (!send_first_request(current_time)) {
-        ESP_LOGD(MAIN, "request NG");
-      }
-    } else if (duration_cast<seconds>(seconds_in_ms) == seconds{0}) {
-      // スマートメーターに要求を出す
-      if (!send_periodical_request(current_time, smart_watt_hour_meter)) {
-        ESP_LOGD(MAIN, "request NG");
-      }
+      send_first_request(current_time_point);
+      // 送信時間を記録する
+      time_of_sent_message_to_smart_whm = current_time_point;
+    } else if (!had_good_response_of_smart_whm || elapsed > seconds{60} ||
+               duration_cast<seconds>(seconds_in_ms) == seconds{0}) {
+      // 前回要求が失敗した。
+      // または毎分０秒
+      // または前回要求より６０秒超過したらスマートメーターに定期要求を出す
+      send_periodical_request(current_time_point, smart_watt_hour_meter);
+      // 送信時間を記録する
+      time_of_sent_message_to_smart_whm = current_time_point;
     }
-    // 送信時間を記録する
-    time_of_sent_message_to_smart_whm = current_time;
+  }
+
+  //
+  // 45秒以上の待ち時間があるうちに接続状態の検査をする:
+  //
+  if (duration_cast<seconds>(seconds_in_ms) >= seconds{45}) {
+    // WiFi接続検査
+    if (checkWiFi(seconds{10})) {
+      // MQTT接続検査
+      checkTelemetry();
+    }
+  }
+
+  //
+  // IoT Coreへの送信が20分以上されていない場合
+  //
+  if (auto elapsed = current_time_point - time_of_sent_message_to_iot_core;
+      elapsed >= minutes{20}) {
+    //
+    if (WiFi.isConnected()) {
+      // WiFiの接続に失敗しているので,システムリセットして復帰する
+      ESP_LOGI(MAIN, "System reboot, Bye!");
+      esp_restart();
+    }
   }
 }

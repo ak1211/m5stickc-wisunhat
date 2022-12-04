@@ -55,19 +55,18 @@ public:
         s += "??? ";
         break;
       }
-      for (const auto &item : keyval) {
-        s += "\"" + item.first + "\":\"" + item.second + "\"" + ",";
+      for (const auto &[key, val] : keyval) {
+        s += "\"" + key + "\":\"" + val + "\"" + ",";
       }
       s.pop_back(); // 最後の,を削る
       return s;
     }
     // バイナリからテキスト形式に変換する
     static std::string binary_to_text(const std::vector<uint8_t> &vect) {
-      std::string text;
-      for (auto itr = vect.begin(); itr != vect.end(); ++itr) {
+      std::string text{};
+      for (auto &octet : vect) {
         char work[100]{'\0'};
-        int32_t datum = *itr;
-        std::sprintf(work, "%02X", datum);
+        std::sprintf(work, "%02X", static_cast<int32_t>(octet));
         text += std::string(work);
       }
       return text;
@@ -382,10 +381,6 @@ public:
   // 受信
   std::optional<Response> watch_response() {
     std::optional<std::string> opt_tag = get_token<512>();
-    if (!opt_tag.has_value()) {
-      return std::nullopt;
-    }
-
     // 受信したメッセージを解析する
     if (!opt_tag.has_value()) {
       // 何も受け取れなかった場合
