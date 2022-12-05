@@ -126,6 +126,9 @@ public:
   // ECHONET Liteプロパティ
   enum class EchonetLiteEPC : uint8_t {
     Operation_status = 0x80,           // 動作状態
+    Installation_location = 0x81,      // 設置場所
+    Fault_status = 0x88,               // 異常発生状態
+    Manufacturer_code = 0x8A,          // メーカーコード
     Coefficient = 0xD3,                // 係数
     Number_of_effective_digits = 0xD7, // 積算電力量有効桁数
     Measured_cumulative_amount = 0xE0, // 積算電力量計測値 (正方向計測値)
@@ -379,13 +382,13 @@ public:
       StaticJsonDocument<Capacity> doc;
       doc["device_id"] = AWS_IOT_DEVICE_ID;
       doc["sensor_id"] = SENSOR_ID;
-#if 0
-    // 生の受信値
-    JsonArray array = doc.createNestedArray("original_payload");
-    for (auto &v : originalPayload) {
-      array.add(v);
-    }
-#endif
+      if constexpr (false) {
+        // 生の受信値
+        JsonArray array = doc.createNestedArray("original_payload");
+        for (auto &v : originalPayload) {
+          array.add(v);
+        }
+      }
       // 時刻をISO8601形式で得る
       std::optional<std::string> opt_iso8601 = get_iso8601_datetime();
       if (opt_iso8601.has_value()) {
@@ -583,6 +586,66 @@ public:
       const EchonetLiteProp *prop =
           reinterpret_cast<const EchonetLiteProp *>(v.data());
       switch (prop->epc) {
+      case 0x80:                 // 動作状態
+        if (prop->pdc == 0x01) { // 1バイト
+          enum class OpStatus : uint8_t {
+            ON = 0x30,
+            OFF = 0x31,
+          };
+          switch (static_cast<OpStatus>(prop->edt[0])) {
+          case OpStatus::ON:
+            ESP_LOGD(MAIN, "operation status : ON");
+            break;
+          case OpStatus::OFF:
+            ESP_LOGD(MAIN, "operation status : OFF");
+            break;
+          }
+        } else {
+          ESP_LOGD(MAIN, "pdc is should be 1 bytes, this is %d bytes.",
+                   prop->pdc);
+        }
+        break;
+      case 0x81:                 // 設置場所
+        if (prop->pdc == 0x01) { // 1バイト
+          uint8_t a = prop->edt[0];
+          ESP_LOGD(MAIN, "installation location: 0x%02x", a);
+        } else if (prop->pdc == 0x11) { // 17バイト
+          ESP_LOGD(MAIN, "installation location");
+        } else {
+          ESP_LOGD(MAIN, "pdc is should be 1 or 17 bytes, this is %d bytes.",
+                   prop->pdc);
+        }
+        break;
+      case 0x88:                 // 異常発生状態
+        if (prop->pdc == 0x01) { // 1バイト
+          enum class FaultStatus : uint8_t {
+            FaultOccurred = 0x41,
+            NoFault = 0x42,
+          };
+          switch (static_cast<FaultStatus>(prop->edt[0])) {
+          case FaultStatus::FaultOccurred:
+            ESP_LOGD(MAIN, "FaultStatus::FaultOccurred");
+            break;
+          case FaultStatus::NoFault:
+            ESP_LOGD(MAIN, "FaultStatus::NoFault");
+            break;
+          }
+        } else {
+          ESP_LOGD(MAIN, "pdc is should be 1 bytes, this is %d bytes.",
+                   prop->pdc);
+        }
+        break;
+      case 0x8A:                 // メーカーコード
+        if (prop->pdc == 0x03) { // 3バイト
+          uint8_t a = prop->edt[0];
+          uint8_t b = prop->edt[1];
+          uint8_t c = prop->edt[2];
+          ESP_LOGD(MAIN, "Manufacturer: 0x%02x%02x%02x", a, b, c);
+        } else {
+          ESP_LOGD(MAIN, "pdc is should be 3 bytes, this is %d bytes.",
+                   prop->pdc);
+        }
+        break;
       case 0xD3:                 // 係数
         if (prop->pdc == 0x04) { // 4バイト
           auto coeff = SmartWhm::Coefficient(
@@ -672,11 +735,18 @@ public:
         break;
       case 0xED:                 // 積算履歴収集日２
         if (prop->pdc == 0x07) { // 7バイト
-          uint8_t day = prop->edt[0];
-          ESP_LOGD(MAIN, "day of historical 1: (%d)", day);
-          day_for_which_the_historcal = day;
+          uint8_t a = prop->edt[0];
+          uint8_t b = prop->edt[1];
+          uint8_t c = prop->edt[2];
+          uint8_t d = prop->edt[3];
+          uint8_t e = prop->edt[4];
+          uint8_t f = prop->edt[5];
+          uint8_t g = prop->edt[6];
+          ESP_LOGD(MAIN,
+                   "day of historical 2: [%02x,%02x,%02x,%02x,%02x,%02x,%02x]",
+                   a, b, c, d, e, f, g);
         } else {
-          ESP_LOGD(MAIN, "pdc is should be 1 bytes, this is %d bytes.",
+          ESP_LOGD(MAIN, "pdc is should be 7 bytes, this is %d bytes.",
                    prop->pdc);
         }
         break;

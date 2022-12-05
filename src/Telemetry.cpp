@@ -8,6 +8,7 @@
 #include <WiFi.h>
 #include <WiFiClient.h>
 #include <WiFiClientSecure.h>
+#include <chrono>
 #include <ctime>
 #include <esp_log.h>
 #include <esp_sntp.h>
@@ -42,11 +43,21 @@ bool connectToAwsIot(std::size_t retry_count) {
 }
 
 //
-void checkTelemetry() {
-  if (!mqtt_client.connected()) {
+bool checkTelemetry(std::chrono::seconds timeout) {
+  using namespace std::chrono;
+  time_point tp = system_clock::now() + timeout;
+
+  do {
+    if (mqtt_client.connected()) {
+      return true;
+    }
+    // MQTT再接続シーケンス
     ESP_LOGI(TELEMETRY, "MQTT reconnect");
-    connectToAwsIot();
-  }
+    mqtt_client.disconnect();
+    mqtt_client.connect(AWS_IOT_DEVICE_ID.data());
+    delay(10);
+  } while (system_clock::now() < tp);
+  return mqtt_client.connected();
 }
 
 //

@@ -402,16 +402,25 @@ template <class Clock, class Duration>
 static void
 send_first_request(std::chrono::time_point<Clock, Duration> current_time) {
   std::vector<SmartWhm::EchonetLiteEPC> epcs{};
+  // 動作状態
+  // 設置場所
+  // 異常発生状態
+  // メーカーコード
   // 係数
   // 積算電力量単位
   // 積算電力量有効桁数
   epcs = {
+      SmartWhm::EchonetLiteEPC::Operation_status,
+      SmartWhm::EchonetLiteEPC::Installation_location,
+      SmartWhm::EchonetLiteEPC::Fault_status,
+      SmartWhm::EchonetLiteEPC::Manufacturer_code,
       SmartWhm::EchonetLiteEPC::Coefficient,
       SmartWhm::EchonetLiteEPC::Unit_for_cumulative_amounts,
       SmartWhm::EchonetLiteEPC::Number_of_effective_digits,
   };
   ESP_LOGD(MAIN, "%s",
-           "request coefficient / unit for whm / request number of "
+           "request status / location / fault / manufacturer / coefficient / "
+           "unit for whm / request number of "
            "effective digits");
   // スマートメーターに要求を出す
   const auto tid = time_to_transaction_id(current_time.time_since_epoch());
@@ -460,8 +469,8 @@ send_periodical_request(std::chrono::time_point<Clock, Duration> current_time,
   // 積算履歴収集日
   if (!whm.day_for_which_the_historcal.has_value()) {
     epcs.push_back(
-        SmartWhm::EchonetLiteEPC::Day_for_which_the_historcal_data_2);
-    ESP_LOGD(MAIN, "day for historical data 2");
+        SmartWhm::EchonetLiteEPC::Day_for_which_the_historcal_data_1);
+    ESP_LOGD(MAIN, "day for historical data 1");
   }
   // スマートメーターに要求を出す
   const auto tid = time_to_transaction_id(current_time.time_since_epoch());
@@ -590,10 +599,12 @@ void loop() {
   // 45秒以上の待ち時間があるうちに接続状態の検査をする:
   //
   if (duration_cast<seconds>(seconds_in_ms) >= seconds{45}) {
-    // WiFi接続検査
-    if (checkWiFi(seconds{10})) {
+    if (WiFi.isConnected()) {
       // MQTT接続検査
-      checkTelemetry();
+      checkTelemetry(seconds{10});
+    } else {
+      // WiFi接続検査
+      checkWiFi(seconds{10});
     }
   }
 
