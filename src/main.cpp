@@ -36,9 +36,9 @@ constexpr int CommPortTx{0};
 Bp35a1 *bp35a1(nullptr);
 
 // 瞬時電力量
-static Gauge<SmartWhm::InstantWatt> instant_watt_gauge{
+static Gauge<SmartElectricEnergyMeter::InstantWatt> instant_watt_gauge{
     2, 4, YELLOW, std::make_pair(10, 10),
-    [](std::optional<SmartWhm::InstantWatt> iw) -> std::string {
+    [](std::optional<SmartElectricEnergyMeter::InstantWatt> iw) -> std::string {
       auto result = std::string{"---- W"};
       if (iw.has_value()) {
         char buff[100]{'\0'};
@@ -49,9 +49,10 @@ static Gauge<SmartWhm::InstantWatt> instant_watt_gauge{
     }};
 
 // 瞬時電流
-static Gauge<SmartWhm::InstantAmpere> instant_ampere_gauge{
+static Gauge<SmartElectricEnergyMeter::InstantAmpere> instant_ampere_gauge{
     1, 4, WHITE, std::make_pair(10, 10 + 48),
-    [](std::optional<SmartWhm::InstantAmpere> ia) -> std::string {
+    [](std::optional<SmartElectricEnergyMeter::InstantAmpere> ia)
+        -> std::string {
       //
       auto to_string = [](int32_t deci_ampere) -> std::string {
         auto i = deci_ampere / 10; // 整数部
@@ -73,31 +74,33 @@ static Gauge<SmartWhm::InstantAmpere> instant_ampere_gauge{
     }};
 
 // 積算電力量
-static Gauge<SmartWhm::CumulativeWattHour> cumulative_watt_hour_gauge{
-    1, 4, WHITE, std::make_pair(10, 10 + 48 + 24),
-    [](std::optional<SmartWhm::CumulativeWattHour> watt_hour) -> std::string {
-      std::string result = std::string{"--:-- ----------    "};
-      if (watt_hour) {
-        auto wh = watt_hour.value();
-        //
-        result = std::string{};
-        // 時間
-        {
-          char buff[100]{'\0'};
-          std::sprintf(buff, "%02d:%02d", wh.hour(), wh.minutes());
-          result += std::string(buff);
-        }
-        // 電力量
-        std::optional<std::string> opt = wh.to_string_kwh();
-        if (opt.has_value()) {
-          result += " " + opt.value() + " kwh";
-        } else {
-          // 単位がないならそのまま出す
-          result += " " + std::to_string(wh.raw_cumlative_watt_hour());
-        }
-      }
-      return result;
-    }};
+static Gauge<SmartElectricEnergyMeter::CumulativeWattHour>
+    cumulative_watt_hour_gauge{
+        1, 4, WHITE, std::make_pair(10, 10 + 48 + 24),
+        [](std::optional<SmartElectricEnergyMeter::CumulativeWattHour>
+               watt_hour) -> std::string {
+          std::string result = std::string{"--:-- ----------    "};
+          if (watt_hour) {
+            auto wh = watt_hour.value();
+            //
+            result = std::string{};
+            // 時間
+            {
+              char buff[100]{'\0'};
+              std::sprintf(buff, "%02d:%02d", wh.hour(), wh.minutes());
+              result += std::string(buff);
+            }
+            // 電力量
+            std::optional<std::string> opt = wh.to_string_kwh();
+            if (opt.has_value()) {
+              result += " " + opt.value() + " kwh";
+            } else {
+              // 単位がないならそのまま出す
+              result += " " + std::to_string(wh.raw_cumlative_watt_hour());
+            }
+          }
+          return result;
+        }};
 
 // グローバル変数
 // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -284,17 +287,14 @@ static void process_node_profile_class_frame(const EchonetLiteFrame &frame) {
       if (prop->pdc >= 4) { // 4バイト以上
         ESP_LOGD(MAIN, "instances list");
         uint8_t total_number_of_instances = prop->edt[0];
-        const EchonetLiteObjectCode *p =
+        const EchonetLiteObjectCode *begin =
             reinterpret_cast<const EchonetLiteObjectCode *>(&prop->edt[1]);
+        const EchonetLiteObjectCode *end = begin + total_number_of_instances;
+        std::vector<EchonetLiteObjectCode> instances(begin, end);
         //
-        ESP_LOGD(MAIN, "total number of instances: %d",
-                 total_number_of_instances);
         std::string str;
-        for (uint8_t i = 0; i < total_number_of_instances; ++i) {
-          char buffer[10]{'\0'};
-          std::sprintf(buffer, "%02X%02X%02X", p[i].class_group,
-                       p[i].class_code, p[i].instance_code);
-          str += std::string(buffer) + ",";
+        for (const EchonetLiteObjectCode &eoj : instances) {
+          str += std::to_string(eoj) + ",";
         }
         str.pop_back(); // 最後の,を削る
         ESP_LOGD(MAIN, "list of object code(EOJ): %s", str.c_str());
@@ -341,23 +341,19 @@ static bool process_erxudp(const Bp35a1::Response &r,
   // ペイロード(テキスト形式)
   std::string_view textformat = r.keyval.at("DATA");
   // ペイロード(バイナリ形式)
-  std::vector<uint8_t> binaryformat =
-      Bp35a1::Response::text_to_binary(textformat);
+  std::vector<uint8_t> binaryformat = text_to_binary(textformat);
   // EchonetLiteFrameに変換
   EchonetLiteFrame *frame =
       reinterpret_cast<EchonetLiteFrame *>(binaryformat.data());
   // フレームヘッダの確認
-  if (std::equal(std::begin(frame->ehd), std::end(frame->ehd),
-                 std::begin(EchonetLiteEHD), std::end(EchonetLiteEHD))) {
+  if (frame->ehd == EchonetLiteEHD) {
     //  EchonetLiteフレームだった
-    ESP_LOGD(MAIN, "%s", SmartWhm::show(*frame).c_str());
+    ESP_LOGD(MAIN, "%s", std::to_string(*frame).c_str());
     //
-    auto const seoj = std::array<uint8_t, 3>{
-        frame->edata.seoj[0], frame->edata.seoj[1], frame->edata.seoj[2]};
-    if (seoj == NodeProfileClass::EchonetLiteEOJ()) {
+    if (frame->edata.seoj == NodeProfileClass::EchonetLiteEOJ) {
       // ノードプロファイルクラス
       process_node_profile_class_frame(*frame);
-    } else if (seoj == SmartWhm::EchonetLiteEOJ()) {
+    } else if (frame->edata.seoj == SmartElectricEnergyMeter::EchonetLiteEOJ) {
       // 低圧スマート電力量計クラス
       //
       if constexpr (false) {
@@ -375,13 +371,13 @@ static bool process_erxudp(const Bp35a1::Response &r,
       smart_watt_hour_meter.process_echonet_lite_frame(r.created_at, *frame,
                                                        to_sending_message_fifo);
     } else {
-      ESP_LOGD(MAIN, "Unknown SEOJ: [0x%x, 0x%x, 0x%x]", seoj[0], seoj[1],
-               seoj[2]);
+      ESP_LOGD(MAIN, "Unknown SEOJ: %s",
+               std::to_string(frame->edata.seoj).c_str());
       return false;
     }
   } else {
-    ESP_LOGD(MAIN, "unknown frame header. EHD: 0x%X%X", frame->ehd[0],
-             frame->ehd[1]);
+    ESP_LOGD(MAIN, "unknown frame header. EHD: %s",
+             std::to_string(frame->ehd).c_str());
     return false;
   }
   return true;
@@ -401,7 +397,7 @@ static void render_progress_bar(uint32_t permille) {
 template <class Clock, class Duration>
 static void
 send_first_request(std::chrono::time_point<Clock, Duration> current_time) {
-  std::vector<SmartWhm::EchonetLiteEPC> epcs{};
+  std::vector<SmartElectricEnergyMeter::EchonetLiteEPC> epcs{};
   // 動作状態
   // 設置場所
   // 異常発生状態
@@ -410,13 +406,13 @@ send_first_request(std::chrono::time_point<Clock, Duration> current_time) {
   // 積算電力量単位
   // 積算電力量有効桁数
   epcs = {
-      SmartWhm::EchonetLiteEPC::Operation_status,
-      SmartWhm::EchonetLiteEPC::Installation_location,
-      SmartWhm::EchonetLiteEPC::Fault_status,
-      SmartWhm::EchonetLiteEPC::Manufacturer_code,
-      SmartWhm::EchonetLiteEPC::Coefficient,
-      SmartWhm::EchonetLiteEPC::Unit_for_cumulative_amounts,
-      SmartWhm::EchonetLiteEPC::Number_of_effective_digits,
+      SmartElectricEnergyMeter::EchonetLiteEPC::Operation_status,
+      SmartElectricEnergyMeter::EchonetLiteEPC::Installation_location,
+      SmartElectricEnergyMeter::EchonetLiteEPC::Fault_status,
+      SmartElectricEnergyMeter::EchonetLiteEPC::Manufacturer_code,
+      SmartElectricEnergyMeter::EchonetLiteEPC::Coefficient,
+      SmartElectricEnergyMeter::EchonetLiteEPC::Unit_for_cumulative_amounts,
+      SmartElectricEnergyMeter::EchonetLiteEPC::Number_of_effective_digits,
   };
   ESP_LOGD(MAIN, "%s",
            "request status / location / fault / manufacturer / coefficient / "
@@ -437,11 +433,13 @@ template <class Clock, class Duration>
 static void
 send_periodical_request(std::chrono::time_point<Clock, Duration> current_time,
                         const SmartWhm &whm) {
-  std::vector<SmartWhm::EchonetLiteEPC> epcs{};
+  std::vector<SmartElectricEnergyMeter::EchonetLiteEPC> epcs{};
   // 瞬時電力要求
   // 瞬時電流要求
-  epcs = {SmartWhm::EchonetLiteEPC::Measured_instantaneous_power,
-          SmartWhm::EchonetLiteEPC::Measured_instantaneous_currents};
+  epcs = {
+      SmartElectricEnergyMeter::EchonetLiteEPC::Measured_instantaneous_power,
+      SmartElectricEnergyMeter::EchonetLiteEPC::
+          Measured_instantaneous_currents};
   ESP_LOGD(MAIN, "%s", "request inst-epower and inst-current");
   // 定時積算電力量計測値(正方向計測値)
   //
@@ -462,14 +460,14 @@ send_periodical_request(std::chrono::time_point<Clock, Duration> current_time,
     // 定時積算電力量計測値(30分値)をつかみそこねたと判断して
     // 定時積算電力量要求を出す
     epcs.push_back(
-        SmartWhm::EchonetLiteEPC::
+        SmartElectricEnergyMeter::EchonetLiteEPC::
             Cumulative_amounts_of_electric_energy_measured_at_fixed_time);
     ESP_LOGD(MAIN, "request amounts of electric power");
   }
   // 積算履歴収集日
   if (!whm.day_for_which_the_historcal.has_value()) {
-    epcs.push_back(
-        SmartWhm::EchonetLiteEPC::Day_for_which_the_historcal_data_1);
+    epcs.push_back(SmartElectricEnergyMeter::EchonetLiteEPC::
+                       Day_for_which_the_historcal_data_1);
     ESP_LOGD(MAIN, "day for historical data 1");
   }
   // スマートメーターに要求を出す
@@ -510,7 +508,7 @@ void loop() {
     if (r.has_value()) {
       received_message_fifo.push(r.value());
     }
-    delay(10);
+    delay(100);
   }
 
   //
@@ -531,7 +529,7 @@ void loop() {
   //
   if (!received_message_fifo.empty()) {
     Bp35a1::Response r = received_message_fifo.front();
-    ESP_LOGD(MAIN, "%s", r.show().c_str());
+    ESP_LOGD(MAIN, "%s", std::to_string(r).c_str());
     switch (r.tag) {
     case Bp35a1::Response::Tag::EVENT:
       // イベント受信処理

@@ -15,95 +15,97 @@
 //
 //
 //
+struct SmartMeterIdentifier {
+  std::string ipv6_address;
+  std::string channel;
+  std::string pan_id;
+};
+
+namespace std {
+//
+string to_string(SmartMeterIdentifier ident) {
+  std::string s;
+  s += "ipv6_address: \"" + ident.ipv6_address + "\",";
+  s += "channel: \"" + ident.channel + "\",";
+  s += "pan_id: \"" + ident.pan_id + "\"";
+  return s;
+}
+} // namespace std
+
+//
+//
+//
+struct Bp35a1Response {
+  // 受信した時間
+  std::time_t created_at;
+  // 受信したイベントの種類
+  enum class Tag { EVENT, EPANDESC, ERXUDP, UNKNOWN };
+  Tag tag;
+  // key-valueストア
+  std::map<std::string, std::string> keyval;
+  //
+  Bp35a1Response(std::time_t at, Tag t, std::map<std::string, std::string> &&kv)
+      : created_at{at}, tag{t}, keyval{std::move(kv)} {}
+};
+
+//
+namespace std {
+string to_string(Bp35a1Response response) {
+  std::string s;
+  switch (response.tag) {
+  case Bp35a1Response::Tag::EVENT:
+    s += "EVENT ";
+    break;
+  case Bp35a1Response::Tag::EPANDESC:
+    s += "EPANDESC ";
+    break;
+  case Bp35a1Response::Tag::ERXUDP:
+    s += "ERXUDP ";
+    break;
+  case Bp35a1Response::Tag::UNKNOWN:
+    s += "UNKNOWN";
+    break;
+  default:
+    s += "??? ";
+    break;
+  }
+  for (const auto &[key, val] : response.keyval) {
+    s += "\"" + key + "\":\"" + val + "\"" + ",";
+  }
+  s.pop_back(); // 最後の,を削る
+  return s;
+}
+} // namespace std
+
+// バイナリからテキスト形式に変換する
+std::string binary_to_text(const std::vector<uint8_t> &binaries) {
+  std::string text{};
+  for (auto &octet : binaries) {
+    char work[10]{'\0'};
+    std::sprintf(work, "%02X", static_cast<int32_t>(octet));
+    text += std::string(work);
+  }
+  return text;
+}
+
+// テキスト形式からバイナリに戻す
+std::vector<uint8_t> text_to_binary(std::string_view text) {
+  std::vector<uint8_t> binary;
+  for (auto itr = text.begin(); itr != text.end();) {
+    char work[10]{'\0'};
+    // 8ビットは16進数2文字なので2文字毎に変換する
+    work[0] = *itr++;
+    work[1] = (itr == text.end()) ? '\0' : *itr++;
+    work[2] = '\0';
+    binary.push_back(std::strtol(work, nullptr, 16));
+  }
+  return binary;
+}
+
+//
+//
+//
 class Bp35a1 {
-public:
-  //
-  // メッセージを表示する関数型
-  //
-  typedef void (*DisplayMessageT)(const char *);
-  //
-  //
-  //
-  struct Response {
-    // 受信した時間
-    std::time_t created_at;
-    // 受信したイベントの種類
-    enum class Tag { EVENT, EPANDESC, ERXUDP, UNKNOWN };
-    Tag tag;
-    // key-valueストア
-    std::map<std::string, std::string> keyval;
-    //
-    Response(std::time_t at, Tag t, std::map<std::string, std::string> &&kv)
-        : created_at{at}, tag{t}, keyval{std::move(kv)} {}
-    //
-    std::string show() const {
-      std::string s;
-      switch (tag) {
-      case Tag::EVENT:
-        s += "EVENT ";
-        break;
-      case Tag::EPANDESC:
-        s += "EPANDESC ";
-        break;
-      case Tag::ERXUDP:
-        s += "ERXUDP ";
-        break;
-      case Tag::UNKNOWN:
-        s += "UNKNOWN";
-        break;
-      default:
-        s += "??? ";
-        break;
-      }
-      for (const auto &[key, val] : keyval) {
-        s += "\"" + key + "\":\"" + val + "\"" + ",";
-      }
-      s.pop_back(); // 最後の,を削る
-      return s;
-    }
-    // バイナリからテキスト形式に変換する
-    static std::string binary_to_text(const std::vector<uint8_t> &vect) {
-      std::string text{};
-      for (auto &octet : vect) {
-        char work[100]{'\0'};
-        std::sprintf(work, "%02X", static_cast<int32_t>(octet));
-        text += std::string(work);
-      }
-      return text;
-    }
-    // テキスト形式からバイナリに戻す
-    static std::vector<uint8_t> text_to_binary(std::string_view text) {
-      std::vector<uint8_t> binary;
-      char work[10]{'\0'};
-
-      for (auto itr = text.begin(); itr != text.end();) {
-        // 8ビットは16進数2文字なので2文字毎に変換する
-        work[0] = *itr++;
-        work[1] = (itr == text.end()) ? '\0' : *itr++;
-        work[2] = '\0';
-        binary.push_back(std::strtol(work, nullptr, 16));
-      }
-      return binary;
-    }
-  };
-  //
-  //
-  //
-  struct SmartMeterIdentifier {
-    std::string ipv6_address;
-    std::string channel;
-    std::string pan_id;
-    //
-    std::string show() const {
-      std::string s;
-      s += "ipv6_address: \"" + ipv6_address + "\",";
-      s += "channel: \"" + channel + "\",";
-      s += "pan_id: \"" + pan_id + "\"";
-      return s;
-    }
-  };
-
-private:
   const size_t retry_limits;
   Stream &commport;
   std::string_view b_route_id;
@@ -111,6 +113,9 @@ private:
   SmartMeterIdentifier smart_meter_ident;
 
 public:
+  using Response = Bp35a1Response;
+  // メッセージを表示する関数型
+  typedef void (*DisplayMessageT)(const char *);
   //
   Bp35a1(Stream &stream,
          std::pair<std::string_view, std::string_view> b_id_password,
@@ -182,26 +187,26 @@ public:
   }
   // ipv6 アドレスを受け取る関数
   std::optional<std::string> get_ipv6_address(const std::string &addr,
-                                              void (*message)(const char *)) {
+                                              DisplayMessageT message) {
     // 返答を受け取る前にクリアしておく
     clear_read_buffer();
     // ipv6 アドレス要求を送る
     message("Fetch ipv6 address\n");
     write_with_crln("SKLL64 " + addr);
     // ipv6 アドレスを受け取る
-    for (uint32_t retry = 1; retry <= retry_limits; ++retry) {
+    for (auto retry = 1; retry <= retry_limits; ++retry) {
       // いったん止める
       delay(100);
       //
       std::string str = read_line_without_crln<512>();
-      if (str.length() > 0) {
+      if (!str.empty()) {
         return str;
       }
     }
     return std::nullopt;
   }
   // アクティブスキャンを実行する
-  std::optional<Response> do_active_scan(void (*message)(const char *)) {
+  std::optional<Response> do_active_scan(DisplayMessageT message) {
     // スマートメーターからの返答を待ち受ける関数
     auto got_respond = [this](int8_t duration) -> std::optional<Response> {
       // スキャン対象のチャンネル番号
@@ -219,7 +224,7 @@ public:
       // 結果報告用
       std::optional<Response> target_Whm = std::nullopt;
       //
-      for (uint32_t u = 0; u <= all_scan_millis; u += single_ch_scan_millis) {
+      for (auto u = 0; u <= all_scan_millis; u += single_ch_scan_millis) {
         // いったん止める
         delay(single_ch_scan_millis);
         // 結果を受け取る
@@ -229,10 +234,10 @@ public:
         }
         // 何か受け取ったみたい
         Response r = opt_res.value();
-        ESP_LOGD(MAIN, "%s", r.show().c_str());
+        ESP_LOGD(MAIN, "%s", std::to_string(r).c_str());
         if (r.tag == Response::Tag::EVENT) {
           // イベント番号
-          int num = std::strtol(r.keyval["NUM"].c_str(), nullptr, 16);
+          int32_t num = std::strtol(r.keyval["NUM"].c_str(), nullptr, 16);
           if (num == 0x22) {
             // EVENT 22
             // つまりアクティブスキャンの完了報告を確認しているのでスキャン結果を返す
@@ -258,7 +263,7 @@ public:
         break;
       }
       found = got_respond(duration);
-      if (found) {
+      if (found.has_value()) {
         // 接続対象のスマートメータを発見したら脱出する
         break;
       }
@@ -267,9 +272,9 @@ public:
     return found;
   }
   // 接続(PANA認証)要求を送る
-  bool connect(void (*message)(const char *)) {
+  bool connect(DisplayMessageT message) {
     //
-    ESP_LOGD(MAIN, "%s", smart_meter_ident.show().c_str());
+    ESP_LOGD(MAIN, "%s", std::to_string(smart_meter_ident).c_str());
 
     // 通信チャネルを設定する
     message("Set Channel\n");
@@ -293,7 +298,7 @@ public:
       return false;
     }
     // PANA認証要求結果を受け取る
-    for (std::size_t retry = 0; retry <= retry_limits; ++retry) {
+    for (auto retry = 0; retry <= retry_limits; ++retry) {
       // いったん止める
       delay(100);
       //
@@ -302,8 +307,7 @@ public:
         // 何か受け取った
         Response r = opt_res.value();
         if (r.tag == Response::Tag::EVENT) {
-          int num = std::strtol(r.keyval["NUM"].c_str(), nullptr, 16);
-          switch (num) {
+          switch (std::strtol(r.keyval["NUM"].c_str(), nullptr, 16)) {
           case 0x24: {
             // EVENT 24 :
             // PANAによる接続過程でエラーが発生した(接続が完了しなかった)
@@ -334,9 +338,9 @@ public:
   }
   // 成功ならtrue, それ以外ならfalse
   bool has_ok() {
-    for (std::size_t retry = 0; retry < retry_limits; ++retry) {
+    for (auto retry = 0; retry < retry_limits; ++retry) {
       std::string str = read_line_without_crln<512>();
-      if (str.length() == 0) {
+      if (str.empty()) {
         delay(100);
         continue;
       }
@@ -353,10 +357,12 @@ public:
     return false;
   }
   // 要求を送る
-  bool send_request(EchonetLiteTransactionId tid,
-                    std::vector<SmartWhm::EchonetLiteEPC> epcs) {
+  bool
+  send_request(EchonetLiteTransactionId tid,
+               std::vector<SmartElectricEnergyMeter::EchonetLiteEPC> epcs) {
     std::vector<uint8_t> frame =
-        SmartWhm::make_echonet_lite_frame(tid, EchonetLiteESV::Get, epcs);
+        SmartElectricEnergyMeter::make_echonet_lite_frame(
+            tid, EchonetLiteESV::Get, epcs);
     //
     auto to_string_hexd_u16 = [](uint16_t word) -> std::string {
       char buff[10]{'\0'};
@@ -391,7 +397,7 @@ public:
       //
       return [this]() -> std::optional<Response> {
         // EVENTメッセージの値
-        const std::array<std::string_view, 3> keys = {
+        constexpr std::string_view keys[] = {
             "NUM",    // イベント番号
             "SENDER", // イベントのトリガーとなったメッセージの発信元アドレス
             "PARAM",  // イベント固有の引数
@@ -404,7 +410,7 @@ public:
             // 値を得る
             kv.insert(std::make_pair(key, opt_token.value()));
           } else {
-            // 値が不足している
+            // 値が不足しているが
             // 3番目のパラメータがないことがあるので
             // とくに何もしません
           }
@@ -419,19 +425,19 @@ public:
       return [this]() -> std::optional<Response> {
         // EPANDESCメッセージの各行ごとの値
         // この順番どおりに読み込む
-        const std::array<std::string_view, 6> items = {
+        constexpr std::string_view items[] = {
             "Channel", // 発見したPANの周波数(論理チャンネル番号)
             "Channel Page", // 発見したPANのチャンネルページ
             "Pan ID",       //  発見したPANのPAN ID
             "Addr", // アクティブスキャン応答元のアドレス
             "LQI",  // 受信したビーコンの受信ED値(RSSI)
-            "PairID" // (IEが含まれる場合)相手から受信したPairing ID
+            "PairID", // (IEが含まれる場合)相手から受信したPairing ID
         };
         //
         std::map<std::string, std::string> kv{};
         for (const auto &it : items) {
           std::string line;
-          for (int retry = 1; retry <= retry_limits; ++retry) {
+          for (auto retry = 1; retry <= retry_limits; ++retry) {
             // 次の行を得る
             line = read_line_without_crln<512>();
             if (line.length() > 0) {
@@ -456,8 +462,9 @@ public:
           }
         }
         // keyvalue数の一致確認
-        if (kv.size() != items.size()) {
-          ESP_LOGE(MAIN, "Mismatched size : %d, %d", kv.size(), items.size());
+        if (kv.size() != std::size(items)) {
+          ESP_LOGE(MAIN, "Mismatched size : %d, %d", kv.size(),
+                   std::size(items));
         }
         return Response(std::time(nullptr), Response::Tag::EPANDESC,
                         std::move(kv));
@@ -468,7 +475,7 @@ public:
       //
       return [this]() -> std::optional<Response> {
         // ERXUDPメッセージの値
-        const std::array<std::string_view, 7> keys = {
+        constexpr std::string_view keys[] = {
             // 送信元IPv6アドレス
             "SENDER",
             // 送信先IPv6アドレス
@@ -509,7 +516,7 @@ public:
         // データの長さ分読み込む
         commport.readBytes(vect.data(), vect.size());
         // バイナリからテキスト形式に変換する
-        std::string textformat = Response::binary_to_text(vect);
+        std::string textformat = binary_to_text(vect);
         // key-valueストアに入れる
         kv.insert(std::make_pair("DATA", textformat));
         return Response(std::time(nullptr), Response::Tag::ERXUDP,
