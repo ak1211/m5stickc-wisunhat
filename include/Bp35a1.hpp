@@ -50,7 +50,7 @@ struct Bp35a1Response {
 
 //
 namespace std {
-string to_string(Bp35a1Response response) {
+string to_string(const Bp35a1Response &response) {
   std::string s;
   switch (response.tag) {
   case Bp35a1Response::Tag::EVENT:
@@ -80,11 +80,12 @@ string to_string(Bp35a1Response response) {
 // バイナリからテキスト形式に変換する
 std::string binary_to_text(const std::vector<uint8_t> &binaries) {
   std::string text{};
-  for (auto &octet : binaries) {
-    char work[10]{'\0'};
-    std::sprintf(work, "%02X", static_cast<int32_t>(octet));
-    text += std::string(work);
-  }
+  std::for_each(std::begin(binaries), std::end(binaries),
+                [&text](uint8_t octet) {
+                  char work[10]{'\0'};
+                  std::sprintf(work, "%02X", static_cast<int32_t>(octet));
+                  text += std::string(work);
+                });
   return text;
 }
 
@@ -208,10 +209,11 @@ public:
   // アクティブスキャンを実行する
   std::optional<Response> do_active_scan(DisplayMessageT message) {
     // スマートメーターからの返答を待ち受ける関数
-    auto got_respond = [this](int8_t duration) -> std::optional<Response> {
+    auto got_respond = [this](uint8_t duration) -> std::optional<Response> {
       // スキャン対象のチャンネル番号
-      // CHANNEL_MASKがFFFFFFFF つまり 11111111 11111111 11111111
-      // 11111111なので 最下位ビットがチャンネル33なので
+      // CHANNEL_MASKがFFFFFFFF つまり 11111111 11111111
+      // 11111111 11111111なので
+      // 最下位ビットがチャンネル33なので
       //             60,59,58,57,
       // 56,55,54,53,52,51,50,49,
       // 48,47,46,45,44,43,42,41,
@@ -223,7 +225,6 @@ public:
       const uint32_t all_scan_millis = total_ch * single_ch_scan_millis;
       // 結果報告用
       std::optional<Response> target_Whm = std::nullopt;
-      //
       for (auto u = 0; u <= all_scan_millis; u += single_ch_scan_millis) {
         // いったん止める
         delay(single_ch_scan_millis);
@@ -237,7 +238,7 @@ public:
         ESP_LOGD(MAIN, "%s", std::to_string(r).c_str());
         if (r.tag == Response::Tag::EVENT) {
           // イベント番号
-          int32_t num = std::strtol(r.keyval["NUM"].c_str(), nullptr, 16);
+          auto num = std::strtol(r.keyval["NUM"].c_str(), nullptr, 16);
           if (num == 0x22) {
             // EVENT 22
             // つまりアクティブスキャンの完了報告を確認しているのでスキャン結果を返す
@@ -255,7 +256,7 @@ public:
     std::optional<Response> found = std::nullopt;
     message("Active Scan");
     // 接続対象のスマートメータをスキャンする
-    for (auto duration : std::array<uint8_t, 5>{4, 5, 6, 7, 8}) {
+    for (uint8_t duration : {4, 5, 6, 7, 8}) {
       message(".");
       // スキャン要求を出す
       write_with_crln("SKSCAN 2 FFFFFFFF " + std::to_string(duration));
@@ -370,7 +371,7 @@ public:
       return std::string(buff);
     };
     std::string line;
-    line += {"SKSENDTO "};
+    line += "SKSENDTO ";
     line += "1 ";                                   // HANDLE
     line += smart_meter_ident.ipv6_address + " ";   // IPADDR
     line += std::string(EchonetLiteUdpPort) + " ";  // PORT
@@ -429,9 +430,10 @@ public:
             "Channel", // 発見したPANの周波数(論理チャンネル番号)
             "Channel Page", // 発見したPANのチャンネルページ
             "Pan ID",       //  発見したPANのPAN ID
-            "Addr", // アクティブスキャン応答元のアドレス
-            "LQI",  // 受信したビーコンの受信ED値(RSSI)
-            "PairID", // (IEが含まれる場合)相手から受信したPairing ID
+            "Addr",   // アクティブスキャン応答元のアドレス
+            "LQI",    // 受信したビーコンの受信ED値(RSSI)
+            "PairID", // (IEが含まれる場合)相手から受信したPairing
+                      // ID
         };
         //
         std::map<std::string, std::string> kv{};
@@ -506,7 +508,8 @@ public:
           }
         }
         //
-        // データはバイナリで送られてくるので, テキスト形式に変換する。
+        // データはバイナリで送られてくるので,
+        // テキスト形式に変換する。
         //
         std::size_t datalen =
             std::strtol(kv.at("DATALEN").c_str(), nullptr, 16);

@@ -147,7 +147,7 @@ static bool initializeTime(std::size_t retry_count = 100) {
   configTzTime(TZ_TIME_ZONE, "ntp.jst.mfeed.ad.jp", "time.cloudflare.com",
                "ntp.nict.jp");
   //
-  for (std::size_t retry = 0; retry < retry_count; ++retry) {
+  for (auto retry = 0; retry < retry_count; ++retry) {
     status = sntp_get_sync_status();
     if (status == SNTP_SYNC_STATUS_COMPLETED) {
       break;
@@ -290,12 +290,10 @@ static void process_node_profile_class_frame(const EchonetLiteFrame &frame) {
         const EchonetLiteObjectCode *begin =
             reinterpret_cast<const EchonetLiteObjectCode *>(&prop->edt[1]);
         const EchonetLiteObjectCode *end = begin + total_number_of_instances;
-        std::vector<EchonetLiteObjectCode> instances(begin, end);
-        //
         std::string str;
-        for (const EchonetLiteObjectCode &eoj : instances) {
+        std::for_each(begin, end, [&str](const EchonetLiteObjectCode &eoj) {
           str += std::to_string(eoj) + ",";
-        }
+        });
         str.pop_back(); // 最後の,を削る
         ESP_LOGD(MAIN, "list of object code(EOJ): %s", str.c_str());
       }

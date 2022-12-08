@@ -166,9 +166,9 @@ string to_string(const EchonetLiteFrame &frame) {
     s += "PDC:" + convert_byte(prop->pdc) + ",";
     if (prop->pdc >= 1) {
       s += "EDT:";
-      for (auto idx = 0; idx < prop->pdc; ++idx) {
-        s += convert_byte(prop->edt[idx]);
-      }
+      std::for_each(
+          prop->edt, &prop->edt[prop->pdc],
+          [&s, convert_byte](uint8_t octet) { s += convert_byte(octet); });
     }
     s += "] ";
   }
