@@ -494,6 +494,8 @@ void loop() {
   static time_point time_of_sent_message_to_smart_whm{system_clock::now()};
   // スマートメーターからの応答
   static bool had_good_response_of_smart_whm{true};
+  // 接続検査をした時間
+  static time_point time_of_connection_check{system_clock::now()};
 
   // 現在時刻
   time_point current_time_point = system_clock::now();
@@ -594,7 +596,9 @@ void loop() {
   //
   // 45秒以上の待ち時間があるうちに接続状態の検査をする:
   //
-  if (duration_cast<seconds>(seconds_in_ms) >= seconds{45}) {
+  if (auto elapsed = current_time_point - time_of_connection_check;
+      elapsed >= seconds{1} &&
+      duration_cast<seconds>(seconds_in_ms) >= seconds{45}) {
     if (WiFi.isConnected()) {
       // MQTT接続検査
       checkTelemetry(seconds{10});
@@ -602,6 +606,8 @@ void loop() {
       // WiFi接続検査
       checkWiFi(seconds{10});
     }
+    // 検査時間を記録する
+    time_of_connection_check = current_time_point;
   }
 
   //
