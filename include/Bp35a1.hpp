@@ -80,12 +80,11 @@ string to_string(const Bp35a1Response &response) {
 // バイナリからテキスト形式に変換する
 std::string binary_to_text(const std::vector<uint8_t> &binaries) {
   std::string text{};
-  std::for_each(std::begin(binaries), std::end(binaries),
-                [&text](uint8_t octet) {
-                  char work[10]{'\0'};
-                  std::sprintf(work, "%02X", static_cast<int32_t>(octet));
-                  text += std::string(work);
-                });
+  for (auto &octet : binaries) {
+    char work[100]{'\0'};
+    std::sprintf(work, "%02X", static_cast<int32_t>(octet));
+    text += std::string{work};
+  }
   return text;
 }
 
@@ -398,7 +397,7 @@ public:
       //
       return [this]() -> std::optional<Response> {
         // EVENTメッセージの値
-        constexpr std::string_view keys[] = {
+        constexpr std::array<std::string_view, 3> keys = {
             "NUM",    // イベント番号
             "SENDER", // イベントのトリガーとなったメッセージの発信元アドレス
             "PARAM",  // イベント固有の引数
@@ -426,7 +425,7 @@ public:
       return [this]() -> std::optional<Response> {
         // EPANDESCメッセージの各行ごとの値
         // この順番どおりに読み込む
-        constexpr std::string_view items[] = {
+        constexpr std::array<std::string_view, 6> items = {
             "Channel", // 発見したPANの周波数(論理チャンネル番号)
             "Channel Page", // 発見したPANのチャンネルページ
             "Pan ID",       //  発見したPANのPAN ID
@@ -477,7 +476,7 @@ public:
       //
       return [this]() -> std::optional<Response> {
         // ERXUDPメッセージの値
-        constexpr std::string_view keys[] = {
+        constexpr std::array<std::string_view, 7> keys = {
             // 送信元IPv6アドレス
             "SENDER",
             // 送信先IPv6アドレス

@@ -36,7 +36,7 @@ bool operator==(const EchonetLiteEHeader &left,
 namespace std {
 //
 string to_string(EchonetLiteEHeader ehd) {
-  char buffer[10]{'\0'};
+  char buffer[100]{'\0'};
   std::snprintf(buffer, std::size(buffer), "%02X%02X", ehd.u8[0], ehd.u8[1]);
   return string(buffer);
 }
@@ -98,7 +98,7 @@ union EchonetLiteTransactionId {
 namespace std {
 //
 string to_string(EchonetLiteTransactionId tid) {
-  char buffer[10]{'\0'};
+  char buffer[100]{'\0'};
   std::snprintf(buffer, std::size(buffer), "%02X%02X", tid.u8[0], tid.u8[1]);
   return string(buffer);
 }
@@ -166,9 +166,9 @@ string to_string(const EchonetLiteFrame &frame) {
     s += "PDC:" + convert_byte(prop->pdc) + ",";
     if (prop->pdc >= 1) {
       s += "EDT:";
-      std::for_each(
-          prop->edt, &prop->edt[prop->pdc],
-          [&s, convert_byte](uint8_t octet) { s += convert_byte(octet); });
+      for (auto i = 0; i < prop->pdc; ++i) {
+        s += convert_byte(prop->edt[i]);
+      }
     }
     s += "] ";
   }
