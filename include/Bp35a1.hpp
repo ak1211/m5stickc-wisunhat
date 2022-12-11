@@ -7,97 +7,106 @@
 #undef min
 #include <SmartWhm.hpp>
 #include <cstring>
+#include <iomanip>
+#include <iterator>
 #include <map>
 #include <optional>
+#include <sstream>
 #include <string>
-#include <tuple>
+
+using namespace std::literals::string_literals;
 
 //
 //
 //
-struct SmartMeterIdentifier {
+struct SmartMeterIdentifier final {
   std::string ipv6_address;
   std::string channel;
   std::string pan_id;
 };
 
 namespace std {
-//
-string to_string(SmartMeterIdentifier ident) {
-  std::string s;
-  s += "ipv6_address: \"" + ident.ipv6_address + "\",";
-  s += "channel: \"" + ident.channel + "\",";
-  s += "pan_id: \"" + ident.pan_id + "\"";
-  return s;
+string to_string(const SmartMeterIdentifier &ident) {
+  std::ostringstream oss;
+  oss << "ipv6_address: "s << std::quoted(ident.ipv6_address);
+  oss << ",channel: "s << std::quoted(ident.channel);
+  oss << ",pan_id: "s << std::quoted(ident.pan_id);
+  return oss.str();
 }
 } // namespace std
 
 //
 //
 //
-struct Bp35a1Response {
+struct Bp35a1Response final {
   // 受信した時間
   std::time_t created_at;
   // 受信したイベントの種類
-  enum class Tag { EVENT, EPANDESC, ERXUDP, UNKNOWN };
-  Tag tag;
+  enum class Tag { EVENT, EPANDESC, ERXUDP, UNKNOWN } tag;
   // key-valueストア
   std::map<std::string, std::string> keyval;
-  //
-  Bp35a1Response(std::time_t at, Tag t, std::map<std::string, std::string> &&kv)
-      : created_at{at}, tag{t}, keyval{std::move(kv)} {}
 };
 
 //
 namespace std {
 string to_string(const Bp35a1Response &response) {
-  std::string s;
+  std::ostringstream oss;
   switch (response.tag) {
   case Bp35a1Response::Tag::EVENT:
-    s += "EVENT ";
+    oss << "EVENT "s;
     break;
   case Bp35a1Response::Tag::EPANDESC:
-    s += "EPANDESC ";
+    oss << "EPANDESC "s;
     break;
   case Bp35a1Response::Tag::ERXUDP:
-    s += "ERXUDP ";
+    oss << "ERXUDP "s;
     break;
   case Bp35a1Response::Tag::UNKNOWN:
-    s += "UNKNOWN";
+    oss << "UNKNOWN "s;
     break;
   default:
-    s += "??? ";
+    oss << "??? "s;
     break;
   }
-  for (const auto &[key, val] : response.keyval) {
-    s += "\"" + key + "\":\"" + val + "\"" + ",";
+  if (response.keyval.empty()) {
+    return oss.str();
   }
-  s.pop_back(); // 最後の,を削る
-  return s;
+  //
+  auto mapping =
+      [](const std::pair<std::string, std::string> &kv) -> std::string {
+    std::ostringstream s;
+    s << std::quoted(kv.first) << ":"s << std::quoted(kv.second);
+    return s.str();
+  };
+  std::transform(std::begin(response.keyval), std::end(response.keyval),
+                 std::ostream_iterator<std::string>(oss, ","), mapping);
+  return oss.str(); // 最終カンマに対してなにもしない
 }
 } // namespace std
 
 // バイナリからテキスト形式に変換する
 std::string binary_to_text(const std::vector<uint8_t> &binaries) {
-  std::string text{};
-  for (auto &octet : binaries) {
-    char work[100]{'\0'};
-    std::sprintf(work, "%02X", static_cast<int32_t>(octet));
-    text += std::string{work};
-  }
-  return text;
+  std::ostringstream oss;
+  oss << std::uppercase << std::hex;
+  std::for_each(std::begin(binaries), std::end(binaries),
+                [&oss](uint8_t octet) -> void {
+                  oss << std::setfill('0') << std::setw(2) << +octet;
+                });
+  return oss.str();
 }
 
 // テキスト形式からバイナリに戻す
 std::vector<uint8_t> text_to_binary(std::string_view text) {
   std::vector<uint8_t> binary;
+  std::string s;
   for (auto itr = text.begin(); itr != text.end();) {
-    char work[10]{'\0'};
+    s.clear();
     // 8ビットは16進数2文字なので2文字毎に変換する
-    work[0] = *itr++;
-    work[1] = (itr == text.end()) ? '\0' : *itr++;
-    work[2] = '\0';
-    binary.push_back(std::strtol(work, nullptr, 16));
+    s.push_back(*itr++);
+    if (itr != text.end()) {
+      s.push_back(*itr++);
+    }
+    binary.push_back(std::stoi(s, nullptr, 16));
   }
   return binary;
 }
@@ -128,23 +137,23 @@ public:
   // BP35A1を起動して接続する
   bool boot(DisplayMessageT display_message) {
     // エコーバック抑制
-    write_with_crln("SKSREG SFE 0");
+    write_with_crln("SKSREG SFE 0"s);
 
     // 一旦セッションを切る
-    write_with_crln("SKTERM");
+    write_with_crln("SKTERM"s);
     delay(1000);
     clear_read_buffer();
 
     // パスワード設定
     display_message("Set password\n");
-    write_with_crln("SKSETPWD C " + std::string{b_route_password});
+    write_with_crln("SKSETPWD C "s + std::string{b_route_password});
     if (!has_ok()) {
       return false;
     }
 
     // ID設定
     display_message("Set ID\n");
-    write_with_crln("SKSETRBID " + std::string{b_route_id});
+    write_with_crln("SKSETRBID "s + std::string{b_route_id});
     if (!has_ok()) {
       return false;
     }
@@ -192,7 +201,7 @@ public:
     clear_read_buffer();
     // ipv6 アドレス要求を送る
     message("Fetch ipv6 address\n");
-    write_with_crln("SKLL64 " + addr);
+    write_with_crln("SKLL64 "s + addr);
     // ipv6 アドレスを受け取る
     for (auto retry = 1; retry <= retry_limits; ++retry) {
       // いったん止める
@@ -237,7 +246,7 @@ public:
         ESP_LOGD(MAIN, "%s", std::to_string(r).c_str());
         if (r.tag == Response::Tag::EVENT) {
           // イベント番号
-          auto num = std::strtol(r.keyval["NUM"].c_str(), nullptr, 16);
+          auto num = std::stol(r.keyval["NUM"], nullptr, 16);
           if (num == 0x22) {
             // EVENT 22
             // つまりアクティブスキャンの完了報告を確認しているのでスキャン結果を返す
@@ -258,7 +267,7 @@ public:
     for (uint8_t duration : {4, 5, 6, 7, 8}) {
       message(".");
       // スキャン要求を出す
-      write_with_crln("SKSCAN 2 FFFFFFFF " + std::to_string(duration));
+      write_with_crln("SKSCAN 2 FFFFFFFF "s + std::to_string(duration));
       if (!has_ok()) {
         break;
       }
@@ -278,13 +287,13 @@ public:
 
     // 通信チャネルを設定する
     message("Set Channel\n");
-    write_with_crln("SKSREG S2 " + smart_meter_ident.channel);
+    write_with_crln("SKSREG S2 "s + smart_meter_ident.channel);
     if (!has_ok()) {
       return false;
     }
     // Pan IDを設定する
     message("Set Pan ID\n");
-    write_with_crln("SKSREG S3 " + smart_meter_ident.pan_id);
+    write_with_crln("SKSREG S3 "s + smart_meter_ident.pan_id);
     if (!has_ok()) {
       return false;
     }
@@ -293,7 +302,7 @@ public:
 
     // PANA認証要求
     message("Connecting...\n");
-    write_with_crln("SKJOIN " + smart_meter_ident.ipv6_address);
+    write_with_crln("SKJOIN "s + smart_meter_ident.ipv6_address);
     if (!has_ok()) {
       return false;
     }
@@ -307,7 +316,7 @@ public:
         // 何か受け取った
         Response r = opt_res.value();
         if (r.tag == Response::Tag::EVENT) {
-          switch (std::strtol(r.keyval["NUM"].c_str(), nullptr, 16)) {
+          switch (std::stol(r.keyval["NUM"], nullptr, 16)) {
           case 0x24: {
             // EVENT 24 :
             // PANAによる接続過程でエラーが発生した(接続が完了しなかった)
@@ -364,18 +373,16 @@ public:
         SmartElectricEnergyMeter::make_echonet_lite_frame(
             tid, EchonetLiteESV::Get, epcs);
     //
-    auto to_string_hexd_u16 = [](uint16_t word) -> std::string {
-      char buff[10]{'\0'};
-      std::sprintf(buff, "%04X", word);
-      return std::string(buff);
-    };
-    std::string line;
-    line += "SKSENDTO ";
-    line += "1 ";                                   // HANDLE
-    line += smart_meter_ident.ipv6_address + " ";   // IPADDR
-    line += std::string(EchonetLiteUdpPort) + " ";  // PORT
-    line += "1 ";                                   // SEC
-    line += to_string_hexd_u16(frame.size()) + " "; // DATALEN
+    std::ostringstream oss;
+    oss << "SKSENDTO "s;
+    oss << "1 "s;                                  // HANDLE
+    oss << smart_meter_ident.ipv6_address << " "s; // IPADDR
+    oss << EchonetLiteUdpPort << " "s;             // PORT
+    oss << "1 "s;                                  // SEC
+    oss << std::uppercase << std::hex;
+    oss << std::setfill('0') << std::setw(4) << frame.size() << " "s; // DATALEN
+    //
+    auto line{oss.str()};
     ESP_LOGD(MAIN, "%s", line.c_str());
     // 送信(ここはテキスト)
     commport.write(line.c_str(), line.length());
@@ -415,8 +422,8 @@ public:
             // とくに何もしません
           }
         }
-        return Response(std::time(nullptr), Response::Tag::EVENT,
-                        std::move(kv));
+        return Response{std::time(nullptr), Response::Tag::EVENT,
+                        std::move(kv)};
       }();
     } else if (opt_tag.value() == std::string_view("EPANDESC")) {
       //
@@ -451,8 +458,8 @@ public:
           size_t pos = sv.find(":");
           if (pos == std::string::npos) {
             // 予想と違う行が入ってきたので,今ある値を返す
-            return Response(std::time(nullptr), Response::Tag::EPANDESC,
-                            std::move(kv));
+            return Response{std::time(nullptr), Response::Tag::EPANDESC,
+                            std::move(kv)};
           }
           std::string left{sv, 0, pos};
           std::string right{sv, pos + 1, sv.length()};
@@ -467,8 +474,8 @@ public:
           ESP_LOGE(MAIN, "Mismatched size : %d, %d", kv.size(),
                    std::size(items));
         }
-        return Response(std::time(nullptr), Response::Tag::EPANDESC,
-                        std::move(kv));
+        return Response{std::time(nullptr), Response::Tag::EPANDESC,
+                        std::move(kv)};
       }();
     } else if (opt_tag.value() == std::string_view("ERXUDP")) {
       //
@@ -510,8 +517,7 @@ public:
         // データはバイナリで送られてくるので,
         // テキスト形式に変換する。
         //
-        std::size_t datalen =
-            std::strtol(kv.at("DATALEN").c_str(), nullptr, 16);
+        std::size_t datalen = std::stol(kv.at("DATALEN"), nullptr, 16);
         // メモリーを確保して
         std::vector<uint8_t> vect{};
         vect.resize(datalen);
@@ -521,8 +527,8 @@ public:
         std::string textformat = binary_to_text(vect);
         // key-valueストアに入れる
         kv.insert(std::make_pair("DATA", textformat));
-        return Response(std::time(nullptr), Response::Tag::ERXUDP,
-                        std::move(kv));
+        return Response{std::time(nullptr), Response::Tag::ERXUDP,
+                        std::move(kv)};
       }();
     } else {
       //
@@ -574,9 +580,8 @@ public:
   }
   // CRLFを付けてストリームに1行書き込む関数
   void write_with_crln(const std::string &line) {
-    const char *cstr = line.c_str();
-    ESP_LOGD(SEND, "%s", cstr);
-    commport.write(cstr, std::strlen(cstr));
+    ESP_LOGD(SEND, "%s", line.c_str());
+    commport.write(line.c_str(), line.length());
     commport.write("\r\n");
     // メッセージ送信完了待ち
     commport.flush();

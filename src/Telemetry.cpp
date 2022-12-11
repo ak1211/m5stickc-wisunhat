@@ -14,7 +14,7 @@
 #include <esp_sntp.h>
 
 //
-static constexpr uint16_t AWS_IOT_MQTT_PORT{8883};
+constexpr uint16_t AWS_IOT_MQTT_PORT{8883};
 
 // MQTT
 static WiFiClientSecure https_client;
