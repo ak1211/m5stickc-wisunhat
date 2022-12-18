@@ -24,7 +24,7 @@
 #include <string>
 #include <vector>
 
-using namespace std::literals::string_literals;
+using namespace std::literals::string_view_literals;
 
 // time zone = Asia_Tokyo(UTC+9)
 constexpr char TZ_TIME_ZONE[] = "JST-9";
@@ -36,8 +36,11 @@ constexpr int CommPortTx{0};
 // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
 // グローバル変数はじまり
 
-// BP35A1 初期化が完了するまでnull
+// BP35A1 (初期化が完了するまでnull)
 static Bp35a1 *bp35a1{nullptr};
+
+// MQTT
+static Telemetry telemetry;
 
 // 瞬時電力量
 static Gauge<SmartElectricEnergyMeter::InstantWatt> instant_watt_gauge{
@@ -48,12 +51,12 @@ static Gauge<SmartElectricEnergyMeter::InstantWatt> instant_watt_gauge{
     [](std::optional<SmartElectricEnergyMeter::InstantWatt> iw) -> std::string {
       std::ostringstream oss;
       if (iw.has_value()) {
-        int32_t watt = iw.value().watt;
-        oss << std::setw(5) << std::setfill(' ') << watt;
+        auto watt = iw.value().watt;
+        oss << std::setw(5) << std::setfill(' ') << watt.count();
       } else {
-        oss << std::setw(5) << std::setfill('-') << "-"s;
+        oss << std::setw(5) << std::setfill('-') << "-"sv;
       }
-      oss << " W"s;
+      oss << " W"sv;
       return oss.str();
     }};
 
@@ -65,19 +68,20 @@ static Gauge<SmartElectricEnergyMeter::InstantAmpere> instant_ampere_gauge{
     {10, 10 + 48},
     [](std::optional<SmartElectricEnergyMeter::InstantAmpere> ia)
         -> std::string {
-      auto map_deciA = [](std::optional<int32_t> opt_dA) -> std::string {
+      using namespace SmartElectricEnergyMeter;
+      auto map_deciA = [](std::optional<DeciAmpere> opt_dA) -> std::string {
         std::ostringstream os;
         if (opt_dA.has_value()) {
           auto dA = opt_dA.value();
-          int32_t /**/ ampere = dA / 10; // 整数部
-          int32_t deci_ampere = dA % 10; // 小数部
+          int32_t /**/ ampere = dA.count() / 10; // 整数部
+          int32_t deci_ampere = dA.count() % 10; // 小数部
           os << std::setw(3) << std::setfill(' ') << ampere;
-          os << "."s;
+          os << "."sv;
           os << std::setw(1) << std::setfill(' ') << deci_ampere;
         } else {
-          os << std::setw(3) << std::setfill('-') << ""s;
-          os << "."s;
-          os << std::setw(1) << std::setfill('-') << ""s;
+          os << std::setw(3) << std::setfill('-') << ""sv;
+          os << "."sv;
+          os << std::setw(1) << std::setfill('-') << ""sv;
         }
         return os.str();
       };
@@ -85,24 +89,23 @@ static Gauge<SmartElectricEnergyMeter::InstantAmpere> instant_ampere_gauge{
       std::string r{};
       std::string t{};
       if (ia.has_value()) {
-        auto ampere = ia.value();
-        r = map_deciA(ampere.r_deciA);
-        t = map_deciA(ampere.t_deciA);
+        r = map_deciA(ia->ampereR);
+        t = map_deciA(ia->ampereT);
       } else {
         r = t = map_deciA(std::nullopt);
       }
-      oss << "R:"s << r << " A, T:"s << t << " A"s;
+      oss << "R:"sv << r << " A, T:"sv << t << " A"sv;
       return oss.str();
     }};
 
 // 積算電力量
-static Gauge<SmartElectricEnergyMeter::CumulativeWattHour>
+static Gauge<SmartElectricEnergyMeter::CumulativeWattHour2>
     cumulative_watt_hour_gauge{
         1,
         4,
         WHITE,
         {10, 10 + 48 + 24},
-        [](std::optional<SmartElectricEnergyMeter::CumulativeWattHour>
+        [](std::optional<SmartElectricEnergyMeter::CumulativeWattHour2>
                watt_hour) -> std::string {
           auto map_hour_min =
               [](std::optional<std::pair<int, int>> opt_hm) -> std::string {
@@ -110,40 +113,42 @@ static Gauge<SmartElectricEnergyMeter::CumulativeWattHour>
             if (opt_hm.has_value()) {
               auto [h, m] = opt_hm.value();
               os << std::setw(2) << std::setfill(' ') << h;
-              os << ":"s;
+              os << ":"sv;
               os << std::setw(2) << std::setfill('0') << m;
             } else {
-              os << std::setw(2) << std::setfill('-') << ""s;
-              os << ":"s;
-              os << std::setw(2) << std::setfill('-') << ""s;
+              os << std::setw(2) << std::setfill('-') << ""sv;
+              os << ":"sv;
+              os << std::setw(2) << std::setfill('-') << ""sv;
             }
             return os.str();
           };
           auto map_cwh =
               [](auto digit_width, auto unit_width,
-                 std::optional<SmartElectricEnergyMeter::CumulativeWattHour>
+                 std::optional<SmartElectricEnergyMeter::CumulativeWattHour2>
                      opt_cwh) -> std::string {
             std::ostringstream os;
             std::string str_kwh{};
             std::string str_unit{};
             if (opt_cwh.has_value()) {
-              auto opt_kwh = opt_cwh.value().to_string_kwh();
-              if (opt_kwh.has_value()) {
-                str_kwh = opt_kwh.value();
-                str_unit = "kwh"s;
+              auto cwh = opt_cwh.value();
+              auto opt_coefficient = cwh.opt_coefficient;
+              if (cwh.opt_unit.has_value()) {
+                auto unit = cwh.opt_unit.value();
+                str_kwh = to_string_cumlative_kilo_watt_hour(
+                    cwh, opt_coefficient, unit);
+                str_unit = "kwh"sv;
               } else {
                 // kwh単位にできなかったら,受け取ったそのままの値を出す
-                str_kwh =
-                    std::to_string(opt_cwh.value().raw_cumlative_watt_hour());
-                str_unit = ""s;
+                str_kwh = std::to_string(cwh.raw_cumlative_watt_hour());
+                str_unit = ""sv;
               }
               os << std::setw(digit_width) << std::setfill(' ') << str_kwh;
-              os << " "s;
+              os << " "sv;
               os << std::setw(unit_width) << std::setfill(' ') << str_unit;
             } else {
-              os << std::setw(digit_width) << std::setfill('-') << ""s;
-              os << " "s;
-              os << std::setw(unit_width) << std::setfill('-') << ""s;
+              os << std::setw(digit_width) << std::setfill('-') << ""sv;
+              os << " "sv;
+              os << std::setw(unit_width) << std::setfill('-') << ""sv;
             }
             return os.str();
           };
@@ -158,18 +163,17 @@ static Gauge<SmartElectricEnergyMeter::CumulativeWattHour>
             cwh = map_cwh(10, 3, std::nullopt);
           }
           std::ostringstream oss;
-          oss << hm << " "s << cwh;
+          oss << hm << " "sv << cwh;
           return oss.str();
         }};
 
 // グローバル変数おわり
 // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-namespace {
 //
 // WiFi APへ接続確立を試みる
 //
-auto connectToWiFi = [](std::size_t retry_count = 100) -> bool {
+static bool connectToWiFi(std::size_t retry_count = 100) {
   if (WiFi.status() == WL_CONNECTED) {
     ESP_LOGD(MAIN, "WIFI connected, pass");
     return true;
@@ -195,12 +199,12 @@ auto connectToWiFi = [](std::size_t retry_count = 100) -> bool {
   } else {
     return false;
   }
-};
+}
 
 //
 // NTPと同期する
 //
-auto initializeTime = [](std::size_t retry_count = 100) -> bool {
+static bool initializeTime(std::size_t retry_count = 300) {
   sntp_sync_status_t status = sntp_get_sync_status();
   //
   if (status == SNTP_SYNC_STATUS_COMPLETED) {
@@ -234,22 +238,22 @@ auto initializeTime = [](std::size_t retry_count = 100) -> bool {
     ESP_LOGE(MAIN, "SNTP sync failed");
     return false;
   }
-};
+}
 
 //
 // AWS IoTへ接続確立を試みる
 //
-auto establishConnection = []() -> bool {
+static bool establishConnection() {
   bool ok = connectToWiFi();
   ok = ok ? initializeTime() : ok;
-  ok = ok ? connectToAwsIot() : ok;
+  ok = ok ? telemetry.connectToAwsIot() : ok;
   return ok;
-};
+}
 
 //
 // WiFi接続検査
 //
-auto checkWiFi = [](std::chrono::seconds timeout) -> bool {
+static bool checkWiFi(std::chrono::seconds timeout) {
   using namespace std::chrono;
   time_point tp = system_clock::now() + timeout;
   do {
@@ -262,14 +266,12 @@ auto checkWiFi = [](std::chrono::seconds timeout) -> bool {
     delay(10);
   } while (system_clock::now() < tp);
   return WiFi.isConnected();
-};
+}
 
 //
 // bootメッセージ表示用
 //
-auto display_boot_message = [](const char *s) -> void { M5.Lcd.print(s); };
-
-} // namespace
+static void display_boot_message(const char *s) { M5.Lcd.print(s); }
 
 //
 // Arduinoのsetup()関数
@@ -312,12 +314,31 @@ void setup() {
   cumulative_watt_hour_gauge.update(true);
 }
 
-namespace {
 //
 // BP35A1から受信したイベントを処理する
 //
-auto process_event = [](const Bp35a1::Response &resp) -> void {
-  switch (std::strtol(resp.keyval.at("NUM").c_str(), nullptr, 16)) {
+static void process_event(const Bp35a1::Response &resp) {
+  switch (std::stol(resp.keyval.at("NUM"), nullptr, 16)) {
+  case 0x01: // EVENT 1 :
+             // NSを受信した
+    ESP_LOGI(MAIN, "Received NS");
+    break;
+  case 0x02: // EVENT 2 :
+             // NAを受信した
+    ESP_LOGI(MAIN, "Received NA");
+    break;
+  case 0x05: // EVENT 5 :
+             // Echo Requestを受信した
+    ESP_LOGI(MAIN, "Received Echo Request");
+    break;
+  case 0x1F: // EVENT 1F :
+             // EDスキャンが完了した
+    ESP_LOGI(MAIN, "Complete ED Scan.");
+    break;
+  case 0x20: // EVENT 20 :
+             // BeaconRequestを受信した
+    ESP_LOGI(MAIN, "Received BeaconRequest");
+    break;
   case 0x21: // EVENT 21 :
              // UDP送信処理が完了した
     ESP_LOGD(MAIN, "UDP transmission successful.");
@@ -340,34 +361,55 @@ auto process_event = [](const Bp35a1::Response &resp) -> void {
     instant_ampere_gauge.set(std::nullopt).update();
     cumulative_watt_hour_gauge.set(std::nullopt).update();
     break;
-  case 0x29: // ライフタイムが経過して期限切れになった
+  case 0x25: // EVENT 25 :
+             // PANAによる接続が完了した
+    ESP_LOGD(MAIN, "Connected");
+    break;
+  case 0x26: // EVENT 26 :
+             // 接続相手からセッション終了要求を受信した
+    ESP_LOGD(MAIN, "");
+    break;
+  case 0x27: // EVENT 27 :
+             // PANAセッションの終了に成功した
+    ESP_LOGD(MAIN, "");
+    break;
+  case 0x28: // EVENT 28 :
+             // PANAセッションの終了要求に対する応答がなくタイムアウトした(セッションは終了)
+    ESP_LOGD(MAIN, "");
+    break;
+  case 0x29: // PANAセッションのライフタイムが経過して期限切れになった
     ESP_LOGI(MAIN, "session timeout occurred");
+    break;
+  case 0x32: // ARIB108の送信緩和時間の制限が発動した
+    ESP_LOGI(MAIN, "");
+    break;
+  case 0x33: // ARIB108の送信緩和時間の制限が解除された
+    ESP_LOGI(MAIN, "");
     break;
   default:
     break;
   }
-};
+}
 
 //
 // ノードプロファイルクラスのEchonetLiteフレームを処理する
 //
-auto process_node_profile_class_frame =
-    [](const EchonetLiteFrame &frame) -> void {
+static void process_node_profile_class_frame(const EchonetLiteFrame &frame) {
   for (const auto &v : splitToEchonetLiteData(frame.edata)) {
     auto prop = reinterpret_cast<const EchonetLiteProp *>(v.data());
     switch (prop->epc) {
     case 0xD5:              // インスタンスリスト通知
       if (prop->pdc >= 4) { // 4バイト以上
-        ESP_LOGD(MAIN, "instances list");
         uint8_t total_number_of_instances = prop->edt[0];
-        const EchonetLiteObjectCode *p =
+        const EchonetLiteObjectCode *begin =
             reinterpret_cast<const EchonetLiteObjectCode *>(&prop->edt[1]);
-        std::string str;
-        for (auto i = 0; i < total_number_of_instances; ++i) {
-          str += std::to_string(p[i]) + ",";
-        }
-        str.pop_back(); // 最後の,を削る
-        ESP_LOGD(MAIN, "list of object code(EOJ): %s", str.c_str());
+        auto end = std::next(begin, total_number_of_instances);
+        std::ostringstream oss;
+        std::transform(begin, end, std::ostream_iterator<std::string>(oss, ","),
+                       [](const EchonetLiteObjectCode x) -> std::string {
+                         return to_string(x);
+                       });
+        ESP_LOGD(MAIN, "list of instances (EOJ): %s", oss.str().c_str());
       }
       //
       // 通知されているのは自分自身だろうから
@@ -375,45 +417,55 @@ auto process_node_profile_class_frame =
       //
       break;
     default:
+      ESP_LOGD(MAIN, "unknown EPC: %02x", prop->epc);
       break;
     }
   }
-};
+}
 
 //
 // 要求時間からトランザクションIDへ変換する
 //
-auto time_to_transaction_id = [](auto epoch) -> EchonetLiteTransactionId {
-  int32_t sec = std::chrono::duration_cast<std::chrono::seconds>(epoch).count();
+template <class Clock, class Duration>
+static EchonetLiteTransactionId
+time_to_transaction_id(std::chrono::time_point<Clock, Duration> tp) {
+  using namespace std::chrono;
+  auto epoch = tp.time_since_epoch();
+  int32_t sec = duration_cast<seconds>(epoch).count();
   EchonetLiteTransactionId tid{};
   tid.u8[0] = static_cast<uint8_t>(sec / 3600 % 24);
   tid.u8[1] = static_cast<uint8_t>(sec / 60 % 60);
   return tid;
-};
+}
 
 //
 // トランザクションIDから要求時間へ変換する
 //
-auto transaction_id_to_seconds = [](EchonetLiteTransactionId tid) -> int32_t {
+static int32_t transaction_id_to_seconds(EchonetLiteTransactionId tid) {
   int32_t h = tid.u8[0];
   int32_t m = tid.u8[1];
   int32_t sec = h * 3600 + m * 60;
   return sec;
-};
+}
 
 //
 // BP35A1から受信したERXUDPイベントを処理する
 //
-auto process_erxudp =
-    [](const Bp35a1::Response &resp, SmartWhm &smart_watt_hour_meter,
-       std::queue<std::string> &to_sending_message_fifo) -> bool {
+static void process_erxudp(const Bp35a1::Response &resp,
+                           SmartWhm &smart_watt_hour_meter,
+                           std::queue<std::string> &to_sending_message_fifo) {
   //
   // key-valueストアに入れるときにテキスト形式に変換してあるので元のバイナリに戻す
   //
   // ペイロード(テキスト形式)
-  std::string_view textformat = resp.keyval.at("DATA");
+  auto textformat = resp.keyval.at("DATA");
   // ペイロード(バイナリ形式)
   std::vector<uint8_t> binaryformat = text_to_binary(textformat);
+  // データの大きさを確認する
+  if (binaryformat.size() < sizeof(EchonetLiteFrame)) {
+    ESP_LOGD(MAIN, "insufficient input size: %d", binaryformat.size());
+    return;
+  }
   // EchonetLiteFrameに変換
   EchonetLiteFrame *pframe =
       reinterpret_cast<EchonetLiteFrame *>(binaryformat.data());
@@ -421,7 +473,7 @@ auto process_erxudp =
   // フレームヘッダの確認
   if (frame.ehd == EchonetLiteEHD) {
     //  EchonetLiteフレームだった
-    ESP_LOGD(MAIN, "%s", std::to_string(frame).c_str());
+    ESP_LOGD(MAIN, "%s", to_string(frame).c_str());
     //
     if (frame.edata.seoj == NodeProfileClass::EchonetLiteEOJ) {
       // ノードプロファイルクラス
@@ -440,35 +492,35 @@ auto process_erxudp =
         ESP_LOGI(MAIN, "Response elasped time of seconds:%4d", elapsed);
       }
       //
+      //      auto messages =
+      //      SmartElectricEnergyMeter::process_echonet_lite_frame(frame);
       smart_watt_hour_meter.process_echonet_lite_frame(resp.created_at, frame,
                                                        to_sending_message_fifo);
     } else {
-      ESP_LOGD(MAIN, "Unknown SEOJ: %s",
-               std::to_string(frame.edata.seoj).c_str());
-      return false;
+      ESP_LOGD(MAIN, "Unknown SEOJ: %s", to_string(frame.edata.seoj).c_str());
     }
   } else {
     ESP_LOGD(MAIN, "unknown frame header. EHD: %s",
-             std::to_string(frame.ehd).c_str());
-    return false;
+             to_string(frame.ehd).c_str());
   }
-  return true;
-};
+}
 
 //
 // プログレスバーを表示する
 //
-auto render_progress_bar = [](uint32_t permille) -> void {
+static void render_progress_bar(uint32_t permille) {
   int32_t bar_width = M5.Lcd.width() * permille / 1000;
   int32_t y = M5.Lcd.height() - 2;
   M5.Lcd.fillRect(bar_width, y, M5.Lcd.width(), M5.Lcd.height(), BLACK);
   M5.Lcd.fillRect(0, y, bar_width, M5.Lcd.height(), YELLOW);
-};
+}
 
 //
 // スマートメーターに最初の要求を出す
 //
-auto send_first_request = [](auto current_time) -> void {
+template <class Clock, class Duration>
+static void
+send_first_request(std::chrono::time_point<Clock, Duration> current_time) {
   using E = SmartElectricEnergyMeter::EchonetLiteEPC;
   std::vector<E> epcs = {
       E::Operation_status,            // 動作状態
@@ -484,20 +536,22 @@ auto send_first_request = [](auto current_time) -> void {
            "unit for whm / request number of "
            "effective digits");
   // スマートメーターに要求を出す
-  const auto tid = time_to_transaction_id(current_time.time_since_epoch());
+  const auto tid = time_to_transaction_id(current_time);
 
   if (bp35a1->send_request(tid, epcs)) {
     ESP_LOGV(MAIN, "request OK");
   } else {
     ESP_LOGD(MAIN, "request NG");
   }
-};
+}
 
 //
 // スマートメーターに定期的な要求を出す
 //
-auto send_periodical_request = [](auto current_time,
-                                  const SmartWhm &whm) -> void {
+template <class Clock, class Duration>
+static void
+send_periodical_request(std::chrono::time_point<Clock, Duration> current_time,
+                        const SmartWhm &whm) {
   using E = SmartElectricEnergyMeter::EchonetLiteEPC;
   std::vector<E> epcs = {
       E::Measured_instantaneous_power,    // 瞬時電力要求
@@ -532,14 +586,13 @@ auto send_periodical_request = [](auto current_time,
     ESP_LOGD(MAIN, "request day for historical data 1");
   }
   // スマートメーターに要求を出す
-  const auto tid = time_to_transaction_id(current_time.time_since_epoch());
+  const auto tid = time_to_transaction_id(current_time);
   if (bp35a1->send_request(tid, epcs)) {
     ESP_LOGV(MAIN, "request OK");
   } else {
     ESP_LOGD(MAIN, "request NG");
   }
-};
-} // namespace
+}
 
 //
 // Arduinoのloop()関数
@@ -556,8 +609,6 @@ void loop() {
   static time_point time_of_sent_message_to_iot_core{system_clock::now()};
   // スマートメーターにメッセージを送信した時間
   static time_point time_of_sent_message_to_smart_whm{system_clock::now()};
-  // スマートメーターからの応答
-  static bool had_good_response_of_smart_whm{true};
 
   // 現在時刻
   time_point current_time_point = system_clock::now();
@@ -565,7 +616,7 @@ void loop() {
   //
   // (あれば)２５個連続でスマートメーターからのメッセージを受信する
   //
-  for (std::size_t count = 0; count < 25; ++count) {
+  for (auto count = 0; count < 25; ++count) {
     auto resp = bp35a1->watch_response();
     if (resp.has_value()) {
       received_message_fifo.push(resp.value());
@@ -574,11 +625,11 @@ void loop() {
   }
 
   //
-  // 送信するべき測定値があればIoT Coreへ送信する(2秒以上の間隔をあけて)
+  // 送信するべき測定値があればIoT Coreへ送信する(1秒以上の間隔をあけて)
   //
-  if (current_time_point - time_of_sent_message_to_iot_core >= seconds{2} &&
+  if (current_time_point - time_of_sent_message_to_iot_core >= seconds{1} &&
       !to_sending_message_fifo.empty()) {
-    if (sendTelemetry(to_sending_message_fifo.front())) {
+    if (telemetry.send_mqtt(to_sending_message_fifo.front())) {
       // IoT Coreへ送信したメッセージをFIFOから消す
       to_sending_message_fifo.pop();
       // IoT Coreへの送信時間を記録する
@@ -591,7 +642,7 @@ void loop() {
   //
   if (!received_message_fifo.empty()) {
     const Bp35a1::Response &resp = received_message_fifo.front();
-    ESP_LOGD(MAIN, "%s", std::to_string(resp).c_str());
+    ESP_LOGD(MAIN, "%s", to_string(resp).c_str());
     switch (resp.tag) {
     case Bp35a1::Response::Tag::EVENT:
       // イベント受信処理
@@ -599,8 +650,7 @@ void loop() {
       break;
     case Bp35a1::Response::Tag::ERXUDP:
       // ERXUDPを処理する
-      had_good_response_of_smart_whm =
-          process_erxudp(resp, smart_watt_hour_meter, to_sending_message_fifo);
+      process_erxudp(resp, smart_watt_hour_meter, to_sending_message_fifo);
       // 測定値をセットする
       instant_watt_gauge.set(smart_watt_hour_meter.instant_watt);
       instant_ampere_gauge.set(smart_watt_hour_meter.instant_ampere);
@@ -621,7 +671,7 @@ void loop() {
   cumulative_watt_hour_gauge.update();
   //
   M5.update();
-  loopTelemetry();
+  telemetry.loop_mqtt();
 
   //
   // プログレスバーを表示する
@@ -644,10 +694,8 @@ void loop() {
       send_first_request(current_time_point);
       // 送信時間を記録する
       time_of_sent_message_to_smart_whm = current_time_point;
-    } else if (!had_good_response_of_smart_whm || elapsed > seconds{60} ||
-               duration_cast<seconds>(seconds_in_ms) == seconds{0}) {
-      // 前回要求が失敗した。
-      // または毎分０秒
+    } else if (elapsed > seconds{60} || seconds_in_ms < milliseconds{1000}) {
+      // 毎分０秒
       // または前回要求より６０秒超過したらスマートメーターに定期要求を出す
       send_periodical_request(current_time_point, smart_watt_hour_meter);
       // 送信時間を記録する
@@ -656,15 +704,15 @@ void loop() {
   }
 
   //
-  // 30秒以上の待ち時間があるうちに接続状態の検査をする:
+  // 50秒以上の待ち時間があるうちに接続状態の検査をする:
   //
-  if (seconds_in_ms >= seconds{30}) {
+  if (seconds_in_ms >= seconds{50}) {
     if (WiFi.isConnected()) {
       // MQTT接続検査
-      checkTelemetry(seconds{10});
+      telemetry.check_mqtt(seconds{30});
     } else {
       // WiFi接続検査
-      checkWiFi(seconds{10});
+      checkWiFi(seconds{30});
     }
   }
 

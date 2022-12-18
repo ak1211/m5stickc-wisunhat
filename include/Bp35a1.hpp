@@ -6,8 +6,8 @@
 #include <M5StickCPlus.h>
 #undef min
 #include <SmartWhm.hpp>
+#include <cinttypes>
 #include <cstring>
-#include <iomanip>
 #include <iterator>
 #include <map>
 #include <optional>
@@ -15,25 +15,593 @@
 #include <string>
 
 using namespace std::literals::string_literals;
+using namespace std::literals::string_view_literals;
 
 //
-//
-//
-struct SmartMeterIdentifier final {
-  std::string ipv6_address;
-  std::string channel;
-  std::string pan_id;
+// template <class T> std::optional<T> from_string(const std::string &in);
+
+// 2桁の16進数
+struct HexedU8 final {
+  uint8_t u8;
+  explicit HexedU8(uint8_t in = 0U) { u8 = in; }
+  operator std::string() const;
 };
-
-namespace std {
-string to_string(const SmartMeterIdentifier &ident) {
+std::istream &operator>>(std::istream &is, HexedU8 &v) {
+  auto save = is.flags();
+  uint32_t u32;
+  is >> std::setw(2) >> std::hex >> u32;
+  v = HexedU8{static_cast<uint8_t>(u32)};
+  is.flags(save);
+  return is;
+}
+std::ostream &operator<<(std::ostream &os, const HexedU8 &v) {
+  auto save = os.flags();
+  os << std::setfill('0') << std::setw(2) << std::hex << std::uppercase
+     << +v.u8;
+  os.flags(save);
+  return os;
+}
+std::optional<HexedU8> makeHexedU8(const std::string &in) {
+  HexedU8 v;
+  std::istringstream iss{in};
+  iss >> v;
+  return (iss.good()) ? std::make_optional(v) : std::nullopt;
+}
+HexedU8::operator std::string() const {
   std::ostringstream oss;
-  oss << "ipv6_address: "s << std::quoted(ident.ipv6_address);
-  oss << ",channel: "s << std::quoted(ident.channel);
-  oss << ",pan_id: "s << std::quoted(ident.pan_id);
+  oss << *this;
   return oss.str();
 }
-} // namespace std
+/*
+//
+template <> std::optional<HexedU8> from_string(const std::string &in) {
+  HexedU8 result;
+  if (std::sscanf(in.c_str(), "%02hhX", &result.u8) == 1) {
+    return std::make_optional(result);
+  } else {
+    return std::nullopt;
+  }
+}
+//
+std::string to_string(HexedU8 in) {
+  std::string buff(10, '\0');
+  auto n = std::snprintf(buff.data(), buff.size(), "%02X", in.u8);
+  if (n < 0) {
+    n = 0;
+  }
+  buff.resize(n);
+  return buff;
+}
+*/
+
+// 4桁の16進数
+struct HexedU16 final {
+  uint16_t u16;
+  explicit HexedU16(uint16_t in = 0U) { u16 = in; }
+  operator std::string() const;
+};
+std::istream &operator>>(std::istream &is, HexedU16 &v) {
+  auto save = is.flags();
+  is >> std::setw(4) >> std::hex >> v.u16;
+  is.flags(save);
+  return is;
+}
+std::ostream &operator<<(std::ostream &os, const HexedU16 &v) {
+  auto save = os.flags();
+  os << std::setfill('0') << std::setw(4) << std::hex << std::uppercase
+     << +v.u16;
+  os.flags(save);
+  return os;
+}
+std::optional<HexedU16> makeHexedU16(const std::string &in) {
+  HexedU16 v;
+  std::istringstream iss{in};
+  iss >> v;
+  return (iss.good()) ? std::make_optional(v) : std::nullopt;
+}
+HexedU16::operator std::string() const {
+  std::ostringstream oss;
+  oss << *this;
+  return oss.str();
+}
+/*
+//
+template <> std::optional<HexedU16> from_string(const std::string &in) {
+  HexedU16 result;
+  if (std::sscanf(in.c_str(), "%04hX", &result.u16) == 1) {
+    return std::make_optional(result);
+  } else {
+    return std::nullopt;
+  }
+}
+//
+std::string to_string(HexedU16 in) {
+  std::string buff(10, '\0');
+  auto n = std::snprintf(buff.data(), buff.size(), "%04X", in.u16);
+  if (n < 0) {
+    n = 0;
+  }
+  buff.resize(n);
+  return buff;
+}
+*/
+
+// 16桁の16進数
+struct HexedU64 final {
+  uint64_t u64;
+  explicit HexedU64(uint64_t in = 0U) { u64 = in; }
+  operator std::string() const;
+};
+std::istream &operator>>(std::istream &is, HexedU64 &v) {
+  auto save = is.flags();
+  is >> std::setw(16) >> std::hex >> v.u64;
+  is.flags(save);
+  return is;
+}
+std::ostream &operator<<(std::ostream &os, const HexedU64 &v) {
+  auto save = os.flags();
+  os << std::setfill('0') << std::setw(16) << std::hex << std::uppercase
+     << +v.u64;
+  os.flags(save);
+  return os;
+}
+std::optional<HexedU64> makeHexedU64(const std::string &in) {
+  HexedU64 v;
+  std::istringstream iss{in};
+  iss >> v;
+  return (iss.good()) ? std::make_optional(v) : std::nullopt;
+}
+HexedU64::operator std::string() const {
+  std::ostringstream oss;
+  oss << *this;
+  return oss.str();
+}
+/*
+//
+template <> std::optional<HexedU64> from_string(const std::string &in) {
+  HexedU64 result;
+  if (std::sscanf(in.c_str(), "%016" SCNu64, &result.u64) == 1) {
+    return std::make_optional(result);
+  } else {
+    return std::nullopt;
+  }
+}
+//
+std::string to_string(HexedU64 in) {
+  std::string buff(20, '\0');
+  auto n = std::snprintf(buff.data(), buff.size(), "%016" PRIu64, in.u64);
+  if (n < 0) {
+    n = 0;
+  }
+  buff.resize(n);
+  return buff;
+}
+*/
+
+// IPV6アドレス
+struct IPv6Addr {
+  std::array<HexedU16, 8> hex;
+  explicit IPv6Addr(std::array<HexedU16, 8> in = {
+                        HexedU16{},
+                        HexedU16{},
+                        HexedU16{},
+                        HexedU16{},
+                        HexedU16{},
+                        HexedU16{},
+                        HexedU16{},
+                        HexedU16{},
+                    }) {
+    std::copy(std::begin(in), std::end(in), std::begin(hex));
+  }
+  operator std::string() const;
+};
+std::istream &operator>>(std::istream &is, IPv6Addr &v) {
+  auto save = is.flags();
+  char colon;
+  is >> v.hex[0] >> colon;
+  is >> v.hex[1] >> colon;
+  is >> v.hex[2] >> colon;
+  is >> v.hex[3] >> colon;
+  is >> v.hex[4] >> colon;
+  is >> v.hex[5] >> colon;
+  is >> v.hex[6] >> colon;
+  is >> v.hex[7];
+  is.flags(save);
+  return is;
+}
+std::ostream &operator<<(std::ostream &os, const IPv6Addr &v) {
+  auto save = os.flags();
+  auto colon = ":"s;
+  os << v.hex[0] << colon;
+  os << v.hex[1] << colon;
+  os << v.hex[2] << colon;
+  os << v.hex[3] << colon;
+  os << v.hex[4] << colon;
+  os << v.hex[5] << colon;
+  os << v.hex[6] << colon;
+  os << v.hex[7];
+  os.flags(save);
+  return os;
+}
+std::optional<IPv6Addr> makeIPv6Addr(const std::string &in) {
+  IPv6Addr v;
+  std::istringstream iss{in};
+  iss >> v;
+  return (iss.good()) ? std::make_optional(v) : std::nullopt;
+}
+IPv6Addr::operator std::string() const {
+  std::ostringstream oss;
+  oss << *this;
+  return oss.str();
+}
+/*
+//
+template <> std::optional<IPv6Addr> from_string(const std::string &in) {
+  IPv6Addr result;
+  if (std::sscanf(in.c_str(),
+                  "%04hX:" // 0
+                  "%04hX:" // 1
+                  "%04hX:" // 2
+                  "%04hX:" // 3
+                  "%04hX:" // 4
+                  "%04hX:" // 5
+                  "%04hX:" // 6
+                  "%04hX", // 7
+                  &result.hex[0].u16, &result.hex[1].u16, &result.hex[2].u16,
+                  &result.hex[3].u16, &result.hex[4].u16, &result.hex[5].u16,
+                  &result.hex[6].u16, &result.hex[7].u16) == 8) {
+    return std::make_optional(result);
+  } else {
+    return std::nullopt;
+  }
+}
+//
+std::string to_string(IPv6Addr in) {
+  const auto colon = ":"s;
+  return to_string(in.hex[0]) + colon + // 0
+         to_string(in.hex[1]) + colon + // 1
+         to_string(in.hex[2]) + colon + // 2
+         to_string(in.hex[3]) + colon + // 3
+         to_string(in.hex[4]) + colon + // 4
+         to_string(in.hex[5]) + colon + // 5
+         to_string(in.hex[6]) + colon + // 6
+         to_string(in.hex[7]);          // 7
+}
+*/
+
+//
+// EVENTメッセージの値
+//
+struct Bp35a1EVENT final {
+  HexedU8 num;     // イベント番号
+  IPv6Addr sender; // イベントのトリガーとなったメッセージの発信元アドレス
+  std::optional<HexedU8> param; // イベント固有の引数
+};
+
+//
+// EPANDESCメッセージの値
+//
+struct Bp35a1EPANDESC final {
+  HexedU8 channel; // 発見したPANの周波数(論理チャンネル番号)
+  HexedU8 channel_page; // 発見したPANのチャンネルページ
+  HexedU16 pan_id;      //  発見したPANのPAN ID
+  HexedU64 addr;        // アクティブスキャン応答元のアドレス
+  HexedU8 lqi;          // 受信したビーコンの受信ED値(RSSI)
+  std::string pairid; // (IEが含まれる場合)相手から受信したPairingID
+};
+
+//
+// ERXUDPメッセージの値
+//
+struct Bp35a1ERXUDP final {
+  IPv6Addr sender;       // 送信元IPv6アドレス
+  IPv6Addr dest;         // 送信先IPv6アドレス
+  HexedU16 rport;        // 送信元ポート番号
+  HexedU16 lport;        // 送信元ポート番号
+  std::string senderlla; // 送信元のMACアドレス
+  HexedU8 secured;       // MACフレームが暗号化されていた または
+                         // MACフレームが暗号化されていなかった
+  HexedU16 datalen;      // データの長さ
+  std::vector<uint8_t> data; // データ
+};
+
+using Bp35a1Res = std::variant<Bp35a1EVENT, Bp35a1EPANDESC, Bp35a1ERXUDP>;
+
+// ストリームからsepで区切られたトークンを得る
+std::pair<std::string, std::string> get_token(Stream &commport,
+                                              char sep = ' ') {
+  constexpr std::size_t LINE_BUFFER_SIZE{512};
+  std::string separator{2, '\0'};
+  std::string token{};
+  for (auto count = 0; count < LINE_BUFFER_SIZE; ++count) {
+    if (!commport.available()) {
+      // ストリームの最後まで読み込んだので脱出する
+      break;
+    }
+    // 1文字読み込んで
+    auto ch = commport.read();
+    if (ch < 0) {
+      // ストリームの最後まで読み込んだので脱出する
+      break;
+    } else if (ch == sep) {
+      // sepを見つけたので脱出する
+      separator.push_back(ch);
+      break;
+    } else if (ch == '\r') { // CarriageReturn
+      separator.push_back(ch);
+      if (commport.peek() == '\n') { // CR + LF
+        auto next = commport.read();
+        separator.push_back(next);
+      }
+      break;
+    } else if (ch == '\n') { // LineFeed
+      separator.push_back(ch);
+      break;
+    } else {
+      // 読み込んだ文字はバッファへ追加する
+      token.push_back(static_cast<char>(ch));
+    }
+  }
+  token.shrink_to_fit();
+  return {token, separator};
+}
+
+//
+// 受信
+//
+std::optional<Bp35a1Res> receive_response(Stream &commport) {
+  // EVENTを受信する
+  auto rx_event = [&commport](const std::string &) -> Bp35a1EVENT {
+    Bp35a1EVENT ev;
+    std::array<std::string, 3> tokens;
+    for (auto &token : tokens) {
+      auto [x, sep] = get_token(commport);
+      token = x;
+      if (sep != " "s) {
+        break;
+      }
+    }
+    ev.num = makeHexedU8(tokens[0]).value_or(HexedU8{});
+    ev.sender = makeIPv6Addr(tokens[1]).value_or(IPv6Addr{});
+    ev.param = makeHexedU8(tokens[2]);
+    return ev;
+  };
+  // EPANDESCを受信する
+  auto rx_epandesc = [&commport](const std::string &) -> Bp35a1EPANDESC {
+    Bp35a1EPANDESC ev;
+    std::array<std::pair<std::string, std::string>, 6> tokens;
+    for (auto &token : tokens) {
+      auto [left, sep1] = get_token(commport, ':');
+      auto [right, sep2] = get_token(commport, ':');
+      token = {left, right};
+    }
+
+    for (const auto [left, right] : tokens) {
+      // 先頭に空白があるからここではfindで確認する
+      if (left.find("Channel") != std::string::npos) {
+        ev.channel = makeHexedU8(right).value_or(HexedU8{});
+      } else if (left.find("Channel Page") != std::string::npos) {
+        ev.channel_page = makeHexedU8(right).value_or(HexedU8{});
+      } else if (left.find("Pan ID") != std::string::npos) {
+        ev.pan_id = makeHexedU16(right).value_or(HexedU16{});
+      } else if (left.find("Addr") != std::string::npos) {
+        ev.addr = makeHexedU64(right).value_or(HexedU64{});
+      } else if (left.find("LQI") != std::string::npos) {
+        ev.lqi = makeHexedU8(right).value_or(HexedU8{});
+      } else if (left.find("PairID") != std::string::npos) {
+        ev.pairid = right;
+      } else {
+        ESP_LOGE(MAIN, "Unexpected input. \"%s\":\"%s\"", left, right);
+      }
+    }
+    return ev;
+  };
+  // ERXUDPを受信する
+  auto rx_erxudp = [&commport](const std::string &) -> Bp35a1ERXUDP {
+    Bp35a1ERXUDP ev;
+    std::array<std::string, 7> tokens;
+    for (auto &token : tokens) {
+      auto [x, sep] = get_token(commport);
+      token = x;
+      if (sep != " ") {
+        break;
+      }
+    }
+    ev.sender = makeIPv6Addr(tokens[0]).value_or(IPv6Addr{});
+    ev.dest = makeIPv6Addr(tokens[1]).value_or(IPv6Addr{});
+    ev.rport = makeHexedU16(tokens[2]).value_or(HexedU16{});
+    ev.lport = makeHexedU16(tokens[3]).value_or(HexedU16{});
+    ev.senderlla = tokens[4];
+    ev.secured = makeHexedU8(tokens[5]).value_or(HexedU8{});
+    ev.datalen = makeHexedU16(tokens[6]).value_or(HexedU16{});
+    // メモリーを確保して
+    ev.data.resize(ev.datalen.u16);
+    // データの長さ分読み込む
+    commport.readBytes(ev.data.data(), ev.data.size());
+    return ev;
+  };
+  // よくわからないイベントを受信する
+  auto rx_fallthrough =
+      [&commport](const std::string &token) -> std::optional<Bp35a1Res> {
+    ESP_LOGD(MAIN, "Unknown event: \"%s\"", token.c_str());
+    return std::nullopt;
+  };
+  //
+  //
+  //
+  auto [token, sep] = get_token(commport);
+  return (token == "EVENT"sv)      ? rx_event(token)
+         : (token == "EPANDESC"sv) ? rx_epandesc(token)
+         : (token == "ERXUDP"sv)   ? rx_erxudp(token)
+                                   : rx_fallthrough(token);
+}
+/*
+// 受信
+std::optional<Response> watch_response() {
+ std::optional<std::string> opt_tag = get_token();
+ // 受信したメッセージを解析する
+ if (!opt_tag.has_value()) {
+   // 何も受け取れなかった場合
+   return std::nullopt;
+ } else if (opt_tag.value() == "EVENT"sv) {
+   //
+   // EVENTを受け取った
+   //
+   return [this]() -> std::optional<Response> {
+     // EVENTメッセージの値
+     constexpr std::array<std::string_view, 3> keys = {
+         "NUM"sv,    // イベント番号
+         "SENDER"sv, // イベントのトリガーとなったメッセージの発信元アドレス
+         "PARAM"sv,  // イベント固有の引数
+     };
+     //
+     std::map<std::string, std::string> kv{};
+     for (const auto &key : keys) {
+       if (auto opt_token = get_token(); opt_token.has_value()) {
+         // 受け取った値をkey-valueストアへ
+         kv.insert(std::make_pair(key, opt_token.value()));
+       } else {
+         // 値が不足しているが
+         // 3番目のパラメータがないことがあるので
+         // とくに何もしません
+       }
+     }
+     return Response{std::time(nullptr), Response::Tag::EVENT,
+                     std::move(kv)};
+   }();
+ } else if (opt_tag.value() == "EPANDESC"sv) {
+   //
+   // EPANDESCを受け取った
+   //
+   return [this]() -> std::optional<Response> {
+     // EPANDESCメッセージの各行ごとの値
+     // この順番どおりに読み込む
+     constexpr std::array<std::string_view, 6> keys = {
+         "Channel"sv, // 発見したPANの周波数(論理チャンネル番号)
+         "Channel Page"sv, // 発見したPANのチャンネルページ
+         "Pan ID"sv, //  発見したPANのPAN ID
+         "Addr"sv, // アクティブスキャン応答元のアドレス
+         "LQI"sv, // 受信したビーコンの受信ED値(RSSI)
+         "PairID"sv, // (IEが含まれる場合)相手から受信したPairingID
+     };
+     //
+     std::map<std::string, std::string> kv{};
+     for (const auto &key : keys) {
+       std::optional<std::string> line{};
+       for (auto retry = 1; retry <= retry_limits; ++retry) {
+         // 次の行を得る
+         if (line = read_line_without_crln(); line.has_value()) {
+           break;
+         }
+         delay(10);
+       }
+       // ':'の位置でleftとrightに分ける
+       auto str{line.value_or("")};
+       auto pos = str.find(":");
+       if (pos == std::string::npos) {
+         // 予想と違う行が入ってきたので,今ある値を返す
+         return Response{std::time(nullptr), Response::Tag::EPANDESC,
+                         std::move(kv)};
+       }
+       std::string left{str, 0, pos};
+       std::string right{str, pos + 1, std::string::npos};
+       // 先頭に空白があるからここではfindで確認する
+       // キーが一致したらmapに入れる
+       if (left.find(key) != std::string::npos) {
+         kv.insert(std::make_pair(key, right));
+       }
+     }
+     // key-value数の一致確認
+     if (kv.size() != std::size(keys)) {
+       ESP_LOGE(MAIN, "Mismatched size : %d, %d", kv.size(),
+                std::size(keys));
+     }
+     return Response{std::time(nullptr), Response::Tag::EPANDESC,
+                     std::move(kv)};
+   }();
+ } else if (opt_tag.value() == "ERXUDP"sv) {
+   //
+   // ERXUDPを受け取った
+   //
+   return [this]() -> std::optional<Response> {
+     // ERXUDPメッセージの値
+     constexpr std::array<std::string_view, 7> keys = {
+         // 送信元IPv6アドレス
+         "SENDER"sv,
+         // 送信先IPv6アドレス
+         "DEST"sv,
+         // 送信元ポート番号
+         "RPORT"sv,
+         // 送信元ポート番号
+         "LPORT"sv,
+         // 送信元のMACアドレス
+         "SENDERLLA"sv,
+         // SECURED=1 : MACフレームが暗号化されていた
+         // SECURED=0 : MACフレームが暗号化されていなかった
+         "SECURED"sv,
+         // データの長さ
+         "DATALEN"sv,
+         // ここからデータなんだけどバイナリ形式だから特別扱いする。
+     };
+     //
+     std::map<std::string, std::string> kv;
+     for (const auto &key : keys) {
+       if (auto opt_token = get_token(); opt_token.has_value()) {
+         // 値を得る
+         kv.insert(std::make_pair(key, opt_token.value()));
+       } else {
+         // 値が不足している
+         return std::nullopt;
+       }
+     }
+     //
+     // データはバイナリで送られてくるので,
+     // テキスト形式に変換する。
+     //
+     std::size_t datalen = std::stol(kv.at("DATALEN"s), nullptr, 16);
+     // メモリーを確保して
+     std::vector<uint8_t> vect{};
+     vect.resize(datalen);
+     // データの長さ分読み込む
+     commport.readBytes(vect.data(), vect.size());
+     // バイナリからテキスト形式に変換する
+     std::string textformat = binary_to_text(vect);
+     // key-valueストアに入れる
+     kv.insert(std::make_pair("DATA"s, textformat));
+     return Response{std::time(nullptr), Response::Tag::ERXUDP,
+                     std::move(kv)};
+   }();
+ } else {
+   //
+   // 何か来たみたい。
+   //
+   ESP_LOGD(MAIN, "Unknown event: \"%s\"", opt_tag.value().c_str());
+ }
+ return std::nullopt;
+}
+// ストリームから空白で区切られたトークンを得る
+std::optional<std::string> get_token() {
+ std::string result{};
+ for (auto count = 0; count < LINE_BUFFER_SIZE; ++count) {
+   // 1文字読み込んで
+   int ch = commport.read();
+   if (ch < 0) {
+     // ストリームの最後まで読み込んだので脱出する
+     break;
+   } else if (std::isspace(ch)) {
+     // 空白を見つけたので脱出する
+     // 読み込んだ空白文字は捨てる
+     break;
+   } else {
+     // 読み込んだ文字はバッファへ追加する
+     result.push_back(static_cast<char>(ch));
+   }
+ }
+ //
+ // 空白またはCRまたはLFで始まっていたのでトークンがなかった場合はnullopt
+ return (result.length() > 0) ? std::make_optional(result) : std::nullopt;
+}
+*/
 
 //
 //
@@ -48,24 +616,23 @@ struct Bp35a1Response final {
 };
 
 //
-namespace std {
-string to_string(const Bp35a1Response &response) {
+std::string to_string(const Bp35a1Response &response) {
   std::ostringstream oss;
   switch (response.tag) {
   case Bp35a1Response::Tag::EVENT:
-    oss << "EVENT "s;
+    oss << "EVENT "sv;
     break;
   case Bp35a1Response::Tag::EPANDESC:
-    oss << "EPANDESC "s;
+    oss << "EPANDESC "sv;
     break;
   case Bp35a1Response::Tag::ERXUDP:
-    oss << "ERXUDP "s;
+    oss << "ERXUDP "sv;
     break;
   case Bp35a1Response::Tag::UNKNOWN:
-    oss << "UNKNOWN "s;
+    oss << "UNKNOWN "sv;
     break;
   default:
-    oss << "??? "s;
+    oss << "??? "sv;
     break;
   }
   if (response.keyval.empty()) {
@@ -75,14 +642,13 @@ string to_string(const Bp35a1Response &response) {
   auto mapping =
       [](const std::pair<std::string, std::string> &kv) -> std::string {
     std::ostringstream s;
-    s << std::quoted(kv.first) << ":"s << std::quoted(kv.second);
+    s << std::quoted(kv.first) << ":"sv << std::quoted(kv.second);
     return s.str();
   };
   std::transform(std::begin(response.keyval), std::end(response.keyval),
                  std::ostream_iterator<std::string>(oss, ","), mapping);
   return oss.str(); // 最終カンマに対してなにもしない
 }
-} // namespace std
 
 // バイナリからテキスト形式に変換する
 std::string binary_to_text(const std::vector<uint8_t> &binaries) {
@@ -114,14 +680,32 @@ std::vector<uint8_t> text_to_binary(std::string_view text) {
 //
 //
 //
+struct SmartMeterIdentifier final {
+  IPv6Addr ipv6_address;
+  HexedU8 channel;
+  HexedU16 pan_id;
+  explicit SmartMeterIdentifier() : ipv6_address{}, channel{}, pan_id{} {}
+};
+//
+std::string to_string(const SmartMeterIdentifier &ident) {
+  std::ostringstream oss;
+  oss << "ipv6_address: \"" << ident.ipv6_address //
+      << "\",channel: \""s << ident.channel       //
+      << "\",pan_id: \""s << ident.pan_id << "\"";
+  return oss.str();
+}
+
+//
+//
+//
 class Bp35a1 {
-  const size_t retry_limits;
+  const std::size_t retry_limits;
   Stream &commport;
-  std::string_view b_route_id;
-  std::string_view b_route_password;
+  std::pair<std::string_view, std::string_view> b_route_id_password;
   SmartMeterIdentifier smart_meter_ident;
 
 public:
+  static constexpr std::size_t LINE_BUFFER_SIZE{512};
   using Response = Bp35a1Response;
   // メッセージを表示する関数型
   typedef void (*DisplayMessageT)(const char *);
@@ -131,29 +715,29 @@ public:
          size_t limits = 100)
       : retry_limits(limits),
         commport{stream},
-        b_route_id{b_id_password.first},
-        b_route_password{b_id_password.second},
+        b_route_id_password{b_id_password},
         smart_meter_ident{} {}
   // BP35A1を起動して接続する
   bool boot(DisplayMessageT display_message) {
-    // エコーバック抑制
-    write_with_crln("SKSREG SFE 0"s);
-
     // 一旦セッションを切る
-    write_with_crln("SKTERM"s);
+    write_with_crln("SKTERM"sv);
+
+    // エコーバック抑制
+    write_with_crln("SKSREG SFE 0"sv);
     delay(1000);
     clear_read_buffer();
 
+    const auto [bid, bpass] = b_route_id_password;
     // パスワード設定
     display_message("Set password\n");
-    write_with_crln("SKSETPWD C "s + std::string{b_route_password});
+    write_with_crln("SKSETPWD C "s + std::string{bpass});
     if (!has_ok()) {
       return false;
     }
 
     // ID設定
     display_message("Set ID\n");
-    write_with_crln("SKSETRBID "s + std::string{b_route_id});
+    write_with_crln("SKSETRBID "s + std::string{bid});
     if (!has_ok()) {
       return false;
     }
@@ -170,7 +754,8 @@ public:
 
     // アクティブスキャン結果をもとにしてipv6アドレスを得る
     Response r = conn_target.value();
-    auto opt_ipv6_address = get_ipv6_address(r.keyval["Addr"], display_message);
+    auto opt_ipv6_address =
+        get_ipv6_address(r.keyval.at("Addr"s), display_message);
 
     if (!opt_ipv6_address.has_value()) {
       display_message("get ipv6 address fail.");
@@ -179,9 +764,18 @@ public:
     }
 
     // アクティブスキャン結果をインスタンス変数にセットする
-    smart_meter_ident.ipv6_address = opt_ipv6_address.value();
-    smart_meter_ident.channel = r.keyval["Channel"];
-    smart_meter_ident.pan_id = r.keyval["Pan ID"];
+    std::istringstream{opt_ipv6_address.value()} >>
+        smart_meter_ident.ipv6_address;
+    std::istringstream{r.keyval.at("Channel"s)} >> smart_meter_ident.channel;
+    std::istringstream{r.keyval.at("Pan ID"s)} >> smart_meter_ident.pan_id;
+    /*
+    smart_meter_ident.ipv6_address =
+        from_string<IPv6Addr>(opt_ipv6_address.value()).value_or(IPv6Addr{});
+    smart_meter_ident.channel =
+        from_string<HexedU8>(r.keyval.at("Channel"s)).value_or(HexedU8{});
+    smart_meter_ident.pan_id =
+        from_string<HexedU16>(r.keyval.at("Pan ID"s)).value_or(HexedU16{});
+        */
 
     // 見つかったスマートメーターに接続要求を送る
     if (!connect(display_message)) {
@@ -207,9 +801,8 @@ public:
       // いったん止める
       delay(100);
       //
-      std::string str = read_line_without_crln<512>();
-      if (!str.empty()) {
-        return str;
+      if (auto line = read_line_without_crln(); line.has_value()) {
+        return line;
       }
     }
     return std::nullopt;
@@ -243,10 +836,10 @@ public:
         }
         // 何か受け取ったみたい
         Response r = opt_res.value();
-        ESP_LOGD(MAIN, "%s", std::to_string(r).c_str());
+        ESP_LOGD(MAIN, "%s", to_string(r).c_str());
         if (r.tag == Response::Tag::EVENT) {
           // イベント番号
-          auto num = std::stol(r.keyval["NUM"], nullptr, 16);
+          auto num = std::stol(r.keyval.at("NUM"s), nullptr, 16);
           if (num == 0x22) {
             // EVENT 22
             // つまりアクティブスキャンの完了報告を確認しているのでスキャン結果を返す
@@ -283,17 +876,17 @@ public:
   // 接続(PANA認証)要求を送る
   bool connect(DisplayMessageT message) {
     //
-    ESP_LOGD(MAIN, "%s", std::to_string(smart_meter_ident).c_str());
+    ESP_LOGD(MAIN, "%s", to_string(smart_meter_ident).c_str());
 
     // 通信チャネルを設定する
     message("Set Channel\n");
-    write_with_crln("SKSREG S2 "s + smart_meter_ident.channel);
+    write_with_crln("SKSREG S2 "s + std::string{smart_meter_ident.channel});
     if (!has_ok()) {
       return false;
     }
     // Pan IDを設定する
     message("Set Pan ID\n");
-    write_with_crln("SKSREG S3 "s + smart_meter_ident.pan_id);
+    write_with_crln("SKSREG S3 "s + std::string{smart_meter_ident.pan_id});
     if (!has_ok()) {
       return false;
     }
@@ -302,7 +895,7 @@ public:
 
     // PANA認証要求
     message("Connecting...\n");
-    write_with_crln("SKJOIN "s + smart_meter_ident.ipv6_address);
+    write_with_crln("SKJOIN "s + std::string{smart_meter_ident.ipv6_address});
     if (!has_ok()) {
       return false;
     }
@@ -316,7 +909,7 @@ public:
         // 何か受け取った
         Response r = opt_res.value();
         if (r.tag == Response::Tag::EVENT) {
-          switch (std::stol(r.keyval["NUM"], nullptr, 16)) {
+          switch (std::stol(r.keyval.at("NUM"s), nullptr, 16)) {
           case 0x24: {
             // EVENT 24 :
             // PANAによる接続過程でエラーが発生した(接続が完了しなかった)
@@ -348,19 +941,17 @@ public:
   // 成功ならtrue, それ以外ならfalse
   bool has_ok() {
     for (auto retry = 0; retry < retry_limits; ++retry) {
-      std::string str = read_line_without_crln<512>();
-      if (str.empty()) {
+      if (auto line = read_line_without_crln(); line.has_value()) {
+        auto begin = line->begin();
+        // OKで始まるかFAILで始まるか
+        if (std::equal(begin, std::next(begin, 2), "OK")) {
+          return true;
+        } else if (std::equal(begin, std::next(begin, 4), "FAIL")) {
+          ESP_LOGD(MAIN, "%s", line->c_str());
+          return false;
+        }
+      } else {
         delay(100);
-        continue;
-      }
-      const std::size_t length = str.length();
-      const char *cstr = str.c_str();
-      if (length >= 2 && cstr[0] == 'O' && cstr[1] == 'K') {
-        return true;
-      } else if (length >= 4 && cstr[0] == 'F' && cstr[1] == 'A' &&
-                 cstr[2] == 'I' && cstr[3] == 'L') {
-        ESP_LOGD(MAIN, "fail: \"%s\"", cstr);
-        return false;
       }
     }
     return false;
@@ -374,13 +965,14 @@ public:
             tid, EchonetLiteESV::Get, epcs);
     //
     std::ostringstream oss;
-    oss << "SKSENDTO "s;
-    oss << "1 "s;                                  // HANDLE
-    oss << smart_meter_ident.ipv6_address << " "s; // IPADDR
-    oss << EchonetLiteUdpPort << " "s;             // PORT
-    oss << "1 "s;                                  // SEC
-    oss << std::uppercase << std::hex;
-    oss << std::setfill('0') << std::setw(4) << frame.size() << " "s; // DATALEN
+    oss << "SKSENDTO "sv;
+    oss << "1 "sv;                                  // HANDLE
+    oss << smart_meter_ident.ipv6_address << " "sv; // IPADDR
+    oss << EchonetLiteUdpPort << " "sv;             // PORT
+    oss << "1 "sv;                                  // SEC
+    oss << std::uppercase << std::hex;              //
+    oss << std::setfill('0') << std::setw(4);       //
+    oss << frame.size() << " "sv;                   // DATALEN
     //
     auto line{oss.str()};
     ESP_LOGD(MAIN, "%s", line.c_str());
@@ -393,28 +985,27 @@ public:
   }
   // 受信
   std::optional<Response> watch_response() {
-    std::optional<std::string> opt_tag = get_token<512>();
+    std::optional<std::string> opt_tag = get_token();
     // 受信したメッセージを解析する
     if (!opt_tag.has_value()) {
       // 何も受け取れなかった場合
       return std::nullopt;
-    } else if (opt_tag.value() == std::string_view("EVENT")) {
+    } else if (opt_tag.value() == "EVENT"sv) {
       //
       // EVENTを受け取った
       //
       return [this]() -> std::optional<Response> {
         // EVENTメッセージの値
         constexpr std::array<std::string_view, 3> keys = {
-            "NUM",    // イベント番号
-            "SENDER", // イベントのトリガーとなったメッセージの発信元アドレス
-            "PARAM",  // イベント固有の引数
+            "NUM"sv,    // イベント番号
+            "SENDER"sv, // イベントのトリガーとなったメッセージの発信元アドレス
+            "PARAM"sv,  // イベント固有の引数
         };
         //
         std::map<std::string, std::string> kv{};
         for (const auto &key : keys) {
-          auto opt_token = get_token<512>();
-          if (opt_token.has_value()) {
-            // 値を得る
+          if (auto opt_token = get_token(); opt_token.has_value()) {
+            // 受け取った値をkey-valueストアへ
             kv.insert(std::make_pair(key, opt_token.value()));
           } else {
             // 値が不足しているが
@@ -425,59 +1016,57 @@ public:
         return Response{std::time(nullptr), Response::Tag::EVENT,
                         std::move(kv)};
       }();
-    } else if (opt_tag.value() == std::string_view("EPANDESC")) {
+    } else if (opt_tag.value() == "EPANDESC"sv) {
       //
       // EPANDESCを受け取った
       //
       return [this]() -> std::optional<Response> {
         // EPANDESCメッセージの各行ごとの値
         // この順番どおりに読み込む
-        constexpr std::array<std::string_view, 6> items = {
-            "Channel", // 発見したPANの周波数(論理チャンネル番号)
-            "Channel Page", // 発見したPANのチャンネルページ
-            "Pan ID",       //  発見したPANのPAN ID
-            "Addr",   // アクティブスキャン応答元のアドレス
-            "LQI",    // 受信したビーコンの受信ED値(RSSI)
-            "PairID", // (IEが含まれる場合)相手から受信したPairing
-                      // ID
+        constexpr std::array<std::string_view, 6> keys = {
+            /**/ "Channel"sv, // 発見したPANの周波数(論理チャンネル番号)
+            "Channel Page"sv, // 発見したPANのチャンネルページ
+            /***/ "Pan ID"sv, //  発見したPANのPAN ID
+            /*****/ "Addr"sv, // アクティブスキャン応答元のアドレス
+            /*****/ "LQI"sv, // 受信したビーコンの受信ED値(RSSI)
+            /**/ "PairID"sv, // (IEが含まれる場合)相手から受信したPairingID
         };
         //
         std::map<std::string, std::string> kv{};
-        for (const auto &it : items) {
-          std::string line;
+        for (const auto &key : keys) {
+          std::optional<std::string> line{};
           for (auto retry = 1; retry <= retry_limits; ++retry) {
             // 次の行を得る
-            line = read_line_without_crln<512>();
-            if (line.length() > 0) {
+            if (line = read_line_without_crln(); line.has_value()) {
               break;
             }
             delay(10);
           }
           // ':'の位置でleftとrightに分ける
-          std::string_view sv{line};
-          size_t pos = sv.find(":");
+          auto str{line.value_or("")};
+          auto pos = str.find(":");
           if (pos == std::string::npos) {
             // 予想と違う行が入ってきたので,今ある値を返す
             return Response{std::time(nullptr), Response::Tag::EPANDESC,
                             std::move(kv)};
           }
-          std::string left{sv, 0, pos};
-          std::string right{sv, pos + 1, sv.length()};
+          std::string left{str, 0, pos};
+          std::string right{str, pos + 1, std::string::npos};
           // 先頭に空白があるからここではfindで確認する
           // キーが一致したらmapに入れる
-          if (left.find(it) != std::string::npos) {
-            kv.insert(std::make_pair(it, right));
+          if (left.find(key) != std::string::npos) {
+            kv.insert(std::make_pair(key, right));
           }
         }
-        // keyvalue数の一致確認
-        if (kv.size() != std::size(items)) {
+        // key-value数の一致確認
+        if (kv.size() != std::size(keys)) {
           ESP_LOGE(MAIN, "Mismatched size : %d, %d", kv.size(),
-                   std::size(items));
+                   std::size(keys));
         }
         return Response{std::time(nullptr), Response::Tag::EPANDESC,
                         std::move(kv)};
       }();
-    } else if (opt_tag.value() == std::string_view("ERXUDP")) {
+    } else if (opt_tag.value() == "ERXUDP"sv) {
       //
       // ERXUDPを受け取った
       //
@@ -485,27 +1074,26 @@ public:
         // ERXUDPメッセージの値
         constexpr std::array<std::string_view, 7> keys = {
             // 送信元IPv6アドレス
-            "SENDER",
+            "SENDER"sv,
             // 送信先IPv6アドレス
-            "DEST",
+            "DEST"sv,
             // 送信元ポート番号
-            "RPORT",
+            "RPORT"sv,
             // 送信元ポート番号
-            "LPORT",
+            "LPORT"sv,
             // 送信元のMACアドレス
-            "SENDERLLA",
+            "SENDERLLA"sv,
             // SECURED=1 : MACフレームが暗号化されていた
             // SECURED=0 : MACフレームが暗号化されていなかった
-            "SECURED",
+            "SECURED"sv,
             // データの長さ
-            "DATALEN",
+            "DATALEN"sv,
             // ここからデータなんだけどバイナリ形式だから特別扱いする。
         };
         //
         std::map<std::string, std::string> kv;
         for (const auto &key : keys) {
-          auto opt_token = get_token<512>();
-          if (opt_token.has_value()) {
+          if (auto opt_token = get_token(); opt_token.has_value()) {
             // 値を得る
             kv.insert(std::make_pair(key, opt_token.value()));
           } else {
@@ -517,7 +1105,7 @@ public:
         // データはバイナリで送られてくるので,
         // テキスト形式に変換する。
         //
-        std::size_t datalen = std::stol(kv.at("DATALEN"), nullptr, 16);
+        std::size_t datalen = std::stol(kv.at("DATALEN"s), nullptr, 16);
         // メモリーを確保して
         std::vector<uint8_t> vect{};
         vect.resize(datalen);
@@ -526,7 +1114,7 @@ public:
         // バイナリからテキスト形式に変換する
         std::string textformat = binary_to_text(vect);
         // key-valueストアに入れる
-        kv.insert(std::make_pair("DATA", textformat));
+        kv.insert(std::make_pair("DATA"s, textformat));
         return Response{std::time(nullptr), Response::Tag::ERXUDP,
                         std::move(kv)};
       }();
@@ -539,44 +1127,45 @@ public:
     return std::nullopt;
   }
   // ストリームから空白で区切られたトークンを得る
-  template <std::size_t N> std::optional<std::string> get_token() {
-    std::array<char, N> buf{};
-
-    for (auto itr = buf.begin(); itr != buf.end(); ++itr) {
+  std::optional<std::string> get_token() {
+    std::string result{};
+    for (auto count = 0; count < LINE_BUFFER_SIZE; ++count) {
       // 1文字読み込んで
       int ch = commport.read();
       if (ch < 0) {
         // ストリームの最後まで読み込んだので脱出する
         break;
-      } else if (isspace(ch)) {
+      } else if (std::isspace(ch)) {
         // 空白を見つけたので脱出する
-        // 読み込んだ文字は捨てる
+        // 読み込んだ空白文字は捨てる
         break;
       } else {
         // 読み込んだ文字はバッファへ追加する
-        *itr = ch;
+        result.push_back(static_cast<char>(ch));
       }
     }
     //
-    if (std::strlen(buf.data()) == 0) {
-      // 空白またはCRまたはLFで始まっていたので,トークンがなかった
-      return std::nullopt;
-    }
-    return std::string{buf.data()};
+    // 空白またはCRまたはLFで始まっていたのでトークンがなかった場合はnullopt
+    return (result.length() > 0) ? std::make_optional(result) : std::nullopt;
   }
   // ストリームから読み込んでCRLFを捨てた行を得る関数
-  template <std::size_t N> std::string read_line_without_crln() {
-    std::array<char, N> buffer{'\0'};
-    std::size_t len =
-        commport.readBytesUntil('\n', buffer.data(), buffer.size());
-    if (buffer[len - 1] == '\r') {
-      len--;
+  std::optional<std::string> read_line_without_crln() {
+    std::string buffer(LINE_BUFFER_SIZE, '\0');
+    std::size_t length =
+        commport.readBytesUntil('\n', buffer.data(), LINE_BUFFER_SIZE);
+    if (length >= 1) {
+      buffer.resize(length);
+      if (buffer.back() == '\r') {
+        buffer.resize(buffer.size() - 1);
+      }
+      if (buffer.empty()) {
+        return std::nullopt;
+      } else {
+        ESP_LOGD(RECEIVE, "%s", buffer.c_str());
+        return std::make_optional(buffer);
+      }
     }
-    buffer[len] = '\0';
-    if (len > 0) {
-      ESP_LOGD(RECEIVE, "%s", buffer.data());
-    }
-    return std::string{buffer.data()};
+    return std::nullopt;
   }
   // CRLFを付けてストリームに1行書き込む関数
   void write_with_crln(const std::string &line) {
@@ -585,5 +1174,8 @@ public:
     commport.write("\r\n");
     // メッセージ送信完了待ち
     commport.flush();
+  }
+  inline void write_with_crln(std::string_view line) {
+    write_with_crln(std::string{line});
   }
 };
