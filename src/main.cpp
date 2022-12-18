@@ -36,8 +36,13 @@ constexpr int CommPortTx{0};
 // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
 // グローバル変数はじまり
 
-// BP35A1 (初期化が完了するまでnull)
-static Bp35a1 *bp35a1{nullptr};
+// スマート電力量計のＢルート識別子 (初期化が完了するまでnull)
+struct SmartWhmBRoute {
+  Stream &commport;
+  std::pair<std::string_view, std::string_view> b_id_password;
+  Bp35a1::SmartMeterIdentifier identifier;
+};
+static SmartWhmBRoute *smart_whm_b_route{nullptr};
 
 // MQTT
 static Telemetry telemetry;
@@ -294,15 +299,34 @@ void setup() {
   M5.Lcd.fillScreen(BLACK);
   M5.Lcd.setCursor(0, 0);
   //
-  static Bp35a1 bp35a1_instance(Serial2, {BID, BPASSWORD});
-  if (!bp35a1_instance.boot(display_boot_message)) {
+  static SmartWhmBRoute broute_instance{
+      Serial2, {BID, BPASSWORD}, Bp35a1::SmartMeterIdentifier{}};
+  if (auto ident = Bp35a1::startup_and_find_meter(broute_instance.commport,
+                                                  broute_instance.b_id_password,
+                                                  display_boot_message);
+      ident.has_value()) {
+    broute_instance.identifier = ident.value();
+    // 見つかったスマートメーターに接続要求を送る
+    if (!connect(broute_instance.commport, broute_instance.identifier,
+                 display_boot_message)) {
+      // 接続失敗
+      display_boot_message("smart meter connecion failed, bye");
+      ESP_LOGD(MAIN, "smart meter connecion failed");
+      delay(60e3);
+      esp_restart();
+    }
+    // 接続成功
+    ESP_LOGD(MAIN, "connection successful");
+  } else {
+    // スマートメーターが見つからなかった
     display_boot_message("smart meter connecion failed, bye");
     ESP_LOGD(MAIN, "smart meter connecion failed");
     delay(60e3);
     esp_restart();
   }
+
   // 初期化が完了したのでグローバルにセットする
-  bp35a1 = &bp35a1_instance;
+  smart_whm_b_route = &broute_instance;
   //
   ESP_LOGD(MAIN, "setup success");
 
@@ -318,8 +342,8 @@ void setup() {
 //
 // BP35A1から受信したイベントを処理する
 //
-static void process_event(const Bp35a1::Response &resp) {
-  switch (std::stol(resp.keyval.at("NUM"), nullptr, 16)) {
+static void process_event(const Bp35a1::ResEvent &ev) {
+  switch (ev.num.u8) {
   case 0x01: // EVENT 1 :
              // NSを受信した
     ESP_LOGI(MAIN, "Received NS");
@@ -351,7 +375,8 @@ static void process_event(const Bp35a1::Response &resp) {
     M5.Lcd.fillScreen(BLACK);
     M5.Lcd.setCursor(0, 0);
     display_boot_message("reconnect");
-    if (!bp35a1->connect(display_boot_message)) {
+    if (!connect(smart_whm_b_route->commport, smart_whm_b_route->identifier,
+                 display_boot_message)) {
       display_boot_message("reconnect error, try to reboot");
       ESP_LOGD(MAIN, "reconnect error, try to reboot");
       delay(5000);
@@ -452,24 +477,12 @@ static int32_t transaction_id_to_seconds(EchonetLiteTransactionId tid) {
 //
 // BP35A1から受信したERXUDPイベントを処理する
 //
-static void process_erxudp(const Bp35a1::Response &resp,
+static void process_erxudp(const Bp35a1::ResErxudp &ev,
                            SmartWhm &smart_watt_hour_meter,
                            std::queue<std::string> &to_sending_message_fifo) {
-  //
-  // key-valueストアに入れるときにテキスト形式に変換してあるので元のバイナリに戻す
-  //
-  // ペイロード(テキスト形式)
-  auto textformat = resp.keyval.at("DATA");
-  // ペイロード(バイナリ形式)
-  std::vector<uint8_t> binaryformat = text_to_binary(textformat);
-  // データの大きさを確認する
-  if (binaryformat.size() < sizeof(EchonetLiteFrame)) {
-    ESP_LOGD(MAIN, "insufficient input size: %d", binaryformat.size());
-    return;
-  }
   // EchonetLiteFrameに変換
-  EchonetLiteFrame *pframe =
-      reinterpret_cast<EchonetLiteFrame *>(binaryformat.data());
+  const EchonetLiteFrame *pframe =
+      reinterpret_cast<const EchonetLiteFrame *>(ev.data.data());
   const EchonetLiteFrame &frame = *pframe;
   // フレームヘッダの確認
   if (frame.ehd == EchonetLiteEHD) {
@@ -495,8 +508,8 @@ static void process_erxudp(const Bp35a1::Response &resp,
       //
       //      auto messages =
       //      SmartElectricEnergyMeter::process_echonet_lite_frame(frame);
-      smart_watt_hour_meter.process_echonet_lite_frame(resp.created_at, frame,
-                                                       to_sending_message_fifo);
+      smart_watt_hour_meter.process_echonet_lite_frame(
+          std::time_t(nullptr), frame, to_sending_message_fifo);
     } else {
       ESP_LOGD(MAIN, "Unknown SEOJ: %s", to_string(frame.edata.seoj).c_str());
     }
@@ -539,7 +552,9 @@ send_first_request(std::chrono::time_point<Clock, Duration> current_time) {
   // スマートメーターに要求を出す
   const auto tid = time_to_transaction_id(current_time);
 
-  if (bp35a1->send_request(tid, epcs)) {
+  Bp35a1::send_request(smart_whm_b_route->commport,
+                       smart_whm_b_route->identifier, tid, epcs);
+  if (Bp35a1::has_ok(smart_whm_b_route->commport)) {
     ESP_LOGV(MAIN, "request OK");
   } else {
     ESP_LOGD(MAIN, "request NG");
@@ -588,7 +603,9 @@ send_periodical_request(std::chrono::time_point<Clock, Duration> current_time,
   }
   // スマートメーターに要求を出す
   const auto tid = time_to_transaction_id(current_time);
-  if (bp35a1->send_request(tid, epcs)) {
+  Bp35a1::send_request(smart_whm_b_route->commport,
+                       smart_whm_b_route->identifier, tid, epcs);
+  if (Bp35a1::has_ok(smart_whm_b_route->commport)) {
     ESP_LOGV(MAIN, "request OK");
   } else {
     ESP_LOGD(MAIN, "request NG");
@@ -618,8 +635,8 @@ void loop() {
   // (あれば)２５個連続でスマートメーターからのメッセージを受信する
   //
   for (auto count = 0; count < 25; ++count) {
-    auto resp = bp35a1->watch_response();
-    if (resp.has_value()) {
+    if (auto resp = Bp35a1::receive_response(smart_whm_b_route->commport);
+        resp.has_value()) {
       received_message_fifo.push(resp.value());
     }
     delay(10);
@@ -642,23 +659,22 @@ void loop() {
   // スマートメーターからのメッセージ受信処理
   //
   if (!received_message_fifo.empty()) {
-    const Bp35a1::Response &resp = received_message_fifo.front();
-    ESP_LOGD(MAIN, "%s", to_string(resp).c_str());
-    switch (resp.tag) {
-    case Bp35a1::Response::Tag::EVENT:
+    Bp35a1::Response &resp = received_message_fifo.front();
+    std::visit(
+        [](const auto &x) { ESP_LOGD(MAIN, "%s", x.to_string().c_str()); },
+        resp);
+    if (std::holds_alternative<Bp35a1::ResEvent>(resp)) {
+      Bp35a1::ResEvent &event = std::get<Bp35a1::ResEvent>(resp);
       // イベント受信処理
-      process_event(resp);
-      break;
-    case Bp35a1::Response::Tag::ERXUDP:
+      process_event(event);
+    } else if (std::holds_alternative<Bp35a1::ResErxudp>(resp)) {
+      Bp35a1::ResErxudp &event = std::get<Bp35a1::ResErxudp>(resp);
       // ERXUDPを処理する
-      process_erxudp(resp, smart_watt_hour_meter, to_sending_message_fifo);
+      process_erxudp(event, smart_watt_hour_meter, to_sending_message_fifo);
       // 測定値をセットする
       instant_watt_gauge.set(smart_watt_hour_meter.instant_watt);
       instant_ampere_gauge.set(smart_watt_hour_meter.instant_ampere);
       cumulative_watt_hour_gauge.set(smart_watt_hour_meter.cumlative_watt_hour);
-      break;
-    default:
-      break;
     }
     // 処理したメッセージをFIFOから消す
     received_message_fifo.pop();
