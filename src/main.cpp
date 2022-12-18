@@ -280,6 +280,7 @@ void setup() {
   M5.begin(true, true, true);
   M5.Lcd.setRotation(3);
   M5.Lcd.setTextSize(2);
+  delay(1000);
   //
   Serial2.begin(115200, SERIAL_8N1, CommPortRx, CommPortTx);
   //
