@@ -3,11 +3,12 @@
 // See LICENSE file in the project root for full license information.
 //
 #pragma once
-#include "Application.hpp"
 #include <M5StickCPlus.h>
 #include <cstdint>
 #include <functional>
 #include <string>
+
+#include "Application.hpp"
 
 //
 // 測定値表示
@@ -43,30 +44,7 @@ public:
   //
   Gauge &update(bool forced_repaint = false) {
     // 値に変化がある場合のみ更新する
-    bool work_on = true;
-    //
-    auto a = current_value.has_value();
-    auto b = next_value.has_value();
-    //
-    if (a == true && b == true) { // 双方の値がある
-      auto cur = current_value.value();
-      auto next = next_value.value();
-      if (cur.equal_value(next)) {
-        // 値に変化がないので何もしない
-        work_on = false;
-      } else {
-        // 値に変化があるので更新する
-        work_on = true;
-      }
-    } else if (a == false && b == false) { // 双方の値がない
-      // 値に変化がないので何もしない
-      work_on = false;
-    } else { // 片方のみ値がある
-      // 値に変化があるので更新する
-      work_on = true;
-    }
-    //
-    if (forced_repaint || work_on) {
+    if (forced_repaint || current_value != next_value) {
       //
       std::string current = value_to_string(current_value);
       std::string next = value_to_string(next_value);
