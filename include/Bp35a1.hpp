@@ -5,7 +5,6 @@
 #pragma once
 #include <M5StickCPlus.h>
 #undef min
-#include <SmartWhm.hpp>
 #include <cinttypes>
 #include <cstring>
 #include <iterator>
@@ -14,6 +13,8 @@
 #include <sstream>
 #include <string>
 #include <variant>
+
+#include "SmartWhm.hpp"
 
 namespace Bp35a1 {
 using namespace std::literals::string_literals;
@@ -98,7 +99,7 @@ bool has_ok(Stream &commport) {
 // 2桁の16進数
 struct HexedU8 final {
   uint8_t u8;
-  HexedU8(uint8_t in = 0U) { u8 = in; }
+  HexedU8(uint8_t init = 0U) { u8 = init; }
   operator std::string() const;
 };
 std::istream &operator>>(std::istream &is, HexedU8 &v) {
@@ -131,7 +132,7 @@ HexedU8::operator std::string() const {
 // 4桁の16進数
 struct HexedU16 final {
   uint16_t u16;
-  HexedU16(uint16_t in = 0U) { u16 = in; }
+  HexedU16(uint16_t init = 0U) { u16 = init; }
   operator std::string() const;
 };
 std::istream &operator>>(std::istream &is, HexedU16 &v) {
@@ -162,7 +163,7 @@ HexedU16::operator std::string() const {
 // 16桁の16進数
 struct HexedU64 final {
   uint64_t u64;
-  HexedU64(uint64_t in = 0U) { u64 = in; }
+  HexedU64(uint64_t init = 0U) { u64 = init; }
   operator std::string() const;
 };
 std::istream &operator>>(std::istream &is, HexedU64 &v) {
@@ -192,8 +193,8 @@ HexedU64::operator std::string() const {
 
 // IPV6アドレス
 struct IPv6Addr {
-  std::array<HexedU16, 8> hex;
-  explicit IPv6Addr(std::array<HexedU16, 8> in = {
+  std::array<HexedU16, 8> fields;
+  explicit IPv6Addr(const std::array<HexedU16, 8> &init = {
                         HexedU16{},
                         HexedU16{},
                         HexedU16{},
@@ -203,35 +204,35 @@ struct IPv6Addr {
                         HexedU16{},
                         HexedU16{},
                     }) {
-    std::copy(std::begin(in), std::end(in), std::begin(hex));
+    std::copy(init.begin(), init.end(), fields.begin());
   }
   operator std::string() const;
 };
 std::istream &operator>>(std::istream &is, IPv6Addr &v) {
   auto save = is.flags();
   char colon;
-  is >> v.hex[0] >> colon  //
-      >> v.hex[1] >> colon //
-      >> v.hex[2] >> colon //
-      >> v.hex[3] >> colon //
-      >> v.hex[4] >> colon //
-      >> v.hex[5] >> colon //
-      >> v.hex[6] >> colon //
-      >> v.hex[7];         //
+  is >> v.fields[0] >> colon  //
+      >> v.fields[1] >> colon //
+      >> v.fields[2] >> colon //
+      >> v.fields[3] >> colon //
+      >> v.fields[4] >> colon //
+      >> v.fields[5] >> colon //
+      >> v.fields[6] >> colon //
+      >> v.fields[7];         //
   is.flags(save);
   return is;
 }
 std::ostream &operator<<(std::ostream &os, const IPv6Addr &v) {
   auto save = os.flags();
   auto colon = ":"s;
-  os << v.hex[0] << colon //
-     << v.hex[1] << colon //
-     << v.hex[2] << colon //
-     << v.hex[3] << colon //
-     << v.hex[4] << colon //
-     << v.hex[5] << colon //
-     << v.hex[6] << colon //
-     << v.hex[7];         //
+  os << v.fields[0] << colon //
+     << v.fields[1] << colon //
+     << v.fields[2] << colon //
+     << v.fields[3] << colon //
+     << v.fields[4] << colon //
+     << v.fields[5] << colon //
+     << v.fields[6] << colon //
+     << v.fields[7];         //
   os.flags(save);
   return os;
 }
@@ -251,37 +252,26 @@ IPv6Addr::operator std::string() const {
 // EVENTメッセージの値
 //
 struct ResEvent final {
-  std::string to_string() const {
-    std::ostringstream oss;
-    oss << "num:" << num        //
-        << ",sender:" << sender //
-        << ",param:";
-    if (param.has_value()) {
-      oss << param.value();
-    } else {
-      oss << "\"N/A\"";
-    }
-    return oss.str();
-  }
   HexedU8 num;     // イベント番号
   IPv6Addr sender; // イベントのトリガーとなったメッセージの発信元アドレス
   std::optional<HexedU8> param; // イベント固有の引数
 };
+std::string to_string(const ResEvent &v) {
+  std::ostringstream oss;
+  oss << "num:" << v.num //
+      << ",sender:" << v.sender;
+  if (v.param.has_value()) {
+    oss << ",param:" << v.param.value();
+  } else {
+    oss << ",param:NA";
+  }
+  return oss.str();
+}
 
 //
 // EPANDESCメッセージの値
 //
 struct ResEpandesc final {
-  std::string to_string() const {
-    std::ostringstream oss;
-    oss << "channel:" << channel            //
-        << ",channel_page:" << channel_page //
-        << ",pan_id:" << pan_id             //
-        << ",addr:" << addr                 //
-        << ",lqi:" << lqi                   //
-        << ",pairid:" << std::quoted(pairid);
-    return oss.str();
-  }
   HexedU8 channel; // 発見したPANの周波数(論理チャンネル番号)
   HexedU8 channel_page; // 発見したPANのチャンネルページ
   HexedU16 pan_id;      //  発見したPANのPAN ID
@@ -289,25 +279,21 @@ struct ResEpandesc final {
   HexedU8 lqi;          // 受信したビーコンの受信ED値(RSSI)
   std::string pairid; // (IEが含まれる場合)相手から受信したPairingID
 };
+std::string to_string(const ResEpandesc &v) {
+  std::ostringstream oss;
+  oss << "channel:" << v.channel            //
+      << ",channel_page:" << v.channel_page //
+      << ",pan_id:" << v.pan_id             //
+      << ",addr:" << v.addr                 //
+      << ",lqi:" << v.lqi                   //
+      << ",pairid:" << std::quoted(v.pairid);
+  return oss.str();
+}
 
 //
 // ERXUDPメッセージの値
 //
 struct ResErxudp final {
-  std::string to_string() const {
-    std::ostringstream oss;
-    oss << "sender:"sv << sender                   //
-        << ",dest:"sv << dest                      //
-        << ",rport:" << rport                      //
-        << ",lport:" << lport                      //
-        << ",senderlla:" << std::quoted(senderlla) //
-        << ",secured:" << secured                  //
-        << ",datalen:" << datalen                  //
-        << ",data:\"";
-    std::copy(data.begin(), data.end(), std::ostream_iterator<HexedU8>(oss));
-    oss << "\"";
-    return oss.str();
-  }
   IPv6Addr sender;       // 送信元IPv6アドレス
   IPv6Addr dest;         // 送信先IPv6アドレス
   HexedU16 rport;        // 送信元ポート番号
@@ -318,6 +304,20 @@ struct ResErxudp final {
   HexedU16 datalen;      // データの長さ
   std::vector<uint8_t> data; // データ
 };
+std::string to_string(const ResErxudp &v) {
+  std::ostringstream oss;
+  oss << "sender:"sv << v.sender                   //
+      << ",dest:"sv << v.dest                      //
+      << ",rport:" << v.rport                      //
+      << ",lport:" << v.lport                      //
+      << ",senderlla:" << std::quoted(v.senderlla) //
+      << ",secured:" << v.secured                  //
+      << ",datalen:" << v.datalen                  //
+      << ",data:\"";
+  std::copy(v.data.begin(), v.data.end(), std::ostream_iterator<HexedU8>(oss));
+  oss << "\"";
+  return oss.str();
+}
 
 //
 // BP35A1から受け取ったイベント
@@ -346,6 +346,7 @@ std::optional<IPv6Addr> get_ipv6_address(Stream &commport,
   }
   return std::nullopt;
 }
+
 //
 // 受信
 //
@@ -546,7 +547,7 @@ bool connect(Stream &commport, const SmartMeterIdentifier &smart_meter_ident,
       // 何か受け取ったみたい
       Response &resp = opt_res.value();
       std::visit(
-          [](const auto &x) { ESP_LOGD(MAIN, "%s", x.to_string().c_str()); },
+          [](const auto &x) { ESP_LOGD(MAIN, "%s", to_string(x).c_str()); },
           resp);
       if (std::holds_alternative<ResEvent>(resp)) {
         ResEvent &event = std::get<ResEvent>(resp);
@@ -604,7 +605,7 @@ std::optional<ResEpandesc> do_active_scan(Stream &commport,
         // 何か受け取ったみたい
         Response &resp = opt_res.value();
         std::visit(
-            [](const auto &x) { ESP_LOGD(MAIN, "%s", x.to_string().c_str()); },
+            [](const auto &x) { ESP_LOGD(MAIN, "%s", to_string(x).c_str()); },
             resp);
         if (std::holds_alternative<ResEvent>(resp)) {
           ResEvent &event = std::get<ResEvent>(resp);
