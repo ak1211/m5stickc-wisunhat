@@ -81,12 +81,11 @@ bool has_ok(Stream &commport) {
   for (auto retry = 0; retry < RETRY_LIMITS; ++retry) {
     if (auto [token, sep] = get_token(commport, '\n'); token.length() > 0) {
       auto begin = token.begin();
+      ESP_LOGD(MAIN, "%s", token.c_str());
       // OKで始まるかFAILで始まるか
       if (std::equal(begin, std::next(begin, 2), "OK")) {
-        ESP_LOGD(MAIN, "OK");
         return true;
       } else if (std::equal(begin, std::next(begin, 4), "FAIL")) {
-        ESP_LOGD(MAIN, "%s", token.c_str());
         return false;
       }
     } else {

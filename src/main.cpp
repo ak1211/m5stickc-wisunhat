@@ -45,11 +45,14 @@ struct SmartWhmBRoute {
   Bp35a1::SmartMeterIdentifier identifier;
 };
 static std::unique_ptr<SmartWhmBRoute> smart_whm_b_route;
-// スマートメーター
+//  スマートメーター
 static SmartWhm smart_watt_hour_meter{};
 
 // MQTT
 static Telemetry::Mqtt telemetry;
+
+// FreeRTOS タスクハンドル
+static TaskHandle_t sendRequestTaskHandle;
 
 // 瞬時電力量
 static Gauge<SmartElectricEnergyMeter::InstantWatt> instant_watt_gauge{
@@ -281,6 +284,9 @@ static bool checkWiFi(std::chrono::seconds timeout) {
   return WiFi.isConnected();
 }
 
+// 前方参照
+static void send_request_to_smart_meter_task(void *);
+
 //
 // bootメッセージ表示用
 //
@@ -307,8 +313,8 @@ void setup() {
   M5.Lcd.fillScreen(BLACK);
   M5.Lcd.setCursor(0, 0);
   //
-  smart_whm_b_route.reset(
-      new SmartWhmBRoute{Serial2, Bp35a1::SmartMeterIdentifier{}});
+  smart_whm_b_route = std::make_unique<SmartWhmBRoute>(
+      SmartWhmBRoute{Serial2, Bp35a1::SmartMeterIdentifier{}});
 
   if (auto ident = Bp35a1::startup_and_find_meter(
           smart_whm_b_route->commport, {BID, BPASSWORD}, display_boot_message);
@@ -342,6 +348,12 @@ void setup() {
   instant_watt_gauge.update(true);
   instant_ampere_gauge.update(true);
   cumulative_watt_hour_gauge.update(true);
+
+  //
+  // スマートメーターにメッセージを送信するタスクを起動する
+  //
+  xTaskCreateUniversal(send_request_to_smart_meter_task, "send request task",
+                       8192, nullptr, 3, &sendRequestTaskHandle, APP_CPU_NUM);
 }
 
 //
@@ -482,8 +494,9 @@ static int32_t transaction_id_to_seconds(EchonetLiteTransactionId tid) {
 //
 // BP35A1から受信したERXUDPイベントを処理する
 //
-static uint32_t process_erxudp(std::time_t at, uint32_t messageId,
-                               const Bp35a1::ResErxudp &ev) {
+static Telemetry::MessageId
+process_erxudp(std::chrono::system_clock::time_point at,
+               Telemetry::MessageId messageId, const Bp35a1::ResErxudp &ev) {
   // EchonetLiteFrameに変換
   const EchonetLiteFrame *pframe =
       reinterpret_cast<const EchonetLiteFrame *>(ev.data.data());
@@ -566,9 +579,8 @@ static void render_progress_bar(uint32_t permille) {
 //
 // スマートメーターに最初の要求を出す
 //
-template <class Clock, class Duration>
 static void
-send_first_request(std::chrono::time_point<Clock, Duration> current_time) {
+send_first_request(std::chrono::system_clock::time_point current_time) {
   using E = SmartElectricEnergyMeter::EchonetLiteEPC;
   std::vector<E> epcs = {
       E::Operation_status,            // 動作状態
@@ -588,19 +600,13 @@ send_first_request(std::chrono::time_point<Clock, Duration> current_time) {
 
   Bp35a1::send_request(smart_whm_b_route->commport,
                        smart_whm_b_route->identifier, tid, epcs);
-  if (Bp35a1::has_ok(smart_whm_b_route->commport)) {
-    ESP_LOGV(MAIN, "request OK");
-  } else {
-    ESP_LOGD(MAIN, "request NG");
-  }
 }
 
 //
 // スマートメーターに定期的な要求を出す
 //
-template <class Clock, class Duration>
 static void
-send_periodical_request(std::chrono::time_point<Clock, Duration> current_time,
+send_periodical_request(std::chrono::system_clock::time_point current_time,
                         const SmartWhm &whm) {
   using E = SmartElectricEnergyMeter::EchonetLiteEPC;
   std::vector<E> epcs = {
@@ -639,11 +645,6 @@ send_periodical_request(std::chrono::time_point<Clock, Duration> current_time,
   const auto tid = time_to_transaction_id(current_time);
   Bp35a1::send_request(smart_whm_b_route->commport,
                        smart_whm_b_route->identifier, tid, epcs);
-  if (Bp35a1::has_ok(smart_whm_b_route->commport)) {
-    ESP_LOGV(MAIN, "request OK");
-  } else {
-    ESP_LOGD(MAIN, "request NG");
-  }
 }
 
 //
@@ -651,13 +652,14 @@ send_periodical_request(std::chrono::time_point<Clock, Duration> current_time,
 //
 void loop() {
   // メッセージ受信バッファ
-  static std::queue<std::pair<std::time_t, Bp35a1::Response>>
+  static std::queue<
+      std::pair<std::chrono::system_clock::time_point, Bp35a1::Response>>
       received_message_fifo{};
   using namespace std::chrono;
   // スマートメーターにメッセージを送信した時間
   static time_point time_of_sent_message_to_smart_whm{system_clock::now()};
   // メッセージIDカウンタ(IoT Core用)
-  static uint32_t messageId{};
+  static Telemetry::MessageId messageId{};
 
   // 現在時刻
   time_point current_time_point = system_clock::now();
@@ -668,7 +670,7 @@ void loop() {
   for (auto count = 0; count < 25; ++count) {
     if (auto resp = Bp35a1::receive_response(smart_whm_b_route->commport);
         resp.has_value()) {
-      received_message_fifo.push({std::time(nullptr), resp.value()});
+      received_message_fifo.push({current_time_point, resp.value()});
     }
     delay(10);
   }
@@ -725,6 +727,7 @@ void loop() {
   //
   // スマートメーターに要求を出す(1秒以上の間隔をあけて)
   //
+  /*
   if (auto elapsed = current_time_point - time_of_sent_message_to_smart_whm;
       elapsed >= seconds{1}) {
     // 積算電力量単位が初期値の場合にスマートメーターに最初の要求を出す
@@ -739,11 +742,12 @@ void loop() {
       time_of_sent_message_to_smart_whm = current_time_point;
     }
   }
+  */
 
   //
-  // 50秒以上の待ち時間があるうちに接続状態の検査をする:
+  // 59秒以上の待ち時間があるうちに接続状態の検査をする:
   //
-  if (seconds_in_ms >= seconds{50}) {
+  if (seconds_in_ms >= seconds{59}) {
     if (WiFi.isConnected()) {
       // MQTT接続検査
       telemetry.check_mqtt(seconds{30});
@@ -751,5 +755,38 @@ void loop() {
       // WiFi接続検査
       checkWiFi(seconds{30});
     }
+  }
+}
+
+//
+// スマートメーターにメッセージを送信するタスク
+//
+static void send_request_to_smart_meter_task(void *) {
+  using namespace std::chrono;
+  // スマートメーターにメッセージを送信した時間
+  static time_point send_time_at{system_clock::now()};
+  TickType_t wait = 250;
+  for (;;) {
+    auto tp = system_clock::now();
+    //
+    // スマートメーターに要求を出す(1秒以上の間隔をあけて)
+    //
+    if (auto elapsed = tp - send_time_at; elapsed >= seconds{1}) {
+      // 積算電力量単位が初期値の場合にスマートメーターに最初の要求を出す
+      if (!smart_watt_hour_meter.whm_unit.has_value()) {
+        send_first_request(tp);
+      } else if (duration_cast<seconds>(tp.time_since_epoch()).count() % 60 ==
+                 0) {
+        // 毎分0秒にスマートメーターに定期要求を出す
+        send_periodical_request(tp, smart_watt_hour_meter);
+      }
+      // 送信時間を記録する
+      send_time_at = tp;
+      wait = 500;
+    } else {
+      wait = 250;
+    }
+    //
+    vTaskDelay(wait);
   }
 }

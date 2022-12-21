@@ -21,15 +21,18 @@
 using namespace std::literals::string_literals;
 
 namespace Telemetry {
+using MessageId = uint32_t;
 //
 using PInstantAmpere =
-    std::tuple<uint32_t, std::time_t, SmartElectricEnergyMeter::InstantAmpere>;
+    std::tuple<MessageId, std::chrono::system_clock::time_point,
+               SmartElectricEnergyMeter::InstantAmpere>;
 //
 using PInstantWatt =
-    std::tuple<uint32_t, std::time_t, SmartElectricEnergyMeter::InstantWatt>;
+    std::tuple<MessageId, std::chrono::system_clock::time_point,
+               SmartElectricEnergyMeter::InstantWatt>;
 //
 using PCumlativeWattHour =
-    std::tuple<uint32_t, SmartElectricEnergyMeter::CumulativeWattHour,
+    std::tuple<MessageId, SmartElectricEnergyMeter::CumulativeWattHour,
                SmartElectricEnergyMeter::Coefficient,
                SmartElectricEnergyMeter::Unit>;
 
@@ -53,12 +56,13 @@ constexpr std::size_t Capacity{JSON_OBJECT_SIZE(100)};
 std::string to_json_message(PInstantAmpere in) {
   namespace M = SmartElectricEnergyMeter;
   using std::chrono::duration_cast;
-  auto &[messageId, time, a] = in;
+  auto &[messageId, timept, a] = in;
   StaticJsonDocument<Capacity> doc;
   doc["message_id"] = messageId;
   doc["device_id"] = AWS_IOT_DEVICE_ID;
   doc["sensor_id"] = SENSOR_ID;
-  doc["measured_at"] = iso8601formatUTC(time);
+  doc["measured_at"] =
+      iso8601formatUTC(std::chrono::system_clock::to_time_t(timept));
   doc["instant_ampere_R"] = duration_cast<M::Ampere>(a.ampereR).count();
   doc["instant_ampere_T"] = duration_cast<M::Ampere>(a.ampereT).count();
   std::string output;
@@ -68,12 +72,13 @@ std::string to_json_message(PInstantAmpere in) {
 
 // 送信用メッセージに変換する
 std::string to_json_message(PInstantWatt in) {
-  auto &[messageId, time, w] = in;
+  auto &[messageId, timept, w] = in;
   StaticJsonDocument<Capacity> doc;
   doc["message_id"] = messageId;
   doc["device_id"] = AWS_IOT_DEVICE_ID;
   doc["sensor_id"] = SENSOR_ID;
-  doc["measured_at"] = iso8601formatUTC(time);
+  doc["measured_at"] =
+      iso8601formatUTC(std::chrono::system_clock::to_time_t(timept));
   doc["instant_watt"] = w.watt.count();
   std::string output;
   serializeJson(doc, output);
@@ -172,8 +177,6 @@ public:
       }
       // MQTT再接続シーケンス
       ESP_LOGD(TELEMETRY, "MQTT reconnect");
-      mqtt_client.disconnect();
-      delay(10);
       mqtt_client.connect(AWS_IOT_DEVICE_ID.data());
     } while (system_clock::now() < tp);
     return mqtt_client.connected();
@@ -182,29 +185,33 @@ public:
   // MQTT送受信
   //
   bool loop_mqtt() {
-    using namespace std::chrono;
-    // 送信するべき測定値があればIoT Coreへ送信する(1秒以上の間隔をあけて)
-    if (auto tp = system_clock::now();
-        tp - attempt_send_time >= seconds{1} && !sending_fifo_queue.empty()) {
-      std::string msg{};
-      auto &item = sending_fifo_queue.front();
-      if (std::holds_alternative<PInstantAmpere>(item)) {
-        msg = to_json_message(std::get<PInstantAmpere>(item));
-      } else if (std::holds_alternative<PInstantWatt>(item)) {
-        msg = to_json_message(std::get<PInstantWatt>(item));
-      } else if (std::holds_alternative<PCumlativeWattHour>(item)) {
-        msg = to_json_message(std::get<PCumlativeWattHour>(item));
+    if (mqtt_client.connected()) {
+      using namespace std::chrono;
+      // 送信するべき測定値があればIoT Coreへ送信する(1秒以上の間隔をあけて)
+      if (auto tp = system_clock::now();
+          tp - attempt_send_time >= seconds{1} && !sending_fifo_queue.empty()) {
+        std::string msg{};
+        auto &item = sending_fifo_queue.front();
+        if (std::holds_alternative<PInstantAmpere>(item)) {
+          msg = to_json_message(std::get<PInstantAmpere>(item));
+        } else if (std::holds_alternative<PInstantWatt>(item)) {
+          msg = to_json_message(std::get<PInstantWatt>(item));
+        } else if (std::holds_alternative<PCumlativeWattHour>(item)) {
+          msg = to_json_message(std::get<PCumlativeWattHour>(item));
+        }
+        // MQTT送信
+        if (msg.length() > 0 && send_mqtt(msg)) {
+          // IoT Coreへ送信したメッセージをFIFOから消す
+          sending_fifo_queue.pop();
+        }
+        // 成功失敗によらずIoT Coreへの送信時間を記録する
+        attempt_send_time = tp;
       }
-      // MQTT送信
-      if (msg.length() > 0 && send_mqtt(msg)) {
-        // IoT Coreへ送信したメッセージをFIFOから消す
-        sending_fifo_queue.pop();
-      }
-      // 成功失敗によらずIoT Coreへの送信時間を記録する
-      attempt_send_time = tp;
+      // MQTT受信
+      return mqtt_client.loop();
+    } else {
+      return false;
     }
-    // MQTT受信
-    return mqtt_client.loop();
   }
 };
 } // namespace Telemetry
