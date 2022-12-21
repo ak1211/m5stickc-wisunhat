@@ -62,8 +62,6 @@ std::pair<std::string, std::string> get_token(Stream &commport, int sep) {
       token.push_back(static_cast<char>(ch));
     }
   }
-  separator.shrink_to_fit();
-  token.shrink_to_fit();
   return {token, separator};
 }
 
@@ -80,12 +78,11 @@ void write_with_crln(Stream &commport, const std::string &line) {
 bool has_ok(Stream &commport) {
   for (auto retry = 0; retry < RETRY_LIMITS; ++retry) {
     if (auto [token, sep] = get_token(commport, '\n'); token.length() > 0) {
-      auto begin = token.begin();
-      ESP_LOGD(MAIN, "%s", token.c_str());
+      ESP_LOGV(MAIN, "\"%s\"", token.c_str());
       // OKで始まるかFAILで始まるか
-      if (std::equal(begin, std::next(begin, 2), "OK")) {
+      if (token.find("OK") == 0) {
         return true;
-      } else if (std::equal(begin, std::next(begin, 4), "FAIL")) {
+      } else if (token.find("FAIL") == 0) {
         return false;
       }
     } else {
@@ -480,7 +477,7 @@ std::string to_string(const SmartMeterIdentifier &ident) {
 }
 
 // 要求を送る
-void send_request(Stream &commport,
+bool send_request(Stream &commport,
                   const SmartMeterIdentifier &smart_meter_ident,
                   EchonetLiteTransactionId tid,
                   std::vector<SmartElectricEnergyMeter::EchonetLiteEPC> epcs) {
@@ -503,8 +500,14 @@ void send_request(Stream &commport,
   // 送信(ここはテキスト)
   commport.write(line.c_str(), line.length());
   // つづけてEchonet Liteフレーム (バイナリ)を送る
-  commport.write(frame.data(), frame.size());
   // CRLFは不要
+  commport.write(frame.data(), frame.size());
+  //
+  if (has_ok(commport)) {
+    return true;
+  } else {
+    return false;
+  }
 }
 
 // 接続(PANA認証)要求を送る

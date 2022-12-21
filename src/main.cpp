@@ -664,16 +664,22 @@ void loop() {
   // 現在時刻
   time_point current_time_point = system_clock::now();
 
-  //
-  // (あれば)２５個連続でスマートメーターからのメッセージを受信する
-  //
-  for (auto count = 0; count < 25; ++count) {
-    if (auto resp = Bp35a1::receive_response(smart_whm_b_route->commport);
-        resp.has_value()) {
-      received_message_fifo.push({current_time_point, resp.value()});
+  if (duration_cast<seconds>(current_time_point.time_since_epoch()).count() %
+          60 !=
+      0) {
+    //
+    // 毎分0秒を避けて(要求を出すタスクと混信するので)
+    // (あれば)２５個連続でスマートメーターからのメッセージを受信する
+    //
+    for (auto count = 0; count < 25; ++count) {
+      if (auto resp = Bp35a1::receive_response(smart_whm_b_route->commport);
+          resp.has_value()) {
+        received_message_fifo.push({current_time_point, resp.value()});
+      }
+      delay(10);
     }
-    delay(10);
   }
+
   //
   // スマートメーターからのメッセージ受信処理
   //
@@ -723,26 +729,6 @@ void loop() {
   const uint32_t remains_in_permille =
       1000 * (one_min_in_ms - seconds_in_ms) / one_min_in_ms;
   render_progress_bar(remains_in_permille);
-
-  //
-  // スマートメーターに要求を出す(1秒以上の間隔をあけて)
-  //
-  /*
-  if (auto elapsed = current_time_point - time_of_sent_message_to_smart_whm;
-      elapsed >= seconds{1}) {
-    // 積算電力量単位が初期値の場合にスマートメーターに最初の要求を出す
-    if (!smart_watt_hour_meter.whm_unit.has_value()) {
-      send_first_request(current_time_point);
-      // 送信時間を記録する
-      time_of_sent_message_to_smart_whm = current_time_point;
-    } else if (seconds_in_ms < milliseconds{1000}) {
-      // 毎分0秒(1秒に満たないとき)にスマートメーターに定期要求を出す
-      send_periodical_request(current_time_point, smart_watt_hour_meter);
-      // 送信時間を記録する
-      time_of_sent_message_to_smart_whm = current_time_point;
-    }
-  }
-  */
 
   //
   // 59秒以上の待ち時間があるうちに接続状態の検査をする:
