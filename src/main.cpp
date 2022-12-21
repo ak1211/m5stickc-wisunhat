@@ -51,9 +51,6 @@ static SmartWhm smart_watt_hour_meter{};
 // MQTT
 static Telemetry::Mqtt telemetry;
 
-// FreeRTOS タスクハンドル
-static TaskHandle_t sendRequestTaskHandle;
-
 // 瞬時電力量
 static Gauge<SmartElectricEnergyMeter::InstantWatt> instant_watt_gauge{
     2,
@@ -284,9 +281,6 @@ static bool checkWiFi(std::chrono::seconds timeout) {
   return WiFi.isConnected();
 }
 
-// 前方参照
-static void send_request_to_smart_meter_task(void *);
-
 //
 // bootメッセージ表示用
 //
@@ -348,12 +342,6 @@ void setup() {
   instant_watt_gauge.update(true);
   instant_ampere_gauge.update(true);
   cumulative_watt_hour_gauge.update(true);
-
-  //
-  // スマートメーターにメッセージを送信するタスクを起動する
-  //
-  xTaskCreateUniversal(send_request_to_smart_meter_task, "send request task",
-                       8192, nullptr, 3, &sendRequestTaskHandle, APP_CPU_NUM);
 }
 
 //
@@ -648,6 +636,30 @@ send_periodical_request(std::chrono::system_clock::time_point current_time,
 }
 
 //
+// スマートメーターに要求を送る
+//
+static void send_request_to_smart_meter() {
+  using namespace std::chrono;
+  static time_point send_time_at{system_clock::now()};
+  auto tp = system_clock::now();
+  //
+  // スマートメーターに要求を出す(1秒以上の間隔をあけて)
+  //
+  if (auto elapsed = tp - send_time_at; elapsed >= seconds{1}) {
+    // 積算電力量単位が初期値の場合にスマートメーターに最初の要求を出す
+    if (!smart_watt_hour_meter.whm_unit.has_value()) {
+      send_first_request(tp);
+    } else if (duration_cast<seconds>(tp.time_since_epoch()).count() % 60 ==
+               0) {
+      // 毎分0秒にスマートメーターに定期要求を出す
+      send_periodical_request(tp, smart_watt_hour_meter);
+    }
+    // 送信時間を記録する
+    send_time_at = tp;
+  }
+}
+
+//
 // Arduinoのloop()関数
 //
 void loop() {
@@ -656,28 +668,21 @@ void loop() {
       std::pair<std::chrono::system_clock::time_point, Bp35a1::Response>>
       received_message_fifo{};
   using namespace std::chrono;
-  // スマートメーターにメッセージを送信した時間
-  static time_point time_of_sent_message_to_smart_whm{system_clock::now()};
   // メッセージIDカウンタ(IoT Core用)
   static Telemetry::MessageId messageId{};
 
   // 現在時刻
-  time_point current_time_point = system_clock::now();
+  time_point current_time = system_clock::now();
 
-  if (duration_cast<seconds>(current_time_point.time_since_epoch()).count() %
-          60 !=
-      0) {
-    //
-    // 毎分0秒を避けて(要求を出すタスクと混信するので)
-    // (あれば)２５個連続でスマートメーターからのメッセージを受信する
-    //
-    for (auto count = 0; count < 25; ++count) {
-      if (auto resp = Bp35a1::receive_response(smart_whm_b_route->commport);
-          resp.has_value()) {
-        received_message_fifo.push({current_time_point, resp.value()});
-      }
-      delay(10);
+  //
+  // (あれば)２５個連続でスマートメーターからのメッセージを受信する
+  //
+  for (auto count = 0; count < 25; ++count) {
+    if (auto resp = Bp35a1::receive_response(smart_whm_b_route->commport);
+        resp.has_value()) {
+      received_message_fifo.push({current_time, resp.value()});
     }
+    delay(10);
   }
 
   //
@@ -724,11 +729,14 @@ void loop() {
   //
   constexpr milliseconds one_min_in_ms = milliseconds{60000};
   const milliseconds seconds_in_ms = duration_cast<milliseconds>(
-      current_time_point.time_since_epoch() % one_min_in_ms);
+      current_time.time_since_epoch() % one_min_in_ms);
   // 毎分0秒までの残り時間(1000分率)
   const uint32_t remains_in_permille =
       1000 * (one_min_in_ms - seconds_in_ms) / one_min_in_ms;
   render_progress_bar(remains_in_permille);
+
+  // スマートメーターに要求を送る
+  send_request_to_smart_meter();
 
   //
   // 59秒以上の待ち時間があるうちに接続状態の検査をする:
@@ -741,38 +749,5 @@ void loop() {
       // WiFi接続検査
       checkWiFi(seconds{30});
     }
-  }
-}
-
-//
-// スマートメーターにメッセージを送信するタスク
-//
-static void send_request_to_smart_meter_task(void *) {
-  using namespace std::chrono;
-  // スマートメーターにメッセージを送信した時間
-  static time_point send_time_at{system_clock::now()};
-  TickType_t wait = 250;
-  for (;;) {
-    auto tp = system_clock::now();
-    //
-    // スマートメーターに要求を出す(1秒以上の間隔をあけて)
-    //
-    if (auto elapsed = tp - send_time_at; elapsed >= seconds{1}) {
-      // 積算電力量単位が初期値の場合にスマートメーターに最初の要求を出す
-      if (!smart_watt_hour_meter.whm_unit.has_value()) {
-        send_first_request(tp);
-      } else if (duration_cast<seconds>(tp.time_since_epoch()).count() % 60 ==
-                 0) {
-        // 毎分0秒にスマートメーターに定期要求を出す
-        send_periodical_request(tp, smart_watt_hour_meter);
-      }
-      // 送信時間を記録する
-      send_time_at = tp;
-      wait = 500;
-    } else {
-      wait = 250;
-    }
-    //
-    vTaskDelay(wait);
   }
 }

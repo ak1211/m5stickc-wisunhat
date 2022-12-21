@@ -35,8 +35,8 @@ void clear_read_buffer(Stream &commport) {
 // ストリームからsepで区切られたトークンを得る
 std::pair<std::string, std::string> get_token(Stream &commport, int sep) {
   constexpr std::size_t LINE_BUFFER_SIZE{512};
-  std::string separator{};
-  std::string token{};
+  std::string separator;
+  std::string token;
   for (auto count = 0; count < LINE_BUFFER_SIZE; ++count) {
     // 1文字読み込んで
     auto ch = commport.read();
