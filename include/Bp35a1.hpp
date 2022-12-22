@@ -405,31 +405,61 @@ std::string to_string(const SmartMeterIdentifier &ident) {
 }
 
 // 要求を送る
-bool send_request(Stream &commport,
-                  const SmartMeterIdentifier &smart_meter_ident,
-                  EchonetLiteTransactionId tid,
-                  std::vector<SmartElectricEnergyMeter::EchonetLiteEPC> epcs) {
-  std::vector<uint8_t> frame =
-      SmartElectricEnergyMeter::make_echonet_lite_frame(
-          tid, EchonetLiteESV::Get, epcs);
+bool send_request(
+    Stream &commport, const SmartMeterIdentifier &smart_meter_ident,
+    EchonetLiteTransactionId tid,
+    const std::vector<SmartElectricEnergyMeter::EchonetLiteEPC> epcs) {
+  EchonetLiteFrame frame;
+  // EHD: ECHONET Lite 電文ヘッダー
+  frame.ehd = EchonetLiteEHD;
+  // TID: トランザクションID
+  frame.tid = tid;
+  // SEOJ: メッセージの送り元(sender : 自分自身)
+  frame.edata.seoj = EchonetLiteSEOJ(HomeController::EchonetLiteEOJ);
+  // DEOJ: メッセージの行き先(destination : スマートメーター)
+  frame.edata.deoj = EchonetLiteDEOJ(SmartElectricEnergyMeter::EchonetLiteEOJ);
+  // ESV : ECHONET Lite サービスコード
+  frame.edata.esv = EchonetLiteESV::Get;
+  // OPC: 処理プロパティ数
+  frame.edata.opc = epcs.size();
+  // ECHONET Liteプロパティ
+  std::transform(epcs.cbegin(), epcs.cend(),
+                 std::back_inserter(frame.edata.props),
+                 [](const SmartElectricEnergyMeter::EchonetLiteEPC v) {
+                   EchonetLiteProp result;
+                   // EPC: ECHONET Liteプロパティ
+                   result.epc = static_cast<uint8_t>(v);
+                   // EDT: EDTはない
+                   result.edt = {};
+                   // PDC: EDTのバイト数
+                   result.pdc = result.edt.size();
+                   return result;
+                 });
+  // ECHONET Lite フレームからペイロードを作る
+  std::vector<uint8_t> payload = serializeFromEchonetLiteFrame(frame);
   //
   std::ostringstream oss;
-  oss << "SKSENDTO "sv;
-  oss << "1 "sv;                                  // HANDLE
-  oss << smart_meter_ident.ipv6_address << " "sv; // IPADDR
-  oss << EchonetLiteUdpPort << " "sv;             // PORT
-  oss << "1 "sv;                                  // SEC
-  oss << std::uppercase << std::hex;              //
-  oss << std::setfill('0') << std::setw(4);       //
-  oss << frame.size() << " "sv;                   // DATALEN
+  oss << "SKSENDTO "s                          //
+      << "1 "s                                 // HANDLE
+      << smart_meter_ident.ipv6_address << " " // IPADDR
+      << EchonetLiteUdpPort << " "s            // PORT
+      << "1 "s                                 // SEC
+      << std::uppercase << std::hex            //
+      << std::setfill('0') << std::setw(4)     //
+      << payload.size() << " "s;               // DATALEN
   //
   auto line{oss.str()};
-  ESP_LOGD(MAIN, "%s", line.c_str());
   // 送信(ここはテキスト)
   commport.write(line.c_str(), line.length());
   // つづけてEchonet Liteフレーム (バイナリ)を送る
   // CRLFは不要
-  commport.write(frame.data(), frame.size());
+  commport.write(payload.data(), payload.size());
+  // デバッグ用
+  oss << "[";
+  std::copy(payload.begin(), payload.end(),
+            std::ostream_iterator<HexedU8>(oss));
+  oss << "]";
+  ESP_LOGD(MAIN, "%s", oss.str().c_str());
   //
   if (has_ok(commport)) {
     return true;

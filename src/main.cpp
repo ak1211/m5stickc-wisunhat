@@ -426,20 +426,20 @@ static void process_event(const Bp35a1::ResEvent &ev) {
 // ノードプロファイルクラスのEchonetLiteフレームを処理する
 //
 static void process_node_profile_class_frame(const EchonetLiteFrame &frame) {
-  for (const auto &v : splitToEchonetLiteData(frame.edata)) {
-    auto prop = reinterpret_cast<const EchonetLiteProp *>(v.data());
-    switch (prop->epc) {
-    case 0xD5:              // インスタンスリスト通知
-      if (prop->pdc >= 4) { // 4バイト以上
-        uint8_t total_number_of_instances = prop->edt[0];
-        const EchonetLiteObjectCode *begin =
-            reinterpret_cast<const EchonetLiteObjectCode *>(&prop->edt[1]);
-        auto end = std::next(begin, total_number_of_instances);
+  for (const EchonetLiteProp &prop : frame.edata.props) {
+    switch (prop.epc) {
+    case 0xD5:                    // インスタンスリスト通知
+      if (prop.edt.size() >= 4) { // 4バイト以上
         std::ostringstream oss;
-        std::transform(begin, end, std::ostream_iterator<std::string>(oss, ","),
-                       [](const EchonetLiteObjectCode x) -> std::string {
-                         return to_string(x);
-                       });
+        auto it = prop.edt.cbegin();
+        uint8_t total_number_of_instances = *it++;
+        for (;;) {
+          if (std::distance(it, prop.edt.cend()) < 3) {
+            break;
+          }
+          auto o = EchonetLiteObjectCode({*it++, *it++, *it++});
+          oss << to_string(o) << ",";
+        }
         ESP_LOGD(MAIN, "list of instances (EOJ): %s", oss.str().c_str());
       }
       //
@@ -448,7 +448,7 @@ static void process_node_profile_class_frame(const EchonetLiteFrame &frame) {
       //
       break;
     default:
-      ESP_LOGD(MAIN, "unknown EPC: %02x", prop->epc);
+      ESP_LOGD(MAIN, "unknown EPC: %02X", prop.epc);
       break;
     }
   }
@@ -486,18 +486,15 @@ static Telemetry::MessageId
 process_erxudp(std::chrono::system_clock::time_point at,
                Telemetry::MessageId messageId, const Bp35a1::ResErxudp &ev) {
   // EchonetLiteFrameに変換
-  const EchonetLiteFrame *pframe =
-      reinterpret_cast<const EchonetLiteFrame *>(ev.data.data());
-  const EchonetLiteFrame &frame = *pframe;
-  // フレームヘッダの確認
-  if (frame.ehd == EchonetLiteEHD) {
+  if (auto opt = deserializeToEchonetLiteFrame(ev.data); opt.has_value()) {
+    const EchonetLiteFrame &frame = opt.value();
     //  EchonetLiteフレームだった
     ESP_LOGD(MAIN, "%s", to_string(frame).c_str());
     //
-    if (frame.edata.seoj == NodeProfileClass::EchonetLiteEOJ) {
+    if (frame.edata.seoj.s == NodeProfileClass::EchonetLiteEOJ) {
       // ノードプロファイルクラス
       process_node_profile_class_frame(frame);
-    } else if (frame.edata.seoj == SmartElectricEnergyMeter::EchonetLiteEOJ) {
+    } else if (frame.edata.seoj.s == SmartElectricEnergyMeter::EchonetLiteEOJ) {
       // 低圧スマート電力量計クラス
       if constexpr (false) {
         auto tsec = transaction_id_to_seconds(frame.tid);
@@ -544,12 +541,7 @@ process_erxudp(std::chrono::system_clock::time_point at,
           }
         }
       }
-    } else {
-      ESP_LOGD(MAIN, "Unknown SEOJ: %s", to_string(frame.edata.seoj).c_str());
     }
-  } else {
-    ESP_LOGD(MAIN, "unknown frame header. EHD: %s",
-             to_string(frame.ehd).c_str());
   }
   return messageId;
 }
@@ -671,16 +663,13 @@ void loop() {
   // メッセージIDカウンタ(IoT Core用)
   static Telemetry::MessageId messageId{};
 
-  // 現在時刻
-  time_point current_time = system_clock::now();
-
   //
   // (あれば)２５個連続でスマートメーターからのメッセージを受信する
   //
   for (auto count = 0; count < 25; ++count) {
     if (auto resp = Bp35a1::receive_response(smart_whm_b_route->commport);
         resp.has_value()) {
-      received_message_fifo.push({current_time, resp.value()});
+      received_message_fifo.push({system_clock::now(), resp.value()});
     }
     delay(10);
   }
@@ -729,7 +718,7 @@ void loop() {
   //
   constexpr milliseconds one_min_in_ms = milliseconds{60000};
   const milliseconds seconds_in_ms = duration_cast<milliseconds>(
-      current_time.time_since_epoch() % one_min_in_ms);
+      system_clock::now().time_since_epoch() % one_min_in_ms);
   // 毎分0秒までの残り時間(1000分率)
   const uint32_t remains_in_permille =
       1000 * (one_min_in_ms - seconds_in_ms) / one_min_in_ms;
@@ -739,9 +728,10 @@ void loop() {
   send_request_to_smart_meter();
 
   //
-  // 59秒以上の待ち時間があるうちに接続状態の検査をする:
+  // 55秒以上の待ち時間があるうちに接続状態の検査をする:
   //
-  if (seconds_in_ms >= seconds{59}) {
+  if (auto s = duration_cast<seconds>(system_clock::now().time_since_epoch());
+      s >= seconds{55}) {
     if (WiFi.isConnected()) {
       // MQTT接続検査
       telemetry.check_mqtt(seconds{30});

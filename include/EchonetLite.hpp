@@ -8,7 +8,9 @@
 #include <chrono>
 #include <cstdint>
 #include <ctime>
+#include <endian.h>
 #include <iomanip>
+#include <memory>
 #include <queue>
 #include <ratio>
 #include <sstream>
@@ -24,7 +26,7 @@ using namespace std::literals::string_literals;
 using namespace std::literals::string_view_literals;
 
 // ECHONET Lite の UDP ポート番号
-constexpr std::string_view EchonetLiteUdpPort{"0E1A"};
+constexpr auto EchonetLiteUdpPort = HexedU16{0x0E1A};
 
 // ECHONET Lite 電文ヘッダー
 struct EchonetLiteEHeader final {
@@ -34,9 +36,12 @@ static_assert(sizeof(EchonetLiteEHeader) == 2);
 //
 bool operator==(const EchonetLiteEHeader &left,
                 const EchonetLiteEHeader &right) {
-  return std::equal(std::begin(left.u8), std::end(left.u8),  //
-                    std::begin(right.u8), std::end(right.u8) //
-  );
+  return std::equal(std::begin(left.u8), std::end(left.u8), //
+                    std::begin(right.u8), std::end(right.u8));
+}
+bool operator!=(const EchonetLiteEHeader &left,
+                const EchonetLiteEHeader &right) {
+  return !(left == right);
 }
 std::ostream &operator<<(std::ostream &os, const EchonetLiteEHeader &v) {
   auto save = os.flags();
@@ -67,6 +72,8 @@ union EchonetLiteObjectCode {
     uint8_t class_code;    // byte.2 クラスコード
     uint8_t instance_code; // byte.3 インスタンスコード
   };
+  constexpr EchonetLiteObjectCode(std::array<uint8_t, 3> in = {})
+      : u8{in[0], in[1], in[2]} {}
 };
 static_assert(sizeof(EchonetLiteObjectCode) == 3);
 //
@@ -151,23 +158,34 @@ enum class EchonetLiteEPC : uint8_t {
 };
 static_assert(sizeof(EchonetLiteEPC) == 1);
 
+// 送信元ECHONET Liteオブジェクト指定
+struct EchonetLiteSEOJ {
+  EchonetLiteObjectCode s;
+  constexpr EchonetLiteSEOJ(EchonetLiteObjectCode in = {}) : s{in} {};
+  constexpr EchonetLiteSEOJ(std::array<uint8_t, 3> in) : s{in} {};
+};
+// 相手元ECHONET Liteオブジェクト指定
+struct EchonetLiteDEOJ {
+  EchonetLiteObjectCode d;
+  constexpr EchonetLiteDEOJ(EchonetLiteObjectCode in = {}) : d{in} {};
+  constexpr EchonetLiteDEOJ(std::array<uint8_t, 3> in) : d{in} {};
+};
+
 // ECHONET Liteプロパティ
 struct EchonetLiteProp final {
-  uint8_t epc;   // ECHONET Liteプロパティ
-  uint8_t pdc;   // EDTのバイト数
-  uint8_t edt[]; // プロパティ値データ
+  uint8_t epc;              // ECHONET Liteプロパティ
+  uint8_t pdc;              // EDTのバイト数
+  std::vector<uint8_t> edt; // プロパティ値データ
 };
-static_assert(sizeof(EchonetLiteProp) == 2);
 
 // ECHONET Lite データ (EDATA)
 struct EchonetLiteData final {
-  EchonetLiteObjectCode seoj; // 送信元ECHONET Liteオブジェクト指定
-  EchonetLiteObjectCode deoj; // 相手元ECHONET Liteオブジェクト指定
-  EchonetLiteESV esv;         // ECHONET Liteサービス
-  uint8_t opc;                // 処理プロパティ数
-  EchonetLiteProp props[];    // ECHONET Liteプロパティ
+  EchonetLiteSEOJ seoj; // 送信元ECHONET Liteオブジェクト指定
+  EchonetLiteDEOJ deoj; // 相手元ECHONET Liteオブジェクト指定
+  EchonetLiteESV esv;   // ECHONET Liteサービス
+  uint8_t opc;          // 処理プロパティ数
+  std::vector<EchonetLiteProp> props; // ECHONET Liteプロパティ
 };
-static_assert(sizeof(EchonetLiteData) == 8);
 
 // ECHONET Lite フレーム
 struct EchonetLiteFrame final {
@@ -175,47 +193,144 @@ struct EchonetLiteFrame final {
   EchonetLiteTransactionId tid; // トランザクションID
   EchonetLiteData edata;        // ECHONET Lite データ (EDATA)
 };
-static_assert(sizeof(EchonetLiteFrame) == 12);
 
-// EDATAからECHONET Liteプロパティを取り出す
-std::vector<std::vector<uint8_t>>
-splitToEchonetLiteData(const EchonetLiteData &edata) {
-  std::vector<std::vector<uint8_t>> result;
-  auto ptr = reinterpret_cast<const uint8_t *>(&edata.props[0]);
-  for (auto k = 0; k < edata.opc; ++k) {
-    std::vector<uint8_t> v;
-    uint8_t epc = *ptr++;
-    uint8_t pdc = *ptr++;
-    v.push_back(epc);
-    v.push_back(pdc);
-    std::copy_n(ptr, pdc, std::back_inserter(v));
-    ptr += pdc;
-    result.emplace_back(std::move(v));
+// ECHONET Lite フレームからペイロードを作る
+std::vector<uint8_t>
+serializeFromEchonetLiteFrame(const EchonetLiteFrame &frame) {
+  std::vector<uint8_t> octets;
+  // bytes#1 and bytes#2
+  // EHD: ECHONET Lite 電文ヘッダー
+  octets.push_back(frame.ehd.u8[0]);
+  octets.push_back(frame.ehd.u8[1]);
+  // bytes#3 and bytes#4
+  // TID: トランザクションID
+  octets.push_back(frame.tid.u8[0]);
+  octets.push_back(frame.tid.u8[1]);
+  //
+  // EDATA
+  //
+  // bytes#5 and bytes#6 and bytes#7
+  // SEOJ: メッセージの送り元
+  octets.push_back(frame.edata.seoj.s.u8[0]);
+  octets.push_back(frame.edata.seoj.s.u8[1]);
+  octets.push_back(frame.edata.seoj.s.u8[2]);
+  // bytes#8 and bytes#9 adn bytes#10
+  // DEOJ: メッセージの行き先
+  octets.push_back(frame.edata.deoj.d.u8[0]);
+  octets.push_back(frame.edata.deoj.d.u8[1]);
+  octets.push_back(frame.edata.deoj.d.u8[2]);
+  // bytes#11
+  // ESV : ECHONET Lite サービスコード
+  octets.push_back(static_cast<uint8_t>(frame.edata.esv));
+  // bytes#12
+  // OPC: 処理プロパティ数
+  octets.push_back(static_cast<uint8_t>(frame.edata.props.size()));
+  if (frame.edata.opc != frame.edata.props.size()) {
+    ESP_LOGD(MAIN, "size mismatched: OPC:%d, SIZE():%d", frame.edata.opc,
+             frame.edata.props.size());
   }
-  return result;
+  //
+  // EPC, PDC, EDTを繰り返す
+  //
+  for (const auto &prop : frame.edata.props) {
+    // EPC: ECHONET Liteプロパティ
+    octets.push_back(prop.epc);
+    // PDC: EDTのバイト数
+    octets.push_back(prop.edt.size());
+    if (prop.pdc != prop.edt.size()) {
+      ESP_LOGD(MAIN, "size mismatched: PDC:%d, SIZE():%d", prop.pdc,
+               prop.edt.size());
+    }
+    // EDT: データ
+    std::copy(prop.edt.cbegin(), prop.edt.cend(), std::back_inserter(octets));
+  }
+  return octets;
+}
+
+// ペイロードからECHONET Lite フレームを取り出す
+std::optional<EchonetLiteFrame>
+deserializeToEchonetLiteFrame(const std::vector<uint8_t> &data) {
+  EchonetLiteFrame frame;
+  auto it = data.cbegin();
+  //
+  if (data.size() < 12) {
+    goto insufficient_inputs;
+  }
+  // bytes#1 and bytes#2
+  // EHD: ECHONET Lite 電文ヘッダー
+  frame.ehd.u8[0] = *it++;
+  frame.ehd.u8[1] = *it++;
+  if (frame.ehd != EchonetLiteEHD) {
+    // ECHONET Lite 電文形式でないので
+    ESP_LOGD(MAIN, "Unknown EHD: %s", to_string(frame.ehd).c_str());
+    return std::nullopt;
+  }
+  // bytes#3 and bytes#4
+  // TID: トランザクションID
+  frame.tid.u8[0] = *it++;
+  frame.tid.u8[1] = *it++;
+  //
+  // EDATA
+  //
+  // bytes#5 and bytes#6 and bytes#7
+  // SEOJ: メッセージの送り元(sender : 自分自身)
+  frame.edata.seoj = EchonetLiteSEOJ({*it++, *it++, *it++});
+  // bytes#8 and bytes#9 adn bytes#10
+  // DEOJ: メッセージの行き先(destination : スマートメーター)
+  frame.edata.deoj = EchonetLiteDEOJ({*it++, *it++, *it++});
+  // bytes#11
+  // ESV : ECHONET Lite サービスコード
+  frame.edata.esv = static_cast<EchonetLiteESV>(*it++);
+  // bytes#12
+  // OPC: 処理プロパティ数
+  frame.edata.opc = *it++;
+  //
+  // 以降,ECHONET Liteプロパティ
+  //
+  // EPC, PDC, EDTを繰り返す
+  //
+  frame.edata.props.reserve(frame.edata.opc);
+  for (auto i = 0; i < frame.edata.opc; ++i) {
+    EchonetLiteProp prop;
+    if (std::distance(it, data.cend()) < 2) {
+      goto insufficient_inputs;
+    }
+    // EPC: ECHONET Liteプロパティ
+    prop.epc = *it++;
+    // PDC: 続くEDTのバイト数
+    prop.pdc = *it++;
+    // EDT: ECHONET Liteプロパティ値データ
+    prop.edt.reserve(prop.pdc);
+    if (std::distance(it, data.cend()) < prop.pdc) {
+      goto insufficient_inputs;
+    }
+    for (auto k = 0; k < prop.pdc; ++k) {
+      prop.edt.push_back(*it++);
+    }
+    frame.edata.props.push_back(std::move(prop));
+  }
+  return std::make_optional(frame);
+insufficient_inputs:
+  ESP_LOGD(MAIN, "insufficient input of %d bytes.", data.size());
+  return std::nullopt;
 }
 
 //
 std::string to_string(const EchonetLiteFrame &frame) {
   std::ostringstream oss;
-  oss << "EHD:"s << to_string(frame.ehd)          //
-      << ",TID:"s << to_string(frame.tid)         //
-      << ",SEOJ:"s << to_string(frame.edata.seoj) //
-      << ",DEOJ:"s << to_string(frame.edata.deoj) //
-      << ",ESV:"s << to_string(frame.edata.esv)   //
-      << std::uppercase << std::hex               //
+  oss << "EHD:"s << to_string(frame.ehd)            //
+      << ",TID:"s << to_string(frame.tid)           //
+      << ",SEOJ:"s << to_string(frame.edata.seoj.s) //
+      << ",DEOJ:"s << to_string(frame.edata.deoj.d) //
+      << ",ESV:"s << to_string(frame.edata.esv)     //
+      << std::uppercase << std::hex                 //
       << ",OPC:"s << std::setfill('0') << std::setw(2) << +frame.edata.opc;
-  //
-  const uint8_t *p = reinterpret_cast<const uint8_t *>(&frame.edata.props[0]);
-  for (auto i = 0; i < frame.edata.opc; ++i) {
-    uint8_t epc = *p++;
-    uint8_t pdc = *p++;
-    oss << ",[EPC:"s << std::setfill('0') << std::setw(2) << +epc //
-        << ",PDC:"s << std::setfill('0') << std::setw(2) << +pdc;
-    if (pdc >= 1) {
+  for (const auto &prop : frame.edata.props) {
+    oss << ",[EPC:"s << std::setfill('0') << std::setw(2) << +prop.epc //
+        << ",PDC:"s << std::setfill('0') << std::setw(2) << +prop.pdc;
+    if (prop.pdc >= 1) {
       oss << ",EDT:"s;
-      for (auto k = 0; k < pdc; ++k) {
-        uint8_t octet = *p++;
+      for (const auto &octet : prop.edt) {
         oss << std::setfill('0') << std::setw(2) << +octet;
       }
     }
@@ -231,7 +346,7 @@ namespace HomeController {
 // グループコード 0x05 (管理・操作関連機器クラス)
 // クラスコード 0xFF (コントローラ)
 // インスタンスコード 0x01 (インスタンスコード1)
-constexpr EchonetLiteObjectCode EchonetLiteEOJ{0x05, 0xFF, 0x01};
+constexpr EchonetLiteObjectCode EchonetLiteEOJ({0x05, 0xFF, 0x01});
 } // namespace HomeController
 
 //
@@ -241,7 +356,7 @@ namespace NodeProfileClass {
 // グループコード 0x0E (ノードプロファイルクラス)
 // クラスコード 0xF0
 // インスタンスコード 0x01 (一般ノード)
-constexpr EchonetLiteObjectCode EchonetLiteEOJ{0x0E, 0xF0, 0x01};
+constexpr EchonetLiteObjectCode EchonetLiteEOJ({0x0E, 0xF0, 0x01});
 } // namespace NodeProfileClass
 
 //
@@ -251,7 +366,7 @@ namespace SmartElectricEnergyMeter {
 // クラスグループコード 0x02
 // クラスコード 0x88
 // インスタンスコード 0x01
-constexpr EchonetLiteObjectCode EchonetLiteEOJ{0x02, 0x88, 0x01};
+constexpr EchonetLiteObjectCode EchonetLiteEOJ({0x02, 0x88, 0x01});
 
 //
 // ECHONET Liteプロパティ
@@ -280,6 +395,7 @@ enum class EchonetLiteEPC : uint8_t {
 static_assert(sizeof(EchonetLiteEPC) == 1);
 
 // 通信用のフレームを作る
+/*
 std::vector<uint8_t> make_echonet_lite_frame(EchonetLiteTransactionId tid,    //
                                              EchonetLiteESV esv,              //
                                              std::vector<EchonetLiteEPC> epcs //
@@ -324,6 +440,7 @@ std::vector<uint8_t> make_echonet_lite_frame(EchonetLiteTransactionId tid,    //
   }
   return echonet_lite_frame;
 }
+*/
 
 // 係数
 struct Coefficient final {
@@ -620,18 +737,16 @@ std::vector<ReceivedMessage>
 process_echonet_lite_frame(const EchonetLiteFrame &frame) {
   std::vector<ReceivedMessage> result{};
   // EDATAは複数送られてくる
-  for (const auto &v : splitToEchonetLiteData(frame.edata)) {
+  for (const EchonetLiteProp &prop : frame.edata.props) {
     // EchonetLiteプロパティ
-    const EchonetLiteProp *prop =
-        reinterpret_cast<const EchonetLiteProp *>(v.data());
-    switch (prop->epc) {
-    case 0x80: {               // 動作状態
-      if (prop->pdc == 0x01) { // 1バイト
+    switch (prop.epc) {
+    case 0x80: {                  // 動作状態
+      if (prop.edt.size() == 1) { // 1バイト
         enum class OpStatus : uint8_t {
           ON = 0x30,
           OFF = 0x31,
         };
-        switch (static_cast<OpStatus>(prop->edt[0])) {
+        switch (static_cast<OpStatus>(prop.edt[0])) {
         case OpStatus::ON:
           ESP_LOGD(MAIN, "operation status : ON");
           break;
@@ -643,29 +758,29 @@ process_echonet_lite_frame(const EchonetLiteFrame &frame) {
         ESP_LOGD(MAIN,
                  "pdc is should be 1 bytes, this is "
                  "%d bytes.",
-                 prop->pdc);
+                 prop.edt.size());
       }
     } break;
-    case 0x81: {               // 設置場所
-      if (prop->pdc == 0x01) { // 1バイト
-        uint8_t a = prop->edt[0];
-        ESP_LOGD(MAIN, "installation location: 0x%02x", a);
-      } else if (prop->pdc == 0x11) { // 17バイト
+    case 0x81: {                  // 設置場所
+      if (prop.edt.size() == 1) { // 1バイト
+        uint8_t a = prop.edt[0];
+        ESP_LOGD(MAIN, "installation location: 0x%02X", a);
+      } else if (prop.edt.size() == 17) { // 17バイト
         ESP_LOGD(MAIN, "installation location");
       } else {
         ESP_LOGD(MAIN,
                  "pdc is should be 1 or 17 bytes, "
                  "this is %d bytes.",
-                 prop->pdc);
+                 prop.edt.size());
       }
     } break;
-    case 0x88: {               // 異常発生状態
-      if (prop->pdc == 0x01) { // 1バイト
+    case 0x88: {                  // 異常発生状態
+      if (prop.edt.size() == 1) { // 1バイト
         enum class FaultStatus : uint8_t {
           FaultOccurred = 0x41,
           NoFault = 0x42,
         };
-        switch (static_cast<FaultStatus>(prop->edt[0])) {
+        switch (static_cast<FaultStatus>(prop.edt[0])) {
         case FaultStatus::FaultOccurred:
           ESP_LOGD(MAIN, "FaultStatus::FaultOccurred");
           break;
@@ -677,27 +792,27 @@ process_echonet_lite_frame(const EchonetLiteFrame &frame) {
         ESP_LOGD(MAIN,
                  "pdc is should be 1 bytes, this is "
                  "%d bytes.",
-                 prop->pdc);
+                 prop.edt.size());
       }
     } break;
-    case 0x8A: {               // メーカーコード
-      if (prop->pdc == 0x03) { // 3バイト
-        uint8_t a = prop->edt[0];
-        uint8_t b = prop->edt[1];
-        uint8_t c = prop->edt[2];
-        ESP_LOGD(MAIN, "Manufacturer: 0x%02x%02x%02x", a, b, c);
+    case 0x8A: {                  // メーカーコード
+      if (prop.edt.size() == 3) { // 3バイト
+        uint8_t a = prop.edt[0];
+        uint8_t b = prop.edt[1];
+        uint8_t c = prop.edt[2];
+        ESP_LOGD(MAIN, "Manufacturer: 0x%02X%02X%02X", a, b, c);
       } else {
         ESP_LOGD(MAIN,
                  "pdc is should be 3 bytes, this is "
                  "%d bytes.",
-                 prop->pdc);
+                 prop.edt.size());
       }
     } break;
     case 0xD3: { // 係数
       auto coeff = Coefficient{};
-      if (prop->pdc == 0x04) { // 4バイト
-        coeff = Coefficient(
-            {prop->edt[0], prop->edt[1], prop->edt[2], prop->edt[3]});
+      if (prop.edt.size() == 4) { // 4バイト
+        coeff =
+            Coefficient({prop.edt[0], prop.edt[1], prop.edt[2], prop.edt[3]});
       } else {
         // 係数が無い場合は1倍となる
         coeff = Coefficient{};
@@ -705,72 +820,71 @@ process_echonet_lite_frame(const EchonetLiteFrame &frame) {
       ESP_LOGD(MAIN, "%s", to_string(coeff).c_str());
       result.push_back(coeff);
     } break;
-    case 0xD7: {               // 積算電力量有効桁数
-      if (prop->pdc == 0x01) { // 1バイト
-        auto digits = EffectiveDigits(prop->edt[0]);
+    case 0xD7: {                  // 積算電力量有効桁数
+      if (prop.edt.size() == 1) { // 1バイト
+        auto digits = EffectiveDigits(prop.edt[0]);
         ESP_LOGD(MAIN, "%s", to_string(digits).c_str());
         result.push_back(digits);
       } else {
         ESP_LOGD(MAIN,
                  "pdc is should be 1 bytes, this is "
                  "%d bytes.",
-                 prop->pdc);
+                 prop.edt.size());
       }
     } break;
     case 0xE1: { // 積算電力量単位 (正方向、逆方向計測値)
-      if (prop->pdc == 0x01) { // 1バイト
-        auto unit = Unit(prop->edt[0]);
+      if (prop.edt.size() == 1) { // 1バイト
+        auto unit = Unit(prop.edt[0]);
         ESP_LOGD(MAIN, "%s", to_string(unit).c_str());
         result.push_back(unit);
       } else {
         ESP_LOGD(MAIN,
                  "pdc is should be 1 bytes, this is "
                  "%d bytes.",
-                 prop->pdc);
+                 prop.edt.size());
       }
     } break;
-    case 0xE5: {               // 積算履歴収集日１
-      if (prop->pdc == 0x01) { // 1バイト
-        uint8_t day = prop->edt[0];
+    case 0xE5: {                  // 積算履歴収集日１
+      if (prop.edt.size() == 1) { // 1バイト
+        uint8_t day = prop.edt[0];
         ESP_LOGD(MAIN, "day of historical 1: (%d)", day);
       } else {
         ESP_LOGD(MAIN,
                  "pdc is should be 1 bytes, this is "
                  "%d bytes.",
-                 prop->pdc);
+                 prop.edt.size());
       }
     } break;
-    case 0xE7: {               // 瞬時電力値
-      if (prop->pdc == 0x04) { // 4バイト
-        auto watt = InstantWatt(
-            {prop->edt[0], prop->edt[1], prop->edt[2], prop->edt[3]});
+    case 0xE7: {                  // 瞬時電力値
+      if (prop.edt.size() == 4) { // 4バイト
+        auto watt =
+            InstantWatt({prop.edt[0], prop.edt[1], prop.edt[2], prop.edt[3]});
         ESP_LOGD(MAIN, "%s", to_string(watt).c_str());
         result.push_back(watt);
       } else {
         ESP_LOGD(MAIN,
                  "pdc is should be 4 bytes, this is "
                  "%d bytes.",
-                 prop->pdc);
+                 prop.edt.size());
       }
     } break;
-    case 0xE8: {               // 瞬時電流値
-      if (prop->pdc == 0x04) { // 4バイト
-        auto ampere = InstantAmpere(
-            {prop->edt[0], prop->edt[1], prop->edt[2], prop->edt[3]});
+    case 0xE8: {                  // 瞬時電流値
+      if (prop.edt.size() == 4) { // 4バイト
+        auto ampere =
+            InstantAmpere({prop.edt[0], prop.edt[1], prop.edt[2], prop.edt[3]});
         ESP_LOGD(MAIN, "%s", to_string(ampere).c_str());
         result.push_back(ampere);
       } else {
         ESP_LOGD(MAIN,
                  "pdc is should be 4 bytes, this is "
                  "%d bytes.",
-                 prop->pdc);
+                 prop.edt.size());
       }
     } break;
-    case 0xEA: {               // 定時積算電力量
-      if (prop->pdc == 0x0B) { // 11バイト
-        // std::to_arrayの登場はC++20からなのでこんなことになった
+    case 0xEA: {                   // 定時積算電力量
+      if (prop.edt.size() == 11) { // 11バイト
         std::array<uint8_t, 11> memory;
-        std::copy_n(prop->edt, memory.size(), memory.begin());
+        std::copy_n(prop.edt.begin(), memory.size(), memory.begin());
         //
         auto cwh = CumulativeWattHour(memory);
         ESP_LOGD(MAIN, "%s", to_string(cwh).c_str());
@@ -779,31 +893,31 @@ process_echonet_lite_frame(const EchonetLiteFrame &frame) {
         ESP_LOGD(MAIN,
                  "pdc is should be 11 bytes, this is "
                  "%d bytes.",
-                 prop->pdc);
+                 prop.edt.size());
       }
     } break;
-    case 0xED: {               // 積算履歴収集日２
-      if (prop->pdc == 0x07) { // 7バイト
-        uint8_t a = prop->edt[0];
-        uint8_t b = prop->edt[1];
-        uint8_t c = prop->edt[2];
-        uint8_t d = prop->edt[3];
-        uint8_t e = prop->edt[4];
-        uint8_t f = prop->edt[5];
-        uint8_t g = prop->edt[6];
+    case 0xED: {                  // 積算履歴収集日２
+      if (prop.edt.size() == 7) { // 7バイト
+        uint8_t a = prop.edt[0];
+        uint8_t b = prop.edt[1];
+        uint8_t c = prop.edt[2];
+        uint8_t d = prop.edt[3];
+        uint8_t e = prop.edt[4];
+        uint8_t f = prop.edt[5];
+        uint8_t g = prop.edt[6];
         ESP_LOGD(MAIN,
                  "day of historical 2: "
-                 "[%02x,%02x,%02x,%02x,%02x,%02x,%02x]",
+                 "[%02X,%02X,%02X,%02X,%02X,%02X,%02X]",
                  a, b, c, d, e, f, g);
       } else {
         ESP_LOGD(MAIN,
                  "pdc is should be 7 bytes, this is "
                  "%d bytes.",
-                 prop->pdc);
+                 prop.edt.size());
       }
     } break;
     default:
-      ESP_LOGD(MAIN, "unknown epc: 0x%x", prop->epc);
+      ESP_LOGD(MAIN, "unknown epc: 0x%X", prop.epc);
       break;
     }
   }
