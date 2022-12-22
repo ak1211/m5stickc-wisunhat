@@ -3,6 +3,7 @@
 // See LICENSE file in the project root for full license information.
 //
 #pragma once
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstdint>
@@ -17,6 +18,7 @@
 #include <vector>
 
 #include "Application.hpp"
+#include "TypeDefine.hpp"
 
 using namespace std::literals::string_literals;
 using namespace std::literals::string_view_literals;
@@ -36,12 +38,18 @@ bool operator==(const EchonetLiteEHeader &left,
                     std::begin(right.u8), std::end(right.u8) //
   );
 }
+std::ostream &operator<<(std::ostream &os, const EchonetLiteEHeader &v) {
+  auto save = os.flags();
+  os << std::uppercase << std::hex                     //
+     << std::setfill('0') << std::setw(2) << +v.u8[0]  //
+     << std::setfill('0') << std::setw(2) << +v.u8[1]; //
+  os.flags(save);
+  return os;
+}
 //
 std::string to_string(EchonetLiteEHeader ehd) {
   std::ostringstream oss;
-  oss << std::uppercase << std::hex;
-  oss << std::setfill('0') << std::setw(2) << +ehd.u8[0];
-  oss << std::setfill('0') << std::setw(2) << +ehd.u8[1];
+  oss << ehd;
   return oss.str();
 }
 
@@ -92,17 +100,36 @@ std::string to_string(EchonetLiteTransactionId tid) {
   return oss.str();
 }
 
-// ECHONET Liteサービス
+//
+// ECHONET Liteサービス(ESV)
+//
 enum class EchonetLiteESV : uint8_t {
-  SetC_SNA = 0x51, // プロパティ値書き込み要求不可応答
-  Get_SNA = 0x52,  // プロパティ値読み出し不可応答
-  SetC = 0x61,     // プロパティ値書き込み要求（応答要）
-  Get = 0x62,      // プロパティ値読み出し要求
-  Set_Res = 0x71,  // プロパティ値書き込み応答
-  Get_Res = 0x72,  // プロパティ値読み出し応答
-  INF = 0x73,      // プロパティ値通知
-  INFC = 0x74,     // プロパティ値通知（応答要）
-  INFC_Res = 0x7A, // プロパティ値通知応答
+  //
+  // 要求用ESVコード一覧表
+  //
+  SetI = 0x60,    // プロパティ値書き込み要求（応答不要）
+  SetC = 0x61,    // プロパティ値書き込み要求（応答要）
+  Get = 0x62,     // プロパティ値読み出し要求
+  INF_REQ = 0x63, // プロパティ値通知要求
+  SetGet = 0x6E,  // プロパティ値書き込み・読み出し要求
+  //
+  // 応答・通知用ESVコード一覧表
+  //
+  Set_Res = 0x71,    // プロパティ値書き込み応答
+  Get_Res = 0x72,    // プロパティ値読み出し応答
+  INF = 0x73,        // プロパティ値通知
+  INFC = 0x74,       // プロパティ値通知（応答要）
+  INFC_Res = 0x7A,   // プロパティ値通知応答
+  SetGet_Res = 0x7E, // プロパティ値書き込み・読み出し応答
+  //
+  // 不可応答用ESVコード一覧表
+  //
+  SetI_SNA = 0x50,  // プロパティ値書き込み要求不可応答
+  SetC_SNA = 0x51,  // プロパティ値書き込み要求不可応答
+  Get_SNA = 0x52,   // プロパティ値読み出し不可応答
+  INF_SNA = 0x53,   // プロパティ値通知不可応答
+  SetGetSNA = 0x5E, // プロパティ値書き込み・読み出し不可応答
+  //
 };
 static_assert(sizeof(EchonetLiteESV) == 1);
 
@@ -112,6 +139,17 @@ std::string to_string(EchonetLiteESV esv) {
   oss << std::setfill('0') << std::setw(2) << +static_cast<uint8_t>(esv);
   return oss.str();
 }
+
+//
+// ECHONET Lite機器オブジェクトスーパークラス規定プロパティ
+//
+enum class EchonetLiteEPC : uint8_t {
+  Operation_status = 0x80,      // 動作状態
+  Installation_location = 0x81, // 設置場所
+  Fault_status = 0x88,          // 異常発生状態
+  Manufacturer_code = 0x8A,     // メーカーコード
+};
+static_assert(sizeof(EchonetLiteEPC) == 1);
 
 // ECHONET Liteプロパティ
 struct EchonetLiteProp final {
@@ -215,12 +253,16 @@ namespace SmartElectricEnergyMeter {
 // インスタンスコード 0x01
 constexpr EchonetLiteObjectCode EchonetLiteEOJ{0x02, 0x88, 0x01};
 
+//
 // ECHONET Liteプロパティ
+//
 enum class EchonetLiteEPC : uint8_t {
-  Operation_status = 0x80,           // 動作状態
-  Installation_location = 0x81,      // 設置場所
-  Fault_status = 0x88,               // 異常発生状態
-  Manufacturer_code = 0x8A,          // メーカーコード
+  // スーパークラスより
+  Operation_status = 0x80,      // 動作状態
+  Installation_location = 0x81, // 設置場所
+  Fault_status = 0x88,          // 異常発生状態
+  Manufacturer_code = 0x8A,     // メーカーコード
+  //
   Coefficient = 0xD3,                // 係数
   Number_of_effective_digits = 0xD7, // 積算電力量有効桁数
   Measured_cumulative_amount = 0xE0, // 積算電力量計測値 (正方向計測値)
@@ -235,6 +277,7 @@ enum class EchonetLiteEPC : uint8_t {
                                              // (正方向計測値)
   Day_for_which_the_historcal_data_2 = 0xED, // 積算履歴収集日２
 };
+static_assert(sizeof(EchonetLiteEPC) == 1);
 
 // 通信用のフレームを作る
 std::vector<uint8_t> make_echonet_lite_frame(EchonetLiteTransactionId tid,    //

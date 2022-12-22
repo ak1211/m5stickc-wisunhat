@@ -8,13 +8,13 @@
 #include <cinttypes>
 #include <cstring>
 #include <iterator>
-#include <map>
 #include <optional>
 #include <sstream>
 #include <string>
 #include <variant>
 
 #include "SmartWhm.hpp"
+#include "TypeDefine.hpp"
 
 namespace Bp35a1 {
 using namespace std::literals::string_literals;
@@ -90,101 +90,6 @@ bool has_ok(Stream &commport) {
     }
   }
   return false;
-}
-
-// 2桁の16進数
-struct HexedU8 final {
-  uint8_t u8;
-  HexedU8(uint8_t init = 0U) { u8 = init; }
-  operator std::string() const;
-};
-std::istream &operator>>(std::istream &is, HexedU8 &v) {
-  auto save = is.flags();
-  int int_value;
-  is >> std::setw(2) >> std::hex >> int_value;
-  v = HexedU8{static_cast<uint8_t>(int_value)};
-  is.flags(save);
-  return is;
-}
-std::ostream &operator<<(std::ostream &os, const HexedU8 &v) {
-  auto save = os.flags();
-  os << std::setfill('0') << std::setw(2) << std::hex << std::uppercase
-     << +v.u8;
-  os.flags(save);
-  return os;
-}
-std::optional<HexedU8> makeHexedU8(const std::string &in) {
-  HexedU8 v;
-  std::istringstream iss{in};
-  iss >> v;
-  return (iss.fail()) ? std::nullopt : std::make_optional(v);
-}
-HexedU8::operator std::string() const {
-  std::ostringstream oss;
-  oss << *this;
-  return oss.str();
-}
-
-// 4桁の16進数
-struct HexedU16 final {
-  uint16_t u16;
-  HexedU16(uint16_t init = 0U) { u16 = init; }
-  operator std::string() const;
-};
-std::istream &operator>>(std::istream &is, HexedU16 &v) {
-  auto save = is.flags();
-  is >> std::setw(4) >> std::hex >> v.u16;
-  is.flags(save);
-  return is;
-}
-std::ostream &operator<<(std::ostream &os, const HexedU16 &v) {
-  auto save = os.flags();
-  os << std::setfill('0') << std::setw(4) << std::hex << std::uppercase
-     << +v.u16;
-  os.flags(save);
-  return os;
-}
-std::optional<HexedU16> makeHexedU16(const std::string &in) {
-  HexedU16 v;
-  std::istringstream iss{in};
-  iss >> v;
-  return (iss.fail()) ? std::nullopt : std::make_optional(v);
-}
-HexedU16::operator std::string() const {
-  std::ostringstream oss;
-  oss << *this;
-  return oss.str();
-}
-
-// 16桁の16進数
-struct HexedU64 final {
-  uint64_t u64;
-  HexedU64(uint64_t init = 0U) { u64 = init; }
-  operator std::string() const;
-};
-std::istream &operator>>(std::istream &is, HexedU64 &v) {
-  auto save = is.flags();
-  is >> std::setw(16) >> std::hex >> v.u64;
-  is.flags(save);
-  return is;
-}
-std::ostream &operator<<(std::ostream &os, const HexedU64 &v) {
-  auto save = os.flags();
-  os << std::setfill('0') << std::setw(16) << std::hex << std::uppercase
-     << +v.u64;
-  os.flags(save);
-  return os;
-}
-std::optional<HexedU64> makeHexedU64(const std::string &in) {
-  HexedU64 v;
-  std::istringstream iss{in};
-  iss >> v;
-  return (iss.fail()) ? std::nullopt : std::make_optional(v);
-}
-HexedU64::operator std::string() const {
-  std::ostringstream oss;
-  oss << *this;
-  return oss.str();
 }
 
 // IPV6アドレス
@@ -348,8 +253,7 @@ std::optional<IPv6Addr> get_ipv6_address(Stream &commport,
 //
 std::optional<Response> receive_response(Stream &commport) {
   // EVENTを受信する
-  auto rx_event = [&commport](const std::string &) -> ResEvent {
-    ResEvent ev;
+  auto rx_event = [&commport](const std::string &) -> std::optional<ResEvent> {
     std::vector<std::string> tokens;
     constexpr std::size_t N{3};
     tokens.reserve(N);
@@ -361,18 +265,24 @@ std::optional<Response> receive_response(Stream &commport) {
       }
     }
     if (tokens.size() == 2) {
+      ResEvent ev;
       ev.num = makeHexedU8(tokens[0]).value_or(HexedU8{});
       ev.sender = makeIPv6Addr(tokens[1]).value_or(IPv6Addr{});
       // 3番目のパラメータがない場合がある
+      return std::make_optional(ev);
     } else if (tokens.size() == 3) {
+      ResEvent ev;
       ev.num = makeHexedU8(tokens[0]).value_or(HexedU8{});
       ev.sender = makeIPv6Addr(tokens[1]).value_or(IPv6Addr{});
       ev.param = makeHexedU8(tokens[2]);
+      return std::make_optional(ev);
     }
-    return ev;
+    ESP_LOGE(MAIN, "rx_event: Unexpected end of input.");
+    return std::nullopt;
   };
   // EPANDESCを受信する
-  auto rx_epandesc = [&commport](const std::string &) -> ResEpandesc {
+  auto rx_epandesc =
+      [&commport](const std::string &) -> std::optional<ResEpandesc> {
     ResEpandesc ev;
     std::vector<std::pair<std::string, std::string>> tokens;
     constexpr std::size_t N{6};
@@ -382,6 +292,7 @@ std::optional<Response> receive_response(Stream &commport) {
       auto [right, sep2] = get_token(commport, ' ');
       tokens.push_back({left, right});
     }
+    auto counter = 0;
     for (const auto [left, right] : tokens) {
       // 先頭空白をスキップする
       std::string::const_iterator it;
@@ -392,25 +303,37 @@ std::optional<Response> receive_response(Stream &commport) {
       }
       if (std::equal(it, left.end(), "Channel")) {
         ev.channel = makeHexedU8(right).value_or(HexedU8{});
+        counter = counter + 1;
       } else if (std::equal(it, left.end(), "Channel Page")) {
         ev.channel_page = makeHexedU8(right).value_or(HexedU8{});
+        counter = counter + 1;
       } else if (std::equal(it, left.end(), "Pan ID")) {
         ev.pan_id = makeHexedU16(right).value_or(HexedU16{});
+        counter = counter + 1;
       } else if (std::equal(it, left.end(), "Addr")) {
         ev.addr = makeHexedU64(right).value_or(HexedU64{});
+        counter = counter + 1;
       } else if (std::equal(it, left.end(), "LQI")) {
         ev.lqi = makeHexedU8(right).value_or(HexedU8{});
+        counter = counter + 1;
       } else if (std::equal(it, left.end(), "PairID")) {
         ev.pairid = right;
+        counter = counter + 1;
       } else {
-        ESP_LOGE(MAIN, "Unexpected input. \"%s\":\"%s\"", left, right);
+        ESP_LOGE(MAIN, "rx_epandesc: Unexpected input. \"%s\":\"%s\"", //
+                 left, right);
       }
     }
-    return ev;
+    if (counter == N) {
+      return std::make_optional(ev);
+    } else {
+      ESP_LOGE(MAIN, "rx_epandesc: Unexpected end of input.");
+      return std::nullopt;
+    }
   };
   // ERXUDPを受信する
-  auto rx_erxudp = [&commport](const std::string &) -> ResErxudp {
-    ResErxudp ev;
+  auto rx_erxudp =
+      [&commport](const std::string &) -> std::optional<ResErxudp> {
     std::vector<std::string> tokens;
     constexpr std::size_t N{7};
     tokens.reserve(N);
@@ -422,6 +345,7 @@ std::optional<Response> receive_response(Stream &commport) {
       }
     }
     if (tokens.size() >= 7) {
+      ResErxudp ev;
       ev.sender = makeIPv6Addr(tokens[0]).value_or(IPv6Addr{});
       ev.dest = makeIPv6Addr(tokens[1]).value_or(IPv6Addr{});
       ev.rport = makeHexedU16(tokens[2]).value_or(HexedU16{});
@@ -438,8 +362,12 @@ std::optional<Response> receive_response(Stream &commport) {
       commport.readBytes(ev.data.data(), ev.data.size());
       // 残ったCRLFを読み捨てる
       get_token(commport, ' ');
+      //
+      return std::make_optional(ev);
+    } else {
+      ESP_LOGE(MAIN, "rx_erxudp: Unexpected end of input.");
+      return std::nullopt;
     }
-    return ev;
   };
   // よくわからないイベントを受信する
   auto rx_fallthrough =
