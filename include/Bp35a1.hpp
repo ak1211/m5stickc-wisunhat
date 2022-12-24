@@ -8,6 +8,7 @@
 #include <cinttypes>
 #include <cstring>
 #include <iterator>
+#include <numeric>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -263,18 +264,22 @@ std::optional<Response> receive_response(Stream &commport) {
         break;
       }
     }
+    {
+      std::string str = std::accumulate(
+          tokens.begin(), tokens.end(), name,
+          [](auto acc, auto x) -> std::string { return acc + " " + x; });
+      ESP_LOGD(MAIN, "%s", str.c_str());
+    }
     if (tokens.size() == 2) { // 3番目のパラメータがない場合がある
       ResEvent ev;
       ev.num = makeHexedU8(tokens[0]).value_or(HexedU8{});
       ev.sender = makeIPv6Addr(tokens[1]).value_or(IPv6Addr{});
-      ESP_LOGD(MAIN, "%s %s", name.c_str(), to_string(ev).c_str());
       return std::make_optional(ev);
     } else if (tokens.size() == 3) {
       ResEvent ev;
       ev.num = makeHexedU8(tokens[0]).value_or(HexedU8{});
       ev.sender = makeIPv6Addr(tokens[1]).value_or(IPv6Addr{});
       ev.param = makeHexedU8(tokens[2]);
-      ESP_LOGD(MAIN, "%s %s", name.c_str(), to_string(ev).c_str());
       return std::make_optional(ev);
     }
     ESP_LOGE(MAIN, "rx_event: Unexpected end of input.");
@@ -291,6 +296,15 @@ std::optional<Response> receive_response(Stream &commport) {
       auto [left, sep1] = get_token(commport, ':');
       auto [right, sep2] = get_token(commport, ' ');
       tokens.push_back({left, right});
+    }
+    {
+      std::string str =
+          std::accumulate(tokens.begin(), tokens.end(), name,
+                          [](auto acc, auto x) -> std::string {
+                            auto [l, r] = x;
+                            return acc + " \"" + l + ":" + r + "\"";
+                          });
+      ESP_LOGD(MAIN, "%s", str.c_str());
     }
     auto counter = 0;
     for (const auto [left, right] : tokens) {
@@ -325,7 +339,6 @@ std::optional<Response> receive_response(Stream &commport) {
       }
     }
     if (counter == N) {
-      ESP_LOGD(MAIN, "%s %s", name.c_str(), to_string(ev).c_str());
       return std::make_optional(ev);
     } else {
       ESP_LOGE(MAIN, "rx_epandesc: Unexpected end of input.");
@@ -344,6 +357,12 @@ std::optional<Response> receive_response(Stream &commport) {
       if (sep.compare("\r\n") == 0) {
         break;
       }
+    }
+    {
+      std::string str = std::accumulate(
+          tokens.begin(), tokens.end(), name,
+          [](auto acc, auto x) -> std::string { return acc + " " + x; });
+      ESP_LOGD(MAIN, "%s", str.c_str());
     }
     if (tokens.size() >= 7) {
       ResErxudp ev;
@@ -364,7 +383,6 @@ std::optional<Response> receive_response(Stream &commport) {
       // 残ったCRLFを読み捨てる
       get_token(commport, ' ');
       //
-      ESP_LOGD(MAIN, "%s %s", name.c_str(), to_string(ev).c_str());
       return std::make_optional(ev);
     } else {
       ESP_LOGE(MAIN, "rx_erxudp: Unexpected end of input.");
