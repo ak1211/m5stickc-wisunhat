@@ -251,7 +251,8 @@ std::optional<IPv6Addr> get_ipv6_address(Stream &commport,
 //
 std::optional<Response> receive_response(Stream &commport) {
   // EVENTを受信する
-  auto rx_event = [&commport](const std::string &) -> std::optional<ResEvent> {
+  auto rx_event =
+      [&commport](const std::string &name) -> std::optional<ResEvent> {
     std::vector<std::string> tokens;
     constexpr std::size_t N{3};
     tokens.reserve(N);
@@ -262,17 +263,18 @@ std::optional<Response> receive_response(Stream &commport) {
         break;
       }
     }
-    if (tokens.size() == 2) {
+    if (tokens.size() == 2) { // 3番目のパラメータがない場合がある
       ResEvent ev;
       ev.num = makeHexedU8(tokens[0]).value_or(HexedU8{});
       ev.sender = makeIPv6Addr(tokens[1]).value_or(IPv6Addr{});
-      // 3番目のパラメータがない場合がある
+      ESP_LOGD(MAIN, "%s %s", name.c_str(), to_string(ev).c_str());
       return std::make_optional(ev);
     } else if (tokens.size() == 3) {
       ResEvent ev;
       ev.num = makeHexedU8(tokens[0]).value_or(HexedU8{});
       ev.sender = makeIPv6Addr(tokens[1]).value_or(IPv6Addr{});
       ev.param = makeHexedU8(tokens[2]);
+      ESP_LOGV(MAIN, "%s %s", name.c_str(), to_string(ev).c_str());
       return std::make_optional(ev);
     }
     ESP_LOGE(MAIN, "rx_event: Unexpected end of input.");
@@ -280,7 +282,7 @@ std::optional<Response> receive_response(Stream &commport) {
   };
   // EPANDESCを受信する
   auto rx_epandesc =
-      [&commport](const std::string &) -> std::optional<ResEpandesc> {
+      [&commport](const std::string &name) -> std::optional<ResEpandesc> {
     ResEpandesc ev;
     std::vector<std::pair<std::string, std::string>> tokens;
     constexpr std::size_t N{6};
@@ -323,6 +325,7 @@ std::optional<Response> receive_response(Stream &commport) {
       }
     }
     if (counter == N) {
+      ESP_LOGV(MAIN, "%s %s", name.c_str(), to_string(ev).c_str());
       return std::make_optional(ev);
     } else {
       ESP_LOGE(MAIN, "rx_epandesc: Unexpected end of input.");
@@ -331,7 +334,7 @@ std::optional<Response> receive_response(Stream &commport) {
   };
   // ERXUDPを受信する
   auto rx_erxudp =
-      [&commport](const std::string &) -> std::optional<ResErxudp> {
+      [&commport](const std::string &name) -> std::optional<ResErxudp> {
     std::vector<std::string> tokens;
     constexpr std::size_t N{7};
     tokens.reserve(N);
@@ -361,6 +364,7 @@ std::optional<Response> receive_response(Stream &commport) {
       // 残ったCRLFを読み捨てる
       get_token(commport, ' ');
       //
+      ESP_LOGV(MAIN, "%s %s", name.c_str(), to_string(ev).c_str());
       return std::make_optional(ev);
     } else {
       ESP_LOGE(MAIN, "rx_erxudp: Unexpected end of input.");
@@ -370,7 +374,7 @@ std::optional<Response> receive_response(Stream &commport) {
   // よくわからないイベントを受信する
   auto rx_fallthrough =
       [&commport](const std::string &token) -> std::optional<Response> {
-    ESP_LOGD(MAIN, "Unknown event: \"%s\"", token.c_str());
+    ESP_LOGE(MAIN, "Unknown event: \"%s\"", token.c_str());
     return std::nullopt;
   };
   //

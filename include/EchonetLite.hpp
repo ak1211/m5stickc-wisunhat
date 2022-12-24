@@ -323,16 +323,14 @@ std::string to_string(const EchonetLiteFrame &frame) {
       << ",SEOJ:"s << to_string(frame.edata.seoj.s) //
       << ",DEOJ:"s << to_string(frame.edata.deoj.d) //
       << ",ESV:"s << to_string(frame.edata.esv)     //
-      << std::uppercase << std::hex                 //
-      << ",OPC:"s << std::setfill('0') << std::setw(2) << +frame.edata.opc;
+      << ",OPC:"s << HexedU8(frame.edata.opc);
   for (const auto &prop : frame.edata.props) {
-    oss << ",EPC:"s << std::setfill('0') << std::setw(2) << +prop.epc //
-        << ",PDC:"s << std::setfill('0') << std::setw(2) << +prop.pdc;
-    if (prop.pdc >= 1) {
+    oss << ",EPC:"s << HexedU8(prop.epc) //
+        << ",PDC:"s << HexedU8(prop.pdc);
+    if (prop.edt.size() >= 1) {
       oss << ",EDT:"s;
-      for (const auto &octet : prop.edt) {
-        oss << std::setfill('0') << std::setw(2) << +octet;
-      }
+      std::copy(prop.edt.cbegin(), prop.edt.cend(),
+                std::ostream_iterator<HexedU8>(oss));
     }
   }
   return oss.str();
