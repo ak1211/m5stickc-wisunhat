@@ -274,7 +274,7 @@ std::optional<Response> receive_response(Stream &commport) {
       ev.num = makeHexedU8(tokens[0]).value_or(HexedU8{});
       ev.sender = makeIPv6Addr(tokens[1]).value_or(IPv6Addr{});
       ev.param = makeHexedU8(tokens[2]);
-      ESP_LOGV(MAIN, "%s %s", name.c_str(), to_string(ev).c_str());
+      ESP_LOGD(MAIN, "%s %s", name.c_str(), to_string(ev).c_str());
       return std::make_optional(ev);
     }
     ESP_LOGE(MAIN, "rx_event: Unexpected end of input.");
@@ -325,7 +325,7 @@ std::optional<Response> receive_response(Stream &commport) {
       }
     }
     if (counter == N) {
-      ESP_LOGV(MAIN, "%s %s", name.c_str(), to_string(ev).c_str());
+      ESP_LOGD(MAIN, "%s %s", name.c_str(), to_string(ev).c_str());
       return std::make_optional(ev);
     } else {
       ESP_LOGE(MAIN, "rx_epandesc: Unexpected end of input.");
@@ -364,7 +364,7 @@ std::optional<Response> receive_response(Stream &commport) {
       // 残ったCRLFを読み捨てる
       get_token(commport, ' ');
       //
-      ESP_LOGV(MAIN, "%s %s", name.c_str(), to_string(ev).c_str());
+      ESP_LOGD(MAIN, "%s %s", name.c_str(), to_string(ev).c_str());
       return std::make_optional(ev);
     } else {
       ESP_LOGE(MAIN, "rx_erxudp: Unexpected end of input.");
