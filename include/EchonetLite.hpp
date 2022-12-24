@@ -8,7 +8,6 @@
 #include <chrono>
 #include <cstdint>
 #include <ctime>
-#include <endian.h>
 #include <iomanip>
 #include <memory>
 #include <queue>
@@ -30,14 +29,14 @@ constexpr auto EchonetLiteUdpPort = HexedU16{0x0E1A};
 
 // ECHONET Lite 電文ヘッダー
 struct EchonetLiteEHeader final {
-  uint8_t u8[2];
+  std::array<uint8_t, 2> u8;
+  constexpr EchonetLiteEHeader(std::array<uint8_t, 2> init = {}) : u8{init} {}
 };
 static_assert(sizeof(EchonetLiteEHeader) == 2);
 //
 bool operator==(const EchonetLiteEHeader &left,
                 const EchonetLiteEHeader &right) {
-  return std::equal(std::begin(left.u8), std::end(left.u8), //
-                    std::begin(right.u8), std::end(right.u8));
+  return left.u8 == right.u8;
 }
 bool operator!=(const EchonetLiteEHeader &left,
                 const EchonetLiteEHeader &right) {
@@ -62,28 +61,29 @@ std::string to_string(EchonetLiteEHeader ehd) {
 // 0x1081で固定
 // EHD1: 0x10 (ECHONET Lite規格)
 // EHD2: 0x81 (規定電文形式)
-constexpr EchonetLiteEHeader EchonetLiteEHD{0x10, 0x81};
+constexpr auto EchonetLiteEHD(EchonetLiteEHeader({0x10, 0x81}));
 
 // ECHONET Lite オブジェクト指定
 union EchonetLiteObjectCode {
-  uint8_t u8[3]; // 3バイト表現(デフォルトコンストラクタ)
+  std::array<uint8_t, 3> u8; // 3バイト表現(デフォルトコンストラクタ)
   struct {
     uint8_t class_group;   // byte.1 クラスグループコード
     uint8_t class_code;    // byte.2 クラスコード
     uint8_t instance_code; // byte.3 インスタンスコード
   };
-  constexpr EchonetLiteObjectCode(std::array<uint8_t, 3> in = {})
-      : u8{in[0], in[1], in[2]} {}
+  constexpr EchonetLiteObjectCode(std::array<uint8_t, 3> init = {})
+      : u8{init} {}
 };
 static_assert(sizeof(EchonetLiteObjectCode) == 3);
 //
 bool operator==(const EchonetLiteObjectCode &left,
                 const EchonetLiteObjectCode &right) {
-  return std::equal(std::begin(left.u8), std::end(left.u8),  //
-                    std::begin(right.u8), std::end(right.u8) //
-  );
+  return left.u8 == right.u8;
 }
-//
+bool operator!=(const EchonetLiteObjectCode &left,
+                const EchonetLiteObjectCode &right) {
+  return !(left.u8 == right.u8);
+}
 std::string to_string(EchonetLiteObjectCode eoj) {
   std::ostringstream oss;
   oss << std::uppercase << std::hex;
@@ -95,7 +95,9 @@ std::string to_string(EchonetLiteObjectCode eoj) {
 
 // トランザクションID
 struct EchonetLiteTransactionId final {
-  uint8_t u8[2];
+  std::array<uint8_t, 2> u8;
+  constexpr EchonetLiteTransactionId(std::array<uint8_t, 2> init = {})
+      : u8{init} {}
 };
 static_assert(sizeof(EchonetLiteTransactionId) == 2);
 //
@@ -162,13 +164,11 @@ static_assert(sizeof(EchonetLiteEPC) == 1);
 struct EchonetLiteSEOJ {
   EchonetLiteObjectCode s;
   constexpr EchonetLiteSEOJ(EchonetLiteObjectCode in = {}) : s{in} {};
-  constexpr EchonetLiteSEOJ(std::array<uint8_t, 3> in) : s{in} {};
 };
 // 相手元ECHONET Liteオブジェクト指定
 struct EchonetLiteDEOJ {
   EchonetLiteObjectCode d;
   constexpr EchonetLiteDEOJ(EchonetLiteObjectCode in = {}) : d{in} {};
-  constexpr EchonetLiteDEOJ(std::array<uint8_t, 3> in) : d{in} {};
 };
 
 // ECHONET Liteプロパティ
@@ -258,8 +258,7 @@ deserializeToEchonetLiteFrame(const std::vector<uint8_t> &data) {
   }
   // bytes#1 and bytes#2
   // EHD: ECHONET Lite 電文ヘッダー
-  frame.ehd.u8[0] = *it++;
-  frame.ehd.u8[1] = *it++;
+  frame.ehd = EchonetLiteEHeader({*it++, *it++});
   if (frame.ehd != EchonetLiteEHD) {
     // ECHONET Lite 電文形式でないので
     ESP_LOGD(MAIN, "Unknown EHD: %s", to_string(frame.ehd).c_str());
@@ -267,17 +266,18 @@ deserializeToEchonetLiteFrame(const std::vector<uint8_t> &data) {
   }
   // bytes#3 and bytes#4
   // TID: トランザクションID
-  frame.tid.u8[0] = *it++;
-  frame.tid.u8[1] = *it++;
+  frame.tid = EchonetLiteTransactionId({*it++, *it++});
   //
   // EDATA
   //
   // bytes#5 and bytes#6 and bytes#7
   // SEOJ: メッセージの送り元(sender : 自分自身)
-  frame.edata.seoj = EchonetLiteSEOJ({*it++, *it++, *it++});
+  frame.edata.seoj =
+      EchonetLiteSEOJ(EchonetLiteObjectCode({*it++, *it++, *it++}));
   // bytes#8 and bytes#9 adn bytes#10
   // DEOJ: メッセージの行き先(destination : スマートメーター)
-  frame.edata.deoj = EchonetLiteDEOJ({*it++, *it++, *it++});
+  frame.edata.deoj =
+      EchonetLiteDEOJ(EchonetLiteObjectCode({*it++, *it++, *it++}));
   // bytes#11
   // ESV : ECHONET Lite サービスコード
   frame.edata.esv = static_cast<EchonetLiteESV>(*it++);
@@ -326,7 +326,7 @@ std::string to_string(const EchonetLiteFrame &frame) {
       << std::uppercase << std::hex                 //
       << ",OPC:"s << std::setfill('0') << std::setw(2) << +frame.edata.opc;
   for (const auto &prop : frame.edata.props) {
-    oss << ",[EPC:"s << std::setfill('0') << std::setw(2) << +prop.epc //
+    oss << ",EPC:"s << std::setfill('0') << std::setw(2) << +prop.epc //
         << ",PDC:"s << std::setfill('0') << std::setw(2) << +prop.pdc;
     if (prop.pdc >= 1) {
       oss << ",EDT:"s;
@@ -334,7 +334,6 @@ std::string to_string(const EchonetLiteFrame &frame) {
         oss << std::setfill('0') << std::setw(2) << +octet;
       }
     }
-    oss << "]"s;
   }
   return oss.str();
 }
@@ -346,7 +345,7 @@ namespace HomeController {
 // グループコード 0x05 (管理・操作関連機器クラス)
 // クラスコード 0xFF (コントローラ)
 // インスタンスコード 0x01 (インスタンスコード1)
-constexpr EchonetLiteObjectCode EchonetLiteEOJ({0x05, 0xFF, 0x01});
+constexpr auto EchonetLiteEOJ(EchonetLiteObjectCode({0x05, 0xFF, 0x01}));
 } // namespace HomeController
 
 //
@@ -356,7 +355,7 @@ namespace NodeProfileClass {
 // グループコード 0x0E (ノードプロファイルクラス)
 // クラスコード 0xF0
 // インスタンスコード 0x01 (一般ノード)
-constexpr EchonetLiteObjectCode EchonetLiteEOJ({0x0E, 0xF0, 0x01});
+constexpr auto EchonetLiteEOJ(EchonetLiteObjectCode({0x0E, 0xF0, 0x01}));
 } // namespace NodeProfileClass
 
 //
@@ -366,7 +365,7 @@ namespace SmartElectricEnergyMeter {
 // クラスグループコード 0x02
 // クラスコード 0x88
 // インスタンスコード 0x01
-constexpr EchonetLiteObjectCode EchonetLiteEOJ({0x02, 0x88, 0x01});
+constexpr auto EchonetLiteEOJ(EchonetLiteObjectCode({0x02, 0x88, 0x01}));
 
 //
 // ECHONET Liteプロパティ
@@ -394,62 +393,13 @@ enum class EchonetLiteEPC : uint8_t {
 };
 static_assert(sizeof(EchonetLiteEPC) == 1);
 
-// 通信用のフレームを作る
-/*
-std::vector<uint8_t> make_echonet_lite_frame(EchonetLiteTransactionId tid,    //
-                                             EchonetLiteESV esv,              //
-                                             std::vector<EchonetLiteEPC> epcs //
-) {
-  //
-  std::vector<uint8_t> echonet_lite_frame;
-  // bytes#1 and bytes#2
-  // EHD: ECHONET Lite 電文ヘッダー
-  std::copy(std::begin(EchonetLiteEHD.u8), std::end(EchonetLiteEHD.u8),
-            std::back_inserter(echonet_lite_frame));
-  // bytes#3 and bytes#4
-  // TID: トランザクションID
-  std::copy(std::begin(tid.u8), std::end(tid.u8),
-            std::back_inserter(echonet_lite_frame));
-  //
-  // EDATA
-  //
-  // bytes#5 and bytes#6 and bytes#7
-  // SEOJ: メッセージの送り元(sender : 自分自身)
-  std::copy(std::begin(HomeController::EchonetLiteEOJ.u8),
-            std::end(HomeController::EchonetLiteEOJ.u8),
-            std::back_inserter(echonet_lite_frame));
-  // bytes#8 and bytes#9 adn bytes#10
-  // DEOJ: メッセージの行き先(destination : スマートメーター)
-  std::copy(std::begin(SmartElectricEnergyMeter::EchonetLiteEOJ.u8),
-            std::end(SmartElectricEnergyMeter::EchonetLiteEOJ.u8),
-            std::back_inserter(echonet_lite_frame));
-  // bytes#11
-  // ESV : ECHONET Lite サービスコード
-  echonet_lite_frame.push_back(static_cast<uint8_t>(esv));
-  // bytes#12
-  // OPC: 処理プロパティ数
-  echonet_lite_frame.push_back(static_cast<uint8_t>(epcs.size()));
-  //
-  // EPC, PDC, EDTを繰り返す
-  //
-  for (auto &epc : epcs) {
-    // EPC: ECHONET Liteプロパティ
-    echonet_lite_frame.push_back(static_cast<uint8_t>(epc));
-    // PDC: EDTのバイト数
-    echonet_lite_frame.push_back(0); // この後に続くEDTはないので0を入れる
-  }
-  return echonet_lite_frame;
-}
-*/
-
 // 係数
 struct Coefficient final {
   uint32_t coefficient;
   //
   explicit Coefficient() { coefficient = 1; }
-  explicit Coefficient(std::array<uint8_t, 4> array) {
-    coefficient =
-        (array[0] << 24) | (array[1] << 16) | (array[2] << 8) | array[3];
+  explicit Coefficient(std::array<uint8_t, 4> init) {
+    coefficient = (init[0] << 24) | (init[1] << 16) | (init[2] << 8) | init[3];
   }
 };
 std::string to_string(const SmartElectricEnergyMeter::Coefficient &x) {
@@ -596,9 +546,8 @@ struct CumulativeWattHour final {
   // 生の受信値
   std::array<uint8_t, 11> originalPayload;
   //
-  explicit CumulativeWattHour(const std::array<uint8_t, 11> &init) {
-    std::copy(init.begin(), init.end(), originalPayload.begin());
-  }
+  explicit CumulativeWattHour(const std::array<uint8_t, 11> &init)
+      : originalPayload{init} {}
   // 年
   uint16_t year() const {
     return (originalPayload[0] << 8) | originalPayload[1];
@@ -679,10 +628,8 @@ std::string to_string(const SmartElectricEnergyMeter::CumulativeWattHour &x) {
 }
 
 // 積算電力量
-KiloWattHour cumlative_kilo_watt_hour(std::tuple<CumulativeWattHour, //
-                                                 Coefficient,        //
-                                                 Unit>               //
-                                          in) {
+KiloWattHour
+cumlative_kilo_watt_hour(std::tuple<CumulativeWattHour, Coefficient, Unit> in) {
   auto &[cwh, coeff, unit] = in;
   // 係数
   // KWhへの乗数
@@ -720,9 +667,6 @@ std::string to_string_cumlative_kilo_watt_hour(
   return str_kwh;
 }
 
-} // namespace SmartElectricEnergyMeter
-
-namespace SmartElectricEnergyMeter {
 //
 // スマートメーターから受信した値
 //

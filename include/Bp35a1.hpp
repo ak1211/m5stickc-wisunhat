@@ -95,18 +95,18 @@ bool has_ok(Stream &commport) {
 // IPV6アドレス
 struct IPv6Addr {
   std::array<HexedU16, 8> fields;
-  explicit IPv6Addr(const std::array<HexedU16, 8> &init = {
-                        HexedU16{},
-                        HexedU16{},
-                        HexedU16{},
-                        HexedU16{},
-                        HexedU16{},
-                        HexedU16{},
-                        HexedU16{},
-                        HexedU16{},
-                    }) {
-    std::copy(init.begin(), init.end(), fields.begin());
-  }
+  explicit IPv6Addr(const std::array<HexedU16, 8> &init =
+                        {
+                            HexedU16{},
+                            HexedU16{},
+                            HexedU16{},
+                            HexedU16{},
+                            HexedU16{},
+                            HexedU16{},
+                            HexedU16{},
+                            HexedU16{},
+                        })
+      : fields{init} {}
   operator std::string() const;
 };
 std::istream &operator>>(std::istream &is, IPv6Addr &v) {
@@ -187,7 +187,7 @@ std::string to_string(const ResEpandesc &v) {
       << ",pan_id:" << v.pan_id             //
       << ",addr:" << v.addr                 //
       << ",lqi:" << v.lqi                   //
-      << ",pairid:" << std::quoted(v.pairid);
+      << ",pairid:" << v.pairid;
   return oss.str();
 }
 
@@ -207,16 +207,15 @@ struct ResErxudp final {
 };
 std::string to_string(const ResErxudp &v) {
   std::ostringstream oss;
-  oss << "sender:"sv << v.sender                   //
-      << ",dest:"sv << v.dest                      //
-      << ",rport:" << v.rport                      //
-      << ",lport:" << v.lport                      //
-      << ",senderlla:" << std::quoted(v.senderlla) //
-      << ",secured:" << v.secured                  //
-      << ",datalen:" << v.datalen                  //
-      << ",data:\"";
+  oss << "sender:"sv << v.sender      //
+      << ",dest:"sv << v.dest         //
+      << ",rport:" << v.rport         //
+      << ",lport:" << v.lport         //
+      << ",senderlla:" << v.senderlla //
+      << ",secured:" << v.secured     //
+      << ",datalen:" << v.datalen     //
+      << ",data:";
   std::copy(v.data.begin(), v.data.end(), std::ostream_iterator<HexedU8>(oss));
-  oss << "\"";
   return oss.str();
 }
 
@@ -239,8 +238,7 @@ std::optional<IPv6Addr> get_ipv6_address(Stream &commport,
     // いったん止める
     delay(100);
     //
-    auto [token, sep] = get_token(commport, '\n');
-    ESP_LOGD(MAIN, "token:\"%s\",sep\"%s\"", token.c_str(), sep.c_str());
+    auto [token, _sep] = get_token(commport, '\n');
     if (auto result = makeIPv6Addr(token); result.has_value()) {
       return result;
     }
@@ -423,18 +421,18 @@ bool send_request(
   // OPC: 処理プロパティ数
   frame.edata.opc = epcs.size();
   // ECHONET Liteプロパティ
-  std::transform(epcs.cbegin(), epcs.cend(),
-                 std::back_inserter(frame.edata.props),
-                 [](const SmartElectricEnergyMeter::EchonetLiteEPC v) {
-                   EchonetLiteProp result;
-                   // EPC: ECHONET Liteプロパティ
-                   result.epc = static_cast<uint8_t>(v);
-                   // EDT: EDTはない
-                   result.edt = {};
-                   // PDC: EDTのバイト数
-                   result.pdc = result.edt.size();
-                   return result;
-                 });
+  std::transform(
+      epcs.cbegin(), epcs.cend(), std::back_inserter(frame.edata.props),
+      [](const SmartElectricEnergyMeter::EchonetLiteEPC v) -> EchonetLiteProp {
+        EchonetLiteProp result;
+        // EPC: ECHONET Liteプロパティ
+        result.epc = static_cast<uint8_t>(v);
+        // EDT: EDTはない
+        result.edt = {};
+        // PDC: EDTのバイト数
+        result.pdc = result.edt.size();
+        return result;
+      });
   // ECHONET Lite フレームからペイロードを作る
   std::vector<uint8_t> payload = serializeFromEchonetLiteFrame(frame);
   //
@@ -455,10 +453,8 @@ bool send_request(
   // CRLFは不要
   commport.write(payload.data(), payload.size());
   // デバッグ用
-  oss << "[";
   std::copy(payload.begin(), payload.end(),
             std::ostream_iterator<HexedU8>(oss));
-  oss << "]";
   ESP_LOGD(MAIN, "%s", oss.str().c_str());
   //
   if (has_ok(commport)) {
@@ -588,7 +584,7 @@ std::optional<ResEpandesc> do_active_scan(Stream &commport,
   std::optional<ResEpandesc> found{std::nullopt};
   message("Active Scan");
   // 接続対象のスマートメータをスキャンする
-  for (uint8_t duration : {4, 5, 6, 7, 8}) {
+  for (uint8_t duration : {5, 6, 7, 8}) {
     message(".");
     // スキャン要求を出す
     write_with_crln(commport, "SKSCAN 2 FFFFFFFF "s + std::to_string(duration));
