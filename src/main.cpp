@@ -731,13 +731,13 @@ void loop() {
   // 55秒以上の待ち時間があるうちに接続状態の検査をする:
   //
   if (auto s = duration_cast<seconds>(system_clock::now().time_since_epoch());
-      s >= seconds{55}) {
+      s.count() % 60 >= 55) {
     if (WiFi.isConnected()) {
       // MQTT接続検査
-      telemetry.check_mqtt(seconds{30});
+      telemetry.check_mqtt(seconds{10});
     } else {
       // WiFi接続検査
-      checkWiFi(seconds{30});
+      checkWiFi(seconds{10});
     }
   }
 }
