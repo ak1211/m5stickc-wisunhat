@@ -158,15 +158,21 @@ struct ResEvent final {
   IPv6Addr sender; // イベントのトリガーとなったメッセージの発信元アドレス
   std::optional<HexedU8> param; // イベント固有の引数
 };
-std::string to_string(const ResEvent &v) {
-  std::ostringstream oss;
-  oss << "num:" << v.num //
-      << ",sender:" << v.sender;
-  if (v.param.has_value()) {
-    oss << ",param:" << v.param.value();
+std::ostream &operator<<(std::ostream &os, const ResEvent &in) {
+  auto save = os.flags();
+  os << "num:" << in.num //
+     << ",sender:" << in.sender;
+  if (in.param.has_value()) {
+    os << ",param:" << in.param.value();
   } else {
-    oss << ",param:NA";
+    os << ",param:NA";
   }
+  os.flags(save);
+  return os;
+}
+std::string to_string(const ResEvent &in) {
+  std::ostringstream oss;
+  oss << in;
   return oss.str();
 }
 
@@ -181,14 +187,20 @@ struct ResEpandesc final {
   HexedU8 lqi;          // 受信したビーコンの受信ED値(RSSI)
   std::string pairid; // (IEが含まれる場合)相手から受信したPairingID
 };
-std::string to_string(const ResEpandesc &v) {
+std::ostream &operator<<(std::ostream &os, const ResEpandesc &in) {
+  auto save = os.flags();
+  os << "channel:" << in.channel            //
+     << ",channel_page:" << in.channel_page //
+     << ",pan_id:" << in.pan_id             //
+     << ",addr:" << in.addr                 //
+     << ",lqi:" << in.lqi                   //
+     << ",pairid:" << in.pairid;
+  os.flags(save);
+  return os;
+}
+std::string to_string(const ResEpandesc &in) {
   std::ostringstream oss;
-  oss << "channel:" << v.channel            //
-      << ",channel_page:" << v.channel_page //
-      << ",pan_id:" << v.pan_id             //
-      << ",addr:" << v.addr                 //
-      << ",lqi:" << v.lqi                   //
-      << ",pairid:" << v.pairid;
+  oss << in;
   return oss.str();
 }
 
@@ -206,17 +218,23 @@ struct ResErxudp final {
   HexedU16 datalen;      // データの長さ
   std::vector<uint8_t> data; // データ
 };
-std::string to_string(const ResErxudp &v) {
+std::ostream &operator<<(std::ostream &os, const ResErxudp &in) {
+  auto save = os.flags();
+  os << "sender:" << in.sender        //
+     << ",dest:" << in.dest           //
+     << ",rport:" << in.rport         //
+     << ",lport:" << in.lport         //
+     << ",senderlla:" << in.senderlla //
+     << ",secured:" << in.secured     //
+     << ",datalen:" << in.datalen     //
+     << ",data:";
+  std::copy(in.data.begin(), in.data.end(), std::ostream_iterator<HexedU8>(os));
+  os.flags(save);
+  return os;
+}
+std::string to_string(const ResErxudp &in) {
   std::ostringstream oss;
-  oss << "sender:"sv << v.sender      //
-      << ",dest:"sv << v.dest         //
-      << ",rport:" << v.rport         //
-      << ",lport:" << v.lport         //
-      << ",senderlla:" << v.senderlla //
-      << ",secured:" << v.secured     //
-      << ",datalen:" << v.datalen     //
-      << ",data:";
-  std::copy(v.data.begin(), v.data.end(), std::ostream_iterator<HexedU8>(oss));
+  oss << in;
   return oss.str();
 }
 
@@ -235,16 +253,18 @@ std::optional<IPv6Addr> get_ipv6_address(Stream &commport,
   // ipv6 アドレス要求を送る
   write_with_crln(commport, "SKLL64 "s + addr);
   // ipv6 アドレスを受け取る
+  std::optional<IPv6Addr> result{};
   for (auto retry = 1; retry <= RETRY_LIMITS; ++retry) {
     // いったん止める
     delay(100);
     //
     auto [token, _sep] = get_token(commport, '\n');
-    if (auto result = makeIPv6Addr(token); result.has_value()) {
-      return result;
+    result = makeIPv6Addr(token);
+    if (result.has_value()) {
+      break;
     }
   }
-  return std::nullopt;
+  return result;
 }
 
 //
@@ -256,6 +276,7 @@ std::optional<Response> receive_response(Stream &commport) {
       [&commport](const std::string &name) -> std::optional<ResEvent> {
     std::vector<std::string> tokens;
     constexpr std::size_t N{3};
+    // 必要なトークン数読み込む
     tokens.reserve(N);
     for (auto i = 0; i < N; ++i) {
       auto [x, sep] = get_token(commport, ' ');
@@ -274,6 +295,7 @@ std::optional<Response> receive_response(Stream &commport) {
       ResEvent ev;
       ev.num = makeHexedU8(tokens[0]).value_or(HexedU8{});
       ev.sender = makeIPv6Addr(tokens[1]).value_or(IPv6Addr{});
+      ev.param = std::nullopt;
       return std::make_optional(ev);
     } else if (tokens.size() == 3) {
       ResEvent ev;
@@ -288,9 +310,9 @@ std::optional<Response> receive_response(Stream &commport) {
   // EPANDESCを受信する
   auto rx_epandesc =
       [&commport](const std::string &name) -> std::optional<ResEpandesc> {
-    ResEpandesc ev;
     std::vector<std::pair<std::string, std::string>> tokens;
     constexpr std::size_t N{6};
+    // 必要な行数読み込む
     tokens.reserve(N);
     for (auto i = 0; i < N; ++i) {
       auto [left, sep1] = get_token(commport, ':');
@@ -299,38 +321,36 @@ std::optional<Response> receive_response(Stream &commport) {
     }
     {
       std::string str =
-          std::accumulate(tokens.begin(), tokens.end(), name,
-                          [](auto acc, auto x) -> std::string {
-                            auto [l, r] = x;
-                            return acc + " \"" + l + ":" + r + "\"";
+          std::accumulate(tokens.cbegin(), tokens.cend(), name,
+                          [](auto acc, auto LandR) -> std::string {
+                            auto [l, r] = LandR;
+                            return acc + " [" + l + ":" + r + "],";
                           });
       ESP_LOGD(MAIN, "%s", str.c_str());
     }
+    ResEpandesc ev;
     auto counter = 0;
     for (const auto [left, right] : tokens) {
       // 先頭空白をスキップする
-      std::string::const_iterator it;
-      for (it = left.begin(); it != left.end(); ++it) {
-        if (*it != ' ') {
-          break;
-        }
-      }
-      if (std::equal(it, left.end(), "Channel")) {
+      std::string::const_iterator it = std::find_if(
+          left.cbegin(), left.cend(), [](auto c) { return c != ' '; });
+      //
+      if (std::equal(it, left.cend(), "Channel")) {
         ev.channel = makeHexedU8(right).value_or(HexedU8{});
         counter = counter + 1;
-      } else if (std::equal(it, left.end(), "Channel Page")) {
+      } else if (std::equal(it, left.cend(), "Channel Page")) {
         ev.channel_page = makeHexedU8(right).value_or(HexedU8{});
         counter = counter + 1;
-      } else if (std::equal(it, left.end(), "Pan ID")) {
+      } else if (std::equal(it, left.cend(), "Pan ID")) {
         ev.pan_id = makeHexedU16(right).value_or(HexedU16{});
         counter = counter + 1;
-      } else if (std::equal(it, left.end(), "Addr")) {
+      } else if (std::equal(it, left.cend(), "Addr")) {
         ev.addr = makeHexedU64(right).value_or(HexedU64{});
         counter = counter + 1;
-      } else if (std::equal(it, left.end(), "LQI")) {
+      } else if (std::equal(it, left.cend(), "LQI")) {
         ev.lqi = makeHexedU8(right).value_or(HexedU8{});
         counter = counter + 1;
-      } else if (std::equal(it, left.end(), "PairID")) {
+      } else if (std::equal(it, left.cend(), "PairID")) {
         ev.pairid = right;
         counter = counter + 1;
       } else {
@@ -350,6 +370,7 @@ std::optional<Response> receive_response(Stream &commport) {
       [&commport](const std::string &name) -> std::optional<ResErxudp> {
     std::vector<std::string> tokens;
     constexpr std::size_t N{7};
+    // 必要なトークン数読み込む
     tokens.reserve(N);
     for (auto i = 0; i < N; ++i) {
       auto [x, sep] = get_token(commport, ' ');
@@ -415,12 +436,17 @@ struct SmartMeterIdentifier final {
   HexedU16 pan_id;
   explicit SmartMeterIdentifier() : ipv6_address{}, channel{}, pan_id{} {}
 };
-//
-std::string to_string(const SmartMeterIdentifier &ident) {
+std::ostream &operator<<(std::ostream &os, const SmartMeterIdentifier &in) {
+  auto save = os.flags();
+  os << "ipv6_address:" << in.ipv6_address //
+     << ",channel:"s << in.channel         //
+     << ",pan_id:"s << in.pan_id;
+  os.flags(save);
+  return os;
+}
+std::string to_string(const SmartMeterIdentifier &in) {
   std::ostringstream oss;
-  oss << "ipv6_address: \"" << ident.ipv6_address //
-      << "\",channel: \""s << ident.channel       //
-      << "\",pan_id: \""s << ident.pan_id << "\"";
+  oss << in;
   return oss.str();
 }
 
@@ -459,14 +485,13 @@ bool send_request(
   std::vector<uint8_t> payload = serializeFromEchonetLiteFrame(frame);
   //
   std::ostringstream oss;
-  oss << "SKSENDTO "s                          //
-      << "1 "s                                 // HANDLE
-      << smart_meter_ident.ipv6_address << " " // IPADDR
-      << EchonetLiteUdpPort << " "s            // PORT
-      << "1 "s                                 // SEC
-      << std::uppercase << std::hex            //
-      << std::setfill('0') << std::setw(4)     //
-      << payload.size() << " "s;               // DATALEN
+  oss << "SKSENDTO"                            //
+      << " " << 1                              // HANDLE
+      << " " << smart_meter_ident.ipv6_address // IPADDR
+      << " " << EchonetLiteUdpPort             // PORT
+      << " " << 1                              // SEC
+      << " " << HexedU16(payload.size())       // DATALEN
+      << " ";
   //
   auto line{oss.str()};
   // 送信(ここはテキスト)
@@ -479,11 +504,7 @@ bool send_request(
             std::ostream_iterator<HexedU8>(oss));
   ESP_LOGD(MAIN, "%s", oss.str().c_str());
   //
-  if (has_ok(commport)) {
-    return true;
-  } else {
-    return false;
-  }
+  return has_ok(commport);
 }
 
 // 接続(PANA認証)要求を送る
