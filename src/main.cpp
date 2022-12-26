@@ -616,11 +616,13 @@ send_periodical_request(std::chrono::system_clock::time_point current_time,
     // 定時積算電力量計測値(正方向計測値)
     ESP_LOGD(MAIN, "request amounts of electric power");
   }
-  // 積算履歴収集日
+#if 0
+// 積算履歴収集日
   if (!whm.day_for_which_the_historcal.has_value()) {
     epcs.push_back(E::Day_for_which_the_historcal_data_1);
     ESP_LOGD(MAIN, "request day for historical data 1");
   }
+#endif
   // スマートメーターに要求を出す
   const auto tid = time_to_transaction_id(current_time);
   Bp35a1::send_request(smart_whm_b_route->commport,
