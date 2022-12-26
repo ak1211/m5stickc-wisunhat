@@ -21,7 +21,8 @@ TABLE_NAME = "measurements"
 
 def time_sequential_data_frame(item_list, tz):
     pairs = [('sensor_id', lambda x:x),
-             ('measured_at', lambda x:parser.parse(x).astimezone(tz)),
+             ('measured_at', lambda x:parser.parse(
+                 x).astimezone(tz).replace(second=0)),  # 秒の情報は不要なので
              ('cumlative_kwh', lambda x: float(x) if x is not None else None),
              ('instant_watt', lambda x: int(x) if x is not None else None),
              ('instant_ampere_R', lambda x: float(x) if x is not None else None),
