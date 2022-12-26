@@ -403,7 +403,7 @@ std::optional<Response> receive_response(Stream &commport) {
       commport.readBytes(ev.data.data(), ev.data.size());
       // 残ったCRLFを読み捨てる
       auto [x, _sep] = get_token(commport, '\r');
-      if (x.length() > 0 && !std::isspace(x[0])) {
+      if (x.length() > 0) {
         // まだ何か残っていたら後ろに追加する
         std::copy(x.begin(), x.end(), std::back_inserter(ev.data));
         std::reverse(ev.data.begin(), ev.data.end());
