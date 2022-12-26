@@ -632,17 +632,17 @@ send_periodical_request(std::chrono::system_clock::time_point current_time,
 //
 static void send_request_to_smart_meter() {
   using namespace std::chrono;
-  static time_point send_time_at{system_clock::now()};
+  static system_clock::time_point send_time_at;
   auto tp = system_clock::now();
   //
   // スマートメーターに要求を出す(1秒以上の間隔をあけて)
   //
   if (auto elapsed = tp - send_time_at; elapsed >= seconds{1}) {
+    auto epoch = tp.time_since_epoch();
     // 積算電力量単位が初期値の場合にスマートメーターに最初の要求を出す
     if (!smart_watt_hour_meter.whm_unit.has_value()) {
       send_first_request(tp);
-    } else if (duration_cast<seconds>(tp.time_since_epoch()).count() % 60 ==
-               0) {
+    } else if (duration_cast<seconds>(epoch).count() % 60 == 0) {
       // 毎分0秒にスマートメーターに定期要求を出す
       send_periodical_request(tp, smart_watt_hour_meter);
     }
@@ -713,6 +713,9 @@ void loop() {
   //
   telemetry.loop_mqtt();
 
+  // スマートメーターに要求を送る
+  send_request_to_smart_meter();
+
   //
   // プログレスバーを表示する
   //
@@ -724,14 +727,10 @@ void loop() {
       1000 * (one_min_in_ms - seconds_in_ms) / one_min_in_ms;
   render_progress_bar(remains_in_permille);
 
-  // スマートメーターに要求を送る
-  send_request_to_smart_meter();
-
   //
   // 55秒以上の待ち時間があるうちに接続状態の検査をする:
   //
-  if (auto s = duration_cast<seconds>(system_clock::now().time_since_epoch());
-      s.count() % 60 >= 55) {
+  if (remains_in_permille >= 55000) {
     if (WiFi.isConnected()) {
       // MQTT接続検査
       telemetry.check_mqtt(seconds{10});
