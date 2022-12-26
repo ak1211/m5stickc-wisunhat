@@ -259,7 +259,7 @@ static bool initializeTime(std::size_t retry_count = 300) {
 static bool establishConnection() {
   bool ok = connectToWiFi();
   ok = ok ? initializeTime() : ok;
-  ok = ok ? telemetry.connectToAwsIot() : ok;
+  ok = ok ? telemetry.connectToAwsIot(std::chrono::seconds{60}) : ok;
   return ok;
 }
 
@@ -616,11 +616,13 @@ send_periodical_request(std::chrono::system_clock::time_point current_time,
     // 定時積算電力量計測値(正方向計測値)
     ESP_LOGD(MAIN, "request amounts of electric power");
   }
-  // 積算履歴収集日
+#if 0
+// 積算履歴収集日
   if (!whm.day_for_which_the_historcal.has_value()) {
     epcs.push_back(E::Day_for_which_the_historcal_data_1);
     ESP_LOGD(MAIN, "request day for historical data 1");
   }
+#endif
   // スマートメーターに要求を出す
   const auto tid = time_to_transaction_id(current_time);
   Bp35a1::send_request(smart_whm_b_route->commport,
@@ -632,17 +634,17 @@ send_periodical_request(std::chrono::system_clock::time_point current_time,
 //
 static void send_request_to_smart_meter() {
   using namespace std::chrono;
-  static time_point send_time_at{system_clock::now()};
+  static system_clock::time_point send_time_at;
   auto tp = system_clock::now();
   //
   // スマートメーターに要求を出す(1秒以上の間隔をあけて)
   //
   if (auto elapsed = tp - send_time_at; elapsed >= seconds{1}) {
+    auto epoch = tp.time_since_epoch();
     // 積算電力量単位が初期値の場合にスマートメーターに最初の要求を出す
     if (!smart_watt_hour_meter.whm_unit.has_value()) {
       send_first_request(tp);
-    } else if (duration_cast<seconds>(tp.time_since_epoch()).count() % 60 ==
-               0) {
+    } else if (duration_cast<seconds>(epoch).count() % 60 == 0) {
       // 毎分0秒にスマートメーターに定期要求を出す
       send_periodical_request(tp, smart_watt_hour_meter);
     }
@@ -713,6 +715,9 @@ void loop() {
   //
   telemetry.loop_mqtt();
 
+  // スマートメーターに要求を送る
+  send_request_to_smart_meter();
+
   //
   // プログレスバーを表示する
   //
@@ -724,14 +729,10 @@ void loop() {
       1000 * (one_min_in_ms - seconds_in_ms) / one_min_in_ms;
   render_progress_bar(remains_in_permille);
 
-  // スマートメーターに要求を送る
-  send_request_to_smart_meter();
-
   //
   // 55秒以上の待ち時間があるうちに接続状態の検査をする:
   //
-  if (auto s = duration_cast<seconds>(system_clock::now().time_since_epoch());
-      s.count() % 60 >= 55) {
+  if (remains_in_permille >= 55000) {
     if (WiFi.isConnected()) {
       // MQTT接続検査
       telemetry.check_mqtt(seconds{10});

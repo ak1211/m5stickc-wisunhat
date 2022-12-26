@@ -42,12 +42,16 @@ using PCumlativeWattHour =
 using Payload = std::variant<PInstantAmpere, PInstantWatt, PCumlativeWattHour>;
 
 //
-std::string iso8601formatUTC(std::time_t utctime) {
+std::string iso8601formatUTC(std::chrono::system_clock::time_point utctimept) {
+  auto utc = std::chrono::system_clock::to_time_t(utctimept);
   struct tm tm;
-  gmtime_r(&utctime, &tm);
-  char buffer[30]{'\0'};
-  std::strftime(buffer, std::size(buffer), "%Y-%m-%dT%H:%M:%SZ", &tm);
-  return std::string(buffer);
+  gmtime_r(&utc, &tm);
+  constexpr char format[] = "%Y-%m-%dT%H:%M:%SZ";
+  constexpr std::size_t SIZE = std::size(format) * 2;
+  std::string buffer(SIZE, '\0');
+  std::size_t len = std::strftime(buffer.data(), SIZE, format, &tm);
+  buffer.resize(len);
+  return buffer;
 }
 
 constexpr std::size_t Capacity{JSON_OBJECT_SIZE(100)};
@@ -61,8 +65,7 @@ std::string to_json_message(PInstantAmpere in) {
   doc["message_id"] = messageId;
   doc["device_id"] = AWS_IOT_DEVICE_ID;
   doc["sensor_id"] = SENSOR_ID;
-  doc["measured_at"] =
-      iso8601formatUTC(std::chrono::system_clock::to_time_t(timept));
+  doc["measured_at"] = iso8601formatUTC(timept);
   doc["instant_ampere_R"] = duration_cast<M::Ampere>(a.ampereR).count();
   doc["instant_ampere_T"] = duration_cast<M::Ampere>(a.ampereT).count();
   std::string output;
@@ -77,8 +80,7 @@ std::string to_json_message(PInstantWatt in) {
   doc["message_id"] = messageId;
   doc["device_id"] = AWS_IOT_DEVICE_ID;
   doc["sensor_id"] = SENSOR_ID;
-  doc["measured_at"] =
-      iso8601formatUTC(std::chrono::system_clock::to_time_t(timept));
+  doc["measured_at"] = iso8601formatUTC(timept);
   doc["instant_watt"] = w.watt.count();
   std::string output;
   serializeJson(doc, output);
@@ -99,8 +101,7 @@ std::string to_json_message(PCumlativeWattHour in) {
     doc["measured_at"] = opt_iso8601.value();
   }
   // 積算電力量(kwh)
-  M::KiloWattHour kwh =
-      M::cumlative_kilo_watt_hour(std::make_tuple(cwh, coeff, unit));
+  M::KiloWattHour kwh = M::cumlative_kilo_watt_hour({cwh, coeff, unit});
   doc["cumlative_kwh"] = kwh.count();
   std::string output;
   serializeJson(doc, output);
@@ -111,16 +112,19 @@ std::string to_json_message(PCumlativeWattHour in) {
 // MQTT通信
 //
 class Mqtt final {
+  //
   WiFiClientSecure https_client;
   PubSubClient mqtt_client;
-  const std::string mqtt_topic;
   // IoT Core送信用バッファ
   std::queue<Payload> sending_fifo_queue;
   // IoT Coreにメッセージを送信しようとした時間
   std::chrono::system_clock::time_point attempt_send_time;
 
 public:
-  static constexpr uint16_t AWS_IOT_MQTT_PORT{8883};
+  constexpr static auto AWS_IOT_MQTT_PORT = uint16_t{8883};
+  constexpr static auto KEEP_ALIVE = std::size_t{180};
+  constexpr static auto SOCKET_TIMEOUT = std::size_t{180};
+  const std::string mqtt_topic;
   //
   Mqtt()
       : https_client{},
@@ -131,21 +135,25 @@ public:
   //
   // AWS IoTへ接続確立を試みる
   //
-  bool connectToAwsIot(std::size_t retry_count = 100) {
+  bool connectToAwsIot(std::chrono::seconds timeout) {
+    using namespace std::chrono;
+    const time_point tp = system_clock::now() + timeout;
     //
     https_client.setCACert(AWS_IOT_ROOT_CA.data());
     https_client.setCertificate(AWS_IOT_CERTIFICATE.data());
     https_client.setPrivateKey(AWS_IOT_PRIVATE_KEY.data());
     //
     mqtt_client.setServer(AWS_IOT_ENDPOINT.data(), AWS_IOT_MQTT_PORT);
+    mqtt_client.setSocketTimeout(SOCKET_TIMEOUT);
+    mqtt_client.setKeepAlive(KEEP_ALIVE);
     //
-    for (auto retry = 0; retry < retry_count; ++retry) {
+    do {
       if (mqtt_client.connect(AWS_IOT_DEVICE_ID.data())) {
         ESP_LOGI(TELEMETRY, "MQTT Connected!");
         return true;
       }
       delay(100);
-    }
+    } while (system_clock::now() < tp);
     return false;
   }
   //
@@ -168,18 +176,12 @@ public:
   // MQTT接続検査
   //
   bool check_mqtt(std::chrono::seconds timeout) {
-    using namespace std::chrono;
-    time_point tp = system_clock::now() + timeout;
-
-    do {
-      if (mqtt_client.connected()) {
-        return true;
-      }
-      // MQTT再接続シーケンス
-      ESP_LOGD(TELEMETRY, "MQTT reconnect");
-      mqtt_client.connect(AWS_IOT_DEVICE_ID.data());
-    } while (system_clock::now() < tp);
-    return mqtt_client.connected();
+    if (mqtt_client.connected()) {
+      return true;
+    }
+    // MQTT再接続シーケンス
+    ESP_LOGD(TELEMETRY, "MQTT reconnect");
+    return connectToAwsIot(timeout);
   }
   //
   // MQTT送受信

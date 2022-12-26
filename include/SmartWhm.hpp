@@ -15,7 +15,7 @@ struct SmartWhm {
   std::optional<SmartElectricEnergyMeter::Coefficient>
       whm_coefficient; // 乗数(無い場合の乗数は1)
   std::optional<SmartElectricEnergyMeter::Unit> whm_unit; // 単位
-  std::optional<uint8_t> day_for_which_the_historcal; // 積算履歴収集日
+  //  std::optional<uint8_t> day_for_which_the_historcal; // 積算履歴収集日
   std::optional<SmartElectricEnergyMeter::InstantWatt> instant_watt; // 瞬時電力
   std::optional<SmartElectricEnergyMeter::InstantAmpere>
       instant_ampere; // 瞬時電流
