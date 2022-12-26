@@ -259,7 +259,7 @@ static bool initializeTime(std::size_t retry_count = 300) {
 static bool establishConnection() {
   bool ok = connectToWiFi();
   ok = ok ? initializeTime() : ok;
-  ok = ok ? telemetry.connectToAwsIot() : ok;
+  ok = ok ? telemetry.connectToAwsIot(std::chrono::seconds{60}) : ok;
   return ok;
 }
 
