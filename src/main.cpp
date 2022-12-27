@@ -722,7 +722,6 @@ void loop() {
   auto epoch = system_clock::now().time_since_epoch();
   uint16_t remain_sec = 60 - duration_cast<seconds>(epoch).count() % 60;
   {
-
     int32_t bar_width = M5.Lcd.width() * remain_sec / 60;
     int32_t y = M5.Lcd.height() - 2;
     M5.Lcd.fillRect(bar_width, y, M5.Lcd.width(), M5.Lcd.height(), BLACK);
