@@ -8,6 +8,7 @@
 #include <chrono>
 #include <cstdint>
 #include <ctime>
+#include <esp_log.h>
 #include <iomanip>
 #include <memory>
 #include <queue>

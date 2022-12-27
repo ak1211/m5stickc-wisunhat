@@ -732,7 +732,8 @@ void loop() {
   //
   // 55秒以上の待ち時間があるうちに接続状態の検査をする:
   //
-  if (remains_in_permille >= 55000) {
+  if (auto sec = duration_cast<seconds>(system_clock::now().time_since_epoch());
+      60 - sec.count() % 60 >= 55) {
     if (WiFi.isConnected()) {
       // MQTT接続検査
       telemetry.check_mqtt(seconds{10});
