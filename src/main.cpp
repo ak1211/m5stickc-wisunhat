@@ -633,23 +633,31 @@ send_periodical_request(std::chrono::system_clock::time_point current_time,
 // スマートメーターに要求を送る
 //
 static void send_request_to_smart_meter() {
+  using namespace std::literals::chrono_literals;
   using namespace std::chrono;
   static system_clock::time_point send_time_at;
-  auto tp = system_clock::now();
+  auto nowtp = system_clock::now();
   //
-  // スマートメーターに要求を出す(1秒以上の間隔をあけて)
+  constexpr auto INTERVAL = 15;
+  if (auto elapsed = nowtp - send_time_at; elapsed < seconds{INTERVAL}) {
+    return;
+  }
+  auto sec = duration_cast<seconds>(nowtp.time_since_epoch()).count() % 60;
   //
-  if (auto elapsed = tp - send_time_at; elapsed >= seconds{1}) {
-    auto epoch = tp.time_since_epoch();
-    // 積算電力量単位が初期値の場合にスマートメーターに最初の要求を出す
-    if (!smart_watt_hour_meter.whm_unit.has_value()) {
-      send_first_request(tp);
-    } else if (duration_cast<seconds>(epoch).count() % 60 == 0) {
-      // 毎分0秒にスマートメーターに定期要求を出す
-      send_periodical_request(tp, smart_watt_hour_meter);
-    }
+  // 積算電力量単位が初期値の場合にスマートメーターに最初の要求を出す
+  //
+  if (!smart_watt_hour_meter.whm_unit.has_value()) {
+    send_first_request(nowtp);
     // 送信時間を記録する
-    send_time_at = tp;
+    send_time_at = nowtp;
+  }
+  //
+  // １分毎にスマートメーターに定期要求を出す
+  //
+  else if (sec < INTERVAL) {
+    send_periodical_request(nowtp, smart_watt_hour_meter);
+    // 送信時間を記録する
+    send_time_at = nowtp;
   }
 }
 
