@@ -719,25 +719,27 @@ void loop() {
   //
   // プログレスバーを表示する
   //
-  auto epoch = system_clock::now().time_since_epoch();
-  uint16_t remain_sec = 60 - duration_cast<seconds>(epoch).count() % 60;
-  {
+  auto nowtp = system_clock::now();
+  static system_clock::time_point before_paint_at;
+  if (nowtp - before_paint_at >= 1s) {
+    uint16_t remain_sec =
+        60 - duration_cast<seconds>(nowtp.time_since_epoch()).count() % 60;
     int32_t bar_width = M5.Lcd.width() * remain_sec / 60;
     int32_t y = M5.Lcd.height() - 2;
     M5.Lcd.fillRect(bar_width, y, M5.Lcd.width(), M5.Lcd.height(), BLACK);
     M5.Lcd.fillRect(0, y, bar_width, M5.Lcd.height(), YELLOW);
-  }
-
-  //
-  // 30秒以上の待ち時間があるうちに接続状態の検査をする:
-  //
-  if (remain_sec >= 30) {
-    if (WiFi.isConnected()) {
-      // MQTT接続検査
-      telemetry.check_mqtt(seconds{10});
-    } else {
-      // WiFi接続検査
-      checkWiFi(seconds{10});
+    before_paint_at = nowtp;
+    //
+    // 30秒以上の待ち時間があるうちに接続状態の検査をする:
+    //
+    if (remain_sec >= 30) {
+      if (WiFi.isConnected()) {
+        // MQTT接続検査
+        telemetry.check_mqtt(seconds{10});
+      } else {
+        // WiFi接続検査
+        checkWiFi(seconds{10});
+      }
     }
   }
 }
