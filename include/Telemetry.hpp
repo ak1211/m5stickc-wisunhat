@@ -187,11 +187,12 @@ public:
   // MQTT送受信
   //
   bool loop_mqtt() {
+    using namespace std::literals::chrono_literals;
     if (mqtt_client.connected()) {
       using namespace std::chrono;
       // 送信するべき測定値があればIoT Coreへ送信する(1秒以上の間隔をあけて)
       if (auto tp = system_clock::now();
-          tp - attempt_send_time >= seconds{1} && !sending_fifo_queue.empty()) {
+          tp - attempt_send_time >= 1s && !sending_fifo_queue.empty()) {
         std::string msg{};
         auto &item = sending_fifo_queue.front();
         if (std::holds_alternative<PInstantAmpere>(item)) {

@@ -547,16 +547,6 @@ process_erxudp(std::chrono::system_clock::time_point at,
 }
 
 //
-// プログレスバーを表示する
-//
-static void render_progress_bar(uint32_t permille) {
-  int32_t bar_width = M5.Lcd.width() * permille / 1000;
-  int32_t y = M5.Lcd.height() - 2;
-  M5.Lcd.fillRect(bar_width, y, M5.Lcd.width(), M5.Lcd.height(), BLACK);
-  M5.Lcd.fillRect(0, y, bar_width, M5.Lcd.height(), YELLOW);
-}
-
-//
 // スマートメーターに最初の要求を出す
 //
 static void
@@ -729,19 +719,20 @@ void loop() {
   //
   // プログレスバーを表示する
   //
-  constexpr milliseconds one_min_in_ms = milliseconds{60000};
-  const milliseconds seconds_in_ms = duration_cast<milliseconds>(
-      system_clock::now().time_since_epoch() % one_min_in_ms);
-  // 毎分0秒までの残り時間(1000分率)
-  const uint32_t remains_in_permille =
-      1000 * (one_min_in_ms - seconds_in_ms) / one_min_in_ms;
-  render_progress_bar(remains_in_permille);
+  auto epoch = system_clock::now().time_since_epoch();
+  uint16_t remain_sec = 60 - duration_cast<seconds>(epoch).count() % 60;
+  {
+
+    int32_t bar_width = M5.Lcd.width() * remain_sec / 60;
+    int32_t y = M5.Lcd.height() - 2;
+    M5.Lcd.fillRect(bar_width, y, M5.Lcd.width(), M5.Lcd.height(), BLACK);
+    M5.Lcd.fillRect(0, y, bar_width, M5.Lcd.height(), YELLOW);
+  }
 
   //
-  // 55秒以上の待ち時間があるうちに接続状態の検査をする:
+  // 30秒以上の待ち時間があるうちに接続状態の検査をする:
   //
-  if (auto sec = duration_cast<seconds>(system_clock::now().time_since_epoch());
-      60 - sec.count() % 60 >= 55) {
+  if (remain_sec >= 30) {
     if (WiFi.isConnected()) {
       // MQTT接続検査
       telemetry.check_mqtt(seconds{10});
