@@ -623,7 +623,6 @@ send_periodical_request(std::chrono::system_clock::time_point current_time,
 // スマートメーターに要求を送る
 //
 static void send_request_to_smart_meter() {
-  using namespace std::literals::chrono_literals;
   using namespace std::chrono;
   static system_clock::time_point send_time_at;
   auto nowtp = system_clock::now();
@@ -652,14 +651,13 @@ static void send_request_to_smart_meter() {
 }
 
 //
-// Arduinoのloop()関数
+// 高速度loop()関数
 //
-void loop() {
+inline void high_speed_loop(std::chrono::system_clock::time_point nowtp) {
   // メッセージ受信バッファ
   static std::queue<
       std::pair<std::chrono::system_clock::time_point, Bp35a1::Response>>
       received_message_fifo{};
-  using namespace std::chrono;
   // メッセージIDカウンタ(IoT Core用)
   static Telemetry::MessageId messageId{};
 
@@ -669,7 +667,7 @@ void loop() {
   for (auto count = 0; count < 25; ++count) {
     if (auto resp = Bp35a1::receive_response(smart_whm_b_route->commport);
         resp.has_value()) {
-      received_message_fifo.push({system_clock::now(), resp.value()});
+      received_message_fifo.push({nowtp, resp.value()});
     }
     delay(10);
   }
@@ -707,39 +705,52 @@ void loop() {
   cumulative_watt_hour_gauge.update();
   //
   M5.update();
+}
 
-  //
+//
+// 低速度loop()関数
+//
+inline void low_speed_loop(std::chrono::system_clock::time_point nowtp) {
+  using namespace std::chrono;
+
   // MQTT送受信
-  //
   telemetry.loop_mqtt();
 
   // スマートメーターに要求を送る
   send_request_to_smart_meter();
 
-  //
   // プログレスバーを表示する
-  //
-  auto nowtp = system_clock::now();
-  static system_clock::time_point before_paint_at;
-  if (nowtp - before_paint_at >= 1s) {
-    uint16_t remain_sec =
-        60 - duration_cast<seconds>(nowtp.time_since_epoch()).count() % 60;
-    int32_t bar_width = M5.Lcd.width() * remain_sec / 60;
-    int32_t y = M5.Lcd.height() - 2;
-    M5.Lcd.fillRect(bar_width, y, M5.Lcd.width(), M5.Lcd.height(), BLACK);
-    M5.Lcd.fillRect(0, y, bar_width, M5.Lcd.height(), YELLOW);
-    before_paint_at = nowtp;
-    //
-    // 30秒以上の待ち時間があるうちに接続状態の検査をする:
-    //
-    if (remain_sec >= 30) {
-      if (WiFi.isConnected()) {
-        // MQTT接続検査
-        telemetry.check_mqtt(seconds{10});
-      } else {
-        // WiFi接続検査
-        checkWiFi(seconds{10});
-      }
+  uint16_t remain_sec =
+      60 - duration_cast<seconds>(nowtp.time_since_epoch()).count() % 60;
+  int32_t bar_width = M5.Lcd.width() * remain_sec / 60;
+  int32_t y = M5.Lcd.height() - 2;
+  M5.Lcd.fillRect(bar_width, y, M5.Lcd.width(), M5.Lcd.height(), BLACK);
+  M5.Lcd.fillRect(0, y, bar_width, M5.Lcd.height(), YELLOW);
+
+  // 30秒以上の待ち時間があるうちに接続状態の検査をする:
+  if (remain_sec >= 30) {
+    if (WiFi.isConnected()) {
+      // MQTT接続検査
+      telemetry.check_mqtt(seconds{10});
+    } else {
+      // WiFi接続検査
+      checkWiFi(seconds{10});
     }
+  }
+}
+
+//
+// Arduinoのloop()関数
+//
+void loop() {
+  using namespace std::chrono;
+  static system_clock::time_point before;
+  auto nowtp = system_clock::now();
+  //
+  high_speed_loop(nowtp);
+  //
+  if (nowtp - before >= 1s) {
+    low_speed_loop(nowtp);
+    before = nowtp;
   }
 }
