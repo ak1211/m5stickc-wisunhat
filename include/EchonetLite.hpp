@@ -6,10 +6,12 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <ctime>
 #include <esp_log.h>
 #include <iomanip>
+#include <iterator>
 #include <memory>
 #include <queue>
 #include <ratio>

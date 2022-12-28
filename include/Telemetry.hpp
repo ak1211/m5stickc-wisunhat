@@ -124,14 +124,24 @@ public:
   constexpr static auto AWS_IOT_MQTT_PORT = uint16_t{8883};
   constexpr static auto KEEP_ALIVE = std::size_t{180};
   constexpr static auto SOCKET_TIMEOUT = std::size_t{180};
-  const std::string mqtt_topic;
+  const std::string pub_topic;
+  const std::string sub_topic;
   //
   Mqtt()
       : https_client{},
         mqtt_client{https_client},
-        mqtt_topic{"device/"s + std::string{AWS_IOT_DEVICE_ID} + "/data"s},
+        pub_topic{"device/"s + std::string{AWS_IOT_DEVICE_ID} + "/data"s},
+        sub_topic{"device/"s + std::string{AWS_IOT_DEVICE_ID} + "/sub"s},
         sending_fifo_queue{},
         attempt_send_time{} {}
+  //
+  static void callback(char *topic, uint8_t *payload, uint32_t length) {
+    std::vector<char> buffer;
+    buffer.reserve(length + 1);
+    std::copy_n(payload, length, std::back_inserter(buffer));
+    buffer.push_back('\0');
+    ESP_LOGI(TELEMETRY, "%s:%s", topic, buffer.data());
+  }
   //
   // AWS IoTへ接続確立を試みる
   //
@@ -146,10 +156,12 @@ public:
     mqtt_client.setServer(AWS_IOT_ENDPOINT.data(), AWS_IOT_MQTT_PORT);
     mqtt_client.setSocketTimeout(SOCKET_TIMEOUT);
     mqtt_client.setKeepAlive(KEEP_ALIVE);
+    mqtt_client.setCallback(callback);
     //
     do {
       if (mqtt_client.connect(AWS_IOT_DEVICE_ID.data())) {
         ESP_LOGI(TELEMETRY, "MQTT Connected!");
+        mqtt_client.subscribe(sub_topic.c_str(), 1);
         return true;
       }
       delay(100);
@@ -162,7 +174,7 @@ public:
   bool send_mqtt(const std::string &string_telemetry) {
     if (mqtt_client.connected()) {
       ESP_LOGD(TELEMETRY, "%s", string_telemetry.c_str());
-      return mqtt_client.publish(mqtt_topic.c_str(), string_telemetry.c_str());
+      return mqtt_client.publish(pub_topic.c_str(), string_telemetry.c_str());
     } else {
       ESP_LOGD(TELEMETRY, "MQTT is NOT connected.");
       return false;
