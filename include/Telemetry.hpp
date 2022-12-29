@@ -218,12 +218,11 @@ public:
     if (!sending_fifo_queue.empty()) {
       auto item = sending_fifo_queue.front();
       if (std::holds_alternative<PayloadInstantAmpere>(item)) {
-        msg =
-            to_json_message(messageId++, std::get<PayloadInstantAmpere>(item));
+        msg = to_json_message(messageId, std::get<PayloadInstantAmpere>(item));
       } else if (std::holds_alternative<PayloadInstantWatt>(item)) {
-        msg = to_json_message(messageId++, std::get<PayloadInstantWatt>(item));
+        msg = to_json_message(messageId, std::get<PayloadInstantWatt>(item));
       } else if (std::holds_alternative<PayloadCumlativeWattHour>(item)) {
-        msg = to_json_message(messageId++,
+        msg = to_json_message(messageId,
                               std::get<PayloadCumlativeWattHour>(item));
       } else {
         ESP_LOGE(TELEMETRY, "message is BROKEN");
@@ -233,6 +232,7 @@ public:
     if (msg.length() > 0 && mqtt_client.connected()) {
       ESP_LOGD(TELEMETRY, "%s", msg.c_str());
       if (mqtt_client.publish(pub_topic.c_str(), msg.c_str())) {
+        messageId++;
         // IoT Coreへ送信した測定値をFIFOから消す
         sending_fifo_queue.pop();
       }
