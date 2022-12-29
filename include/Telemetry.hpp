@@ -23,23 +23,19 @@ using namespace std::literals::string_literals;
 namespace Telemetry {
 using MessageId = uint32_t;
 //
-using PInstantAmpere =
-    std::tuple<MessageId, std::chrono::system_clock::time_point,
-               SmartElectricEnergyMeter::InstantAmpere>;
+using PayloadInstantAmpere = std::pair<std::chrono::system_clock::time_point,
+                                       SmartElectricEnergyMeter::InstantAmpere>;
 //
-using PInstantWatt =
-    std::tuple<MessageId, std::chrono::system_clock::time_point,
-               SmartElectricEnergyMeter::InstantWatt>;
+using PayloadInstantWatt = std::pair<std::chrono::system_clock::time_point,
+                                     SmartElectricEnergyMeter::InstantWatt>;
 //
-using PCumlativeWattHour =
-    std::tuple<MessageId, SmartElectricEnergyMeter::CumulativeWattHour,
+using PayloadCumlativeWattHour =
+    std::tuple<SmartElectricEnergyMeter::CumulativeWattHour,
                SmartElectricEnergyMeter::Coefficient,
                SmartElectricEnergyMeter::Unit>;
-
-//
-// 送信用:
-//
-using Payload = std::variant<PInstantAmpere, PInstantWatt, PCumlativeWattHour>;
+// 送信用
+using Payload = std::variant<PayloadInstantAmpere, PayloadInstantWatt,
+                             PayloadCumlativeWattHour>;
 
 //
 std::string iso8601formatUTC(std::chrono::system_clock::time_point utctimept) {
@@ -57,10 +53,10 @@ std::string iso8601formatUTC(std::chrono::system_clock::time_point utctimept) {
 constexpr std::size_t Capacity{JSON_OBJECT_SIZE(100)};
 
 // 送信用メッセージに変換する
-std::string to_json_message(PInstantAmpere in) {
+std::string to_json_message(MessageId messageId, PayloadInstantAmpere in) {
   namespace M = SmartElectricEnergyMeter;
   using std::chrono::duration_cast;
-  auto &[messageId, timept, a] = in;
+  auto &[timept, a] = in;
   StaticJsonDocument<Capacity> doc;
   doc["message_id"] = messageId;
   doc["device_id"] = AWS_IOT_DEVICE_ID;
@@ -74,8 +70,8 @@ std::string to_json_message(PInstantAmpere in) {
 }
 
 // 送信用メッセージに変換する
-std::string to_json_message(PInstantWatt in) {
-  auto &[messageId, timept, w] = in;
+std::string to_json_message(MessageId messageId, PayloadInstantWatt in) {
+  auto &[timept, w] = in;
   StaticJsonDocument<Capacity> doc;
   doc["message_id"] = messageId;
   doc["device_id"] = AWS_IOT_DEVICE_ID;
@@ -88,9 +84,9 @@ std::string to_json_message(PInstantWatt in) {
 }
 
 // 送信用メッセージに変換する
-std::string to_json_message(PCumlativeWattHour in) {
+std::string to_json_message(MessageId messageId, PayloadCumlativeWattHour in) {
   namespace M = SmartElectricEnergyMeter;
-  auto &[messageId, cwh, coeff, unit] = in;
+  auto &[cwh, coeff, unit] = in;
   StaticJsonDocument<Capacity> doc;
   doc["message_id"] = messageId;
   doc["device_id"] = AWS_IOT_DEVICE_ID;
@@ -117,21 +113,58 @@ class Mqtt final {
   PubSubClient mqtt_client;
   // IoT Core送信用バッファ
   std::queue<Payload> sending_fifo_queue;
-  // IoT Coreにメッセージを送信しようとした時間
-  std::chrono::system_clock::time_point attempt_send_time;
+  // メッセージIDカウンタ(IoT Core用)
+  MessageId messageId;
 
 public:
   constexpr static auto AWS_IOT_MQTT_PORT = uint16_t{8883};
-  constexpr static auto KEEP_ALIVE = std::size_t{180};
-  constexpr static auto SOCKET_TIMEOUT = std::size_t{180};
-  const std::string mqtt_topic;
+  constexpr static auto SOCKET_TIMEOUT = uint16_t{90};
+  constexpr static auto QuarityOfService = uint8_t{1};
+  const std::string pub_topic;
+  const std::string sub_topic;
   //
   Mqtt()
       : https_client{},
         mqtt_client{https_client},
-        mqtt_topic{"device/"s + std::string{AWS_IOT_DEVICE_ID} + "/data"s},
+        pub_topic{"device/"s + std::string{AWS_IOT_DEVICE_ID} + "/data"s},
+        sub_topic{"device/"s + std::string{AWS_IOT_DEVICE_ID} + "/sub"s},
         sending_fifo_queue{},
-        attempt_send_time{} {}
+        messageId{0} {}
+  //
+  static void callback(char *topic, uint8_t *payload, uint32_t length) {
+    std::vector<char> buffer;
+    buffer.reserve(length + 1);
+    std::copy_n(payload, length, std::back_inserter(buffer));
+    buffer.push_back('\0');
+    ESP_LOGI(TELEMETRY, "%s:%s", topic, buffer.data());
+  }
+  //
+  std::string_view strMqttState() {
+    switch (mqtt_client.state()) {
+    case MQTT_CONNECTION_TIMEOUT:
+      return "MQTT_CONNECTION_TIMEOUT";
+    case MQTT_CONNECTION_LOST:
+      return "MQTT_CONNECTION_LOST";
+    case MQTT_CONNECT_FAILED:
+      return "MQTT_CONNECT_FAILED";
+    case MQTT_DISCONNECTED:
+      return "MQTT_DISCONNECTED";
+    case MQTT_CONNECTED:
+      return "MQTT_CONNECTED";
+    case MQTT_CONNECT_BAD_PROTOCOL:
+      return "MQTT_CONNECT_BAD_PROTOCOL";
+    case MQTT_CONNECT_BAD_CLIENT_ID:
+      return "MQTT_CONNECT_BAD_CLIENT_ID";
+    case MQTT_CONNECT_UNAVAILABLE:
+      return "MQTT_CONNECT_UNAVAILABLE";
+    case MQTT_CONNECT_BAD_CREDENTIALS:
+      return "MQTT_CONNECT_BAD_CREDENTIALS";
+    case MQTT_CONNECT_UNAUTHORIZED:
+      return "MQTT_CONNECT_UNAUTHORIZED";
+    default:
+      return "MQTT_STATE_UNKNOWN";
+    }
+  }
   //
   // AWS IoTへ接続確立を試みる
   //
@@ -145,33 +178,24 @@ public:
     //
     mqtt_client.setServer(AWS_IOT_ENDPOINT.data(), AWS_IOT_MQTT_PORT);
     mqtt_client.setSocketTimeout(SOCKET_TIMEOUT);
-    mqtt_client.setKeepAlive(KEEP_ALIVE);
+    mqtt_client.setCallback(callback);
     //
     do {
-      if (mqtt_client.connect(AWS_IOT_DEVICE_ID.data())) {
-        ESP_LOGI(TELEMETRY, "MQTT Connected!");
+      if (mqtt_client.connect(AWS_IOT_DEVICE_ID.data(), nullptr,
+                              QuarityOfService, false, "")) {
+        mqtt_client.subscribe(sub_topic.c_str(), QuarityOfService);
         return true;
       }
       delay(100);
     } while (system_clock::now() < tp);
+    ESP_LOGE(TELEMETRY, "connect fail to AWS IoT, reason: %s",
+             strMqttState().data());
     return false;
-  }
-  //
-  // AWS IoTへ送信する
-  //
-  bool send_mqtt(const std::string &string_telemetry) {
-    if (mqtt_client.connected()) {
-      ESP_LOGD(TELEMETRY, "%s", string_telemetry.c_str());
-      return mqtt_client.publish(mqtt_topic.c_str(), string_telemetry.c_str());
-    } else {
-      ESP_LOGD(TELEMETRY, "MQTT is NOT connected.");
-      return false;
-    }
   }
   //
   // 送信用キューに積む
   //
-  void push_queue(const Payload &v) { sending_fifo_queue.push(v); }
+  void push_queue(const Payload &&in) { sending_fifo_queue.push(in); }
   //
   // MQTT接続検査
   //
@@ -180,40 +204,41 @@ public:
       return true;
     }
     // MQTT再接続シーケンス
-    ESP_LOGD(TELEMETRY, "MQTT reconnect");
+    ESP_LOGD(TELEMETRY, "MQTT reconnect, reason: %s", strMqttState().data());
     return connectToAwsIot(timeout);
   }
   //
   // MQTT送受信
   //
   bool loop_mqtt() {
-    if (mqtt_client.connected()) {
-      using namespace std::chrono;
-      // 送信するべき測定値があればIoT Coreへ送信する(1秒以上の間隔をあけて)
-      if (auto tp = system_clock::now();
-          tp - attempt_send_time >= seconds{1} && !sending_fifo_queue.empty()) {
-        std::string msg{};
-        auto &item = sending_fifo_queue.front();
-        if (std::holds_alternative<PInstantAmpere>(item)) {
-          msg = to_json_message(std::get<PInstantAmpere>(item));
-        } else if (std::holds_alternative<PInstantWatt>(item)) {
-          msg = to_json_message(std::get<PInstantWatt>(item));
-        } else if (std::holds_alternative<PCumlativeWattHour>(item)) {
-          msg = to_json_message(std::get<PCumlativeWattHour>(item));
-        }
-        // MQTT送信
-        if (msg.length() > 0 && send_mqtt(msg)) {
-          // IoT Coreへ送信したメッセージをFIFOから消す
-          sending_fifo_queue.pop();
-        }
-        // 成功失敗によらずIoT Coreへの送信時間を記録する
-        attempt_send_time = tp;
+    using namespace std::literals::chrono_literals;
+    using namespace std::chrono;
+    // 送信するべき測定値があればIoT Coreへ送信する
+    std::string msg{};
+    if (!sending_fifo_queue.empty()) {
+      auto item = sending_fifo_queue.front();
+      if (std::holds_alternative<PayloadInstantAmpere>(item)) {
+        msg = to_json_message(messageId, std::get<PayloadInstantAmpere>(item));
+      } else if (std::holds_alternative<PayloadInstantWatt>(item)) {
+        msg = to_json_message(messageId, std::get<PayloadInstantWatt>(item));
+      } else if (std::holds_alternative<PayloadCumlativeWattHour>(item)) {
+        msg = to_json_message(messageId,
+                              std::get<PayloadCumlativeWattHour>(item));
+      } else {
+        ESP_LOGE(TELEMETRY, "message is BROKEN");
       }
-      // MQTT受信
-      return mqtt_client.loop();
-    } else {
-      return false;
     }
+    // MQTT送信
+    if (msg.length() > 0 && mqtt_client.connected()) {
+      ESP_LOGD(TELEMETRY, "%s", msg.c_str());
+      if (mqtt_client.publish(pub_topic.c_str(), msg.c_str())) {
+        messageId++;
+        // IoT Coreへ送信した測定値をFIFOから消す
+        sending_fifo_queue.pop();
+      }
+    }
+    // MQTT受信
+    return mqtt_client.loop();
   }
 };
 } // namespace Telemetry
