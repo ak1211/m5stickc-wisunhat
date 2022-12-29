@@ -23,21 +23,19 @@ using namespace std::literals::string_literals;
 namespace Telemetry {
 using MessageId = uint32_t;
 //
-using PInstantAmpere = std::pair<std::chrono::system_clock::time_point,
-                                 SmartElectricEnergyMeter::InstantAmpere>;
+using PayloadInstantAmpere = std::pair<std::chrono::system_clock::time_point,
+                                       SmartElectricEnergyMeter::InstantAmpere>;
 //
-using PInstantWatt = std::pair<std::chrono::system_clock::time_point,
-                               SmartElectricEnergyMeter::InstantWatt>;
+using PayloadInstantWatt = std::pair<std::chrono::system_clock::time_point,
+                                     SmartElectricEnergyMeter::InstantWatt>;
 //
-using PCumlativeWattHour =
+using PayloadCumlativeWattHour =
     std::tuple<SmartElectricEnergyMeter::CumulativeWattHour,
                SmartElectricEnergyMeter::Coefficient,
                SmartElectricEnergyMeter::Unit>;
-
-//
-// 送信用:
-//
-using Payload = std::variant<PInstantAmpere, PInstantWatt, PCumlativeWattHour>;
+// 送信用
+using Payload = std::variant<PayloadInstantAmpere, PayloadInstantWatt,
+                             PayloadCumlativeWattHour>;
 
 //
 std::string iso8601formatUTC(std::chrono::system_clock::time_point utctimept) {
@@ -55,7 +53,7 @@ std::string iso8601formatUTC(std::chrono::system_clock::time_point utctimept) {
 constexpr std::size_t Capacity{JSON_OBJECT_SIZE(100)};
 
 // 送信用メッセージに変換する
-std::string to_json_message(MessageId messageId, PInstantAmpere in) {
+std::string to_json_message(MessageId messageId, PayloadInstantAmpere in) {
   namespace M = SmartElectricEnergyMeter;
   using std::chrono::duration_cast;
   auto &[timept, a] = in;
@@ -72,7 +70,7 @@ std::string to_json_message(MessageId messageId, PInstantAmpere in) {
 }
 
 // 送信用メッセージに変換する
-std::string to_json_message(MessageId messageId, PInstantWatt in) {
+std::string to_json_message(MessageId messageId, PayloadInstantWatt in) {
   auto &[timept, w] = in;
   StaticJsonDocument<Capacity> doc;
   doc["message_id"] = messageId;
@@ -86,7 +84,7 @@ std::string to_json_message(MessageId messageId, PInstantWatt in) {
 }
 
 // 送信用メッセージに変換する
-std::string to_json_message(MessageId messageId, PCumlativeWattHour in) {
+std::string to_json_message(MessageId messageId, PayloadCumlativeWattHour in) {
   namespace M = SmartElectricEnergyMeter;
   auto &[cwh, coeff, unit] = in;
   StaticJsonDocument<Capacity> doc;
@@ -219,12 +217,14 @@ public:
     std::string msg{};
     if (!sending_fifo_queue.empty()) {
       auto item = sending_fifo_queue.front();
-      if (std::holds_alternative<PInstantAmpere>(item)) {
-        msg = to_json_message(messageId++, std::get<PInstantAmpere>(item));
-      } else if (std::holds_alternative<PInstantWatt>(item)) {
-        msg = to_json_message(messageId++, std::get<PInstantWatt>(item));
-      } else if (std::holds_alternative<PCumlativeWattHour>(item)) {
-        msg = to_json_message(messageId++, std::get<PCumlativeWattHour>(item));
+      if (std::holds_alternative<PayloadInstantAmpere>(item)) {
+        msg =
+            to_json_message(messageId++, std::get<PayloadInstantAmpere>(item));
+      } else if (std::holds_alternative<PayloadInstantWatt>(item)) {
+        msg = to_json_message(messageId++, std::get<PayloadInstantWatt>(item));
+      } else if (std::holds_alternative<PayloadCumlativeWattHour>(item)) {
+        msg = to_json_message(messageId++,
+                              std::get<PayloadCumlativeWattHour>(item));
       } else {
         ESP_LOGE(TELEMETRY, "message is BROKEN");
       }

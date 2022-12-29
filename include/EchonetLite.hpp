@@ -406,6 +406,12 @@ struct Coefficient final {
 std::string to_string(const SmartElectricEnergyMeter::Coefficient &x) {
   return "coefficient the "s + std::to_string(x.coefficient);
 }
+bool operator==(const Coefficient &left, const Coefficient &right) {
+  return left.coefficient == right.coefficient;
+}
+bool operator!=(const Coefficient &left, const Coefficient &right) {
+  return !(left == right);
+}
 
 // 積算電力量有効桁数
 struct EffectiveDigits final {
@@ -416,7 +422,12 @@ struct EffectiveDigits final {
 std::string to_string(const SmartElectricEnergyMeter::EffectiveDigits &x) {
   return std::to_string(x.digits) + " effective digits."s;
 }
-
+bool operator==(const EffectiveDigits &left, const EffectiveDigits &right) {
+  return left.digits == right.digits;
+}
+bool operator!=(const EffectiveDigits &left, const EffectiveDigits &right) {
+  return !(left == right);
+}
 // 積算電力量単位 (正方向、逆方向計測値)
 struct Unit final {
   uint8_t unit;
@@ -480,6 +491,13 @@ std::string to_string(const SmartElectricEnergyMeter::Unit &x) {
     return "no multiplier"s;
   }
 }
+bool operator==(const Unit &left, const Unit &right) {
+  return left.unit == right.unit;
+}
+bool operator!=(const Unit &left, const Unit &right) {
+  return !(left == right);
+}
+
 //
 // 測定値
 //

@@ -41,12 +41,11 @@ struct SmartWhm {
   // 積算履歴収集日
   std::optional<uint8_t> day_for_which_the_historcal;
   // 瞬時電力
-  std::optional<SmartElectricEnergyMeter::InstantWatt> instant_watt;
+  std::optional<Telemetry::PayloadInstantWatt> instant_watt;
   // 瞬時電流
-  std::optional<SmartElectricEnergyMeter::InstantAmpere> instant_ampere;
+  std::optional<Telemetry::PayloadInstantAmpere> instant_ampere;
   // 定時積算電力量
-  std::optional<SmartElectricEnergyMeter::CumulativeWattHour>
-      cumlative_watt_hour;
+  std::optional<Telemetry::PayloadCumlativeWattHour> cumlative_watt_hour;
   //
   SmartWhm(Stream &comm, Bp35a1::SmartMeterIdentifier ident)
       : commport{comm}, identifier{ident} {}
@@ -67,15 +66,16 @@ static std::unique_ptr<SmartWhm> smart_watt_hour_meter;
 // MQTT
 static Telemetry::Mqtt telemetry;
 // 瞬時電力量
-static Gauge<SmartElectricEnergyMeter::InstantWatt> instant_watt_gauge{
+static Gauge<Telemetry::PayloadInstantWatt> instant_watt_gauge{
     2,
     4,
     YELLOW,
     {10, 10},
-    [](std::optional<SmartElectricEnergyMeter::InstantWatt> iw) -> std::string {
+    [](std::optional<Telemetry::PayloadInstantWatt> pIW) -> std::string {
       std::ostringstream oss;
-      if (iw.has_value()) {
-        oss << std::setfill(' ') << std::setw(5) << iw->watt.count();
+      if (pIW.has_value()) {
+        auto [unused, iw] = pIW.value();
+        oss << std::setfill(' ') << std::setw(5) << iw.watt.count();
       } else {
         oss << std::setfill('-') << std::setw(5) << "";
       }
@@ -83,13 +83,12 @@ static Gauge<SmartElectricEnergyMeter::InstantWatt> instant_watt_gauge{
       return oss.str();
     }};
 // 瞬時電流
-static Gauge<SmartElectricEnergyMeter::InstantAmpere> instant_ampere_gauge{
+static Gauge<Telemetry::PayloadInstantAmpere> instant_ampere_gauge{
     1,
     4,
     WHITE,
     {10, 10 + 48},
-    [](std::optional<SmartElectricEnergyMeter::InstantAmpere> ia)
-        -> std::string {
+    [](std::optional<Telemetry::PayloadInstantAmpere> pIA) -> std::string {
       using namespace SmartElectricEnergyMeter;
       auto map_deciA = [](std::optional<DeciAmpere> dA) -> std::string {
         std::ostringstream os;
@@ -108,9 +107,10 @@ static Gauge<SmartElectricEnergyMeter::InstantAmpere> instant_ampere_gauge{
       std::ostringstream oss;
       std::string r{};
       std::string t{};
-      if (ia.has_value()) {
-        r = map_deciA(ia->ampereR);
-        t = map_deciA(ia->ampereT);
+      if (pIA.has_value()) {
+        auto [unused, ia] = pIA.value();
+        r = map_deciA(ia.ampereR);
+        t = map_deciA(ia.ampereT);
       } else {
         r = t = map_deciA(std::nullopt);
       }
@@ -118,80 +118,78 @@ static Gauge<SmartElectricEnergyMeter::InstantAmpere> instant_ampere_gauge{
       return oss.str();
     }};
 // 積算電力量
-static Gauge<SmartElectricEnergyMeter::CumulativeWattHour>
-    cumulative_watt_hour_gauge{
-        1,
-        4,
-        WHITE,
-        {10, 10 + 48 + 24},
-        [](std::optional<SmartElectricEnergyMeter::CumulativeWattHour>
-               watt_hour) -> std::string {
-          auto map_hour_min =
-              [](std::optional<std::pair<int, int>> hour_min) -> std::string {
-            std::ostringstream os;
-            if (hour_min.has_value()) {
-              auto [h, m] = hour_min.value();
-              os << std::setfill(' ') //
-                 << std::setw(2) << h //
-                 << ":";
-              os << std::setfill('0') //
-                 << std::setw(2) << m;
-            } else {
-              char c[] = "";
-              os << std::setfill('-') //
-                 << std::setw(2) << c //
-                 << ":";
-              os << std::setfill('-') //
-                 << std::setw(2) << c;
-            }
-            return os.str();
-          };
-          auto map_cwh =
-              [](auto digit_width, auto unit_width,
-                 std::optional<SmartElectricEnergyMeter::CumulativeWattHour>
-                     opt_cwh) -> std::string {
-            std::ostringstream os;
-            std::string str_kwh{};
-            std::string str_unit{};
-            if (opt_cwh.has_value()) {
-              auto cwh = opt_cwh.value();
-              if (smart_watt_hour_meter->whm_unit.has_value()) {
-                auto unit = smart_watt_hour_meter->whm_unit.value();
-                str_kwh = to_string_cumlative_kilo_watt_hour(
-                    cwh, smart_watt_hour_meter->whm_coefficient, unit);
-                str_unit = "kwh";
-              } else {
-                // kwh単位にできなかったら,受け取ったそのままの値を出す
-                str_kwh = std::to_string(cwh.raw_cumlative_watt_hour());
-                str_unit = "";
-              }
-              os << std::setfill(' ')                 //
-                 << std::setw(digit_width) << str_kwh //
-                 << " "                               //
-                 << std::setw(unit_width) << str_unit;
-            } else {
-              char c[] = "";
-              os << std::setfill('-')           //
-                 << std::setw(digit_width) << c //
-                 << " "                         //
-                 << std::setw(unit_width) << c;
-            }
-            return os.str();
-          };
-          std::string hm{};
-          std::string cwh{};
-          if (watt_hour.has_value()) {
-            hm = map_hour_min(
-                std::make_pair(watt_hour->hour(), watt_hour->minutes()));
-            cwh = map_cwh(10, 3, *watt_hour);
+static Gauge<Telemetry::PayloadCumlativeWattHour> cumulative_watt_hour_gauge{
+    1,
+    4,
+    WHITE,
+    {10, 10 + 48 + 24},
+    [](std::optional<Telemetry::PayloadCumlativeWattHour> pCWH) -> std::string {
+      auto map_hour_min =
+          [](std::optional<std::pair<int, int>> hour_min) -> std::string {
+        std::ostringstream os;
+        if (hour_min.has_value()) {
+          auto [h, m] = hour_min.value();
+          os << std::setfill(' ') //
+             << std::setw(2) << h //
+             << ":";
+          os << std::setfill('0') //
+             << std::setw(2) << m;
+        } else {
+          char c[] = "";
+          os << std::setfill('-') //
+             << std::setw(2) << c //
+             << ":";
+          os << std::setfill('-') //
+             << std::setw(2) << c;
+        }
+        return os.str();
+      };
+      auto map_cwh =
+          [](auto digit_width, auto unit_width,
+             std::optional<SmartElectricEnergyMeter::CumulativeWattHour>
+                 opt_cwh) -> std::string {
+        std::ostringstream os;
+        std::string str_kwh{};
+        std::string str_unit{};
+        if (opt_cwh.has_value()) {
+          auto cwh = opt_cwh.value();
+          if (smart_watt_hour_meter->whm_unit.has_value()) {
+            auto unit = smart_watt_hour_meter->whm_unit.value();
+            str_kwh = to_string_cumlative_kilo_watt_hour(
+                cwh, smart_watt_hour_meter->whm_coefficient, unit);
+            str_unit = "kwh";
           } else {
-            hm = map_hour_min(std::nullopt);
-            cwh = map_cwh(10, 3, std::nullopt);
+            // kwh単位にできなかったら,受け取ったそのままの値を出す
+            str_kwh = std::to_string(cwh.raw_cumlative_watt_hour());
+            str_unit = "";
           }
-          std::ostringstream oss;
-          oss << hm << " " << cwh;
-          return oss.str();
-        }};
+          os << std::setfill(' ')                 //
+             << std::setw(digit_width) << str_kwh //
+             << " "                               //
+             << std::setw(unit_width) << str_unit;
+        } else {
+          char c[] = "";
+          os << std::setfill('-')           //
+             << std::setw(digit_width) << c //
+             << " "                         //
+             << std::setw(unit_width) << c;
+        }
+        return os.str();
+      };
+      std::string str_hm{};
+      std::string str_cwh{};
+      if (pCWH.has_value()) {
+        auto [cwh, coeff, unit] = pCWH.value();
+        str_hm = map_hour_min(std::make_pair(cwh.hour(), cwh.minutes()));
+        str_cwh = map_cwh(10, 3, cwh);
+      } else {
+        str_hm = map_hour_min(std::nullopt);
+        str_cwh = map_cwh(10, 3, std::nullopt);
+      }
+      std::ostringstream oss;
+      oss << str_hm << " " << str_cwh;
+      return oss.str();
+    }};
 //
 // グローバル変数おわり
 // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -531,25 +529,24 @@ static void process_erxudp(std::chrono::system_clock::time_point at,
           smart_watt_hour_meter->whm_unit = unit;
         } else if (std::holds_alternative<Meter::InstantAmpere>(rx)) {
           auto ampere = std::get<Meter::InstantAmpere>(rx);
-          smart_watt_hour_meter->instant_ampere = ampere;
+          smart_watt_hour_meter->instant_ampere = std::make_pair(at, ampere);
           // 送信バッファへ追加する
           telemetry.push_queue(std::make_pair(at, ampere));
         } else if (std::holds_alternative<Meter::InstantWatt>(rx)) {
           auto watt = std::get<Meter::InstantWatt>(rx);
-          smart_watt_hour_meter->instant_watt = watt;
+          smart_watt_hour_meter->instant_watt = std::make_pair(at, watt);
           // 送信バッファへ追加する
           telemetry.push_queue(std::make_pair(at, watt));
         } else if (std::holds_alternative<Meter::CumulativeWattHour>(rx)) {
           auto cwh = std::get<Meter::CumulativeWattHour>(rx);
-          smart_watt_hour_meter->cumlative_watt_hour = cwh;
-          ESP_LOGD(MAIN, "%s", to_string(cwh).c_str());
           if (smart_watt_hour_meter->whm_unit.has_value()) {
+            auto unit = smart_watt_hour_meter->whm_unit.value();
+            auto coeff = smart_watt_hour_meter->whm_coefficient.value_or(
+                Meter::Coefficient{});
+            smart_watt_hour_meter->cumlative_watt_hour =
+                std::make_tuple(cwh, coeff, unit);
             // 送信バッファへ追加する
-            telemetry.push_queue(
-                std::make_tuple(cwh,
-                                smart_watt_hour_meter->whm_coefficient.value_or(
-                                    Meter::Coefficient{}),
-                                smart_watt_hour_meter->whm_unit.value()));
+            telemetry.push_queue(std::make_tuple(cwh, coeff, unit));
           }
         }
       }
@@ -596,8 +593,13 @@ send_periodical_request(std::chrono::system_clock::time_point current_time) {
   ESP_LOGD(MAIN, "request inst-epower and inst-current");
   //
   std::time_t displayed_jst = []() -> std::time_t {
-    auto &opt = smart_watt_hour_meter->cumlative_watt_hour;
-    return opt.has_value() ? opt.value().get_time_t().value_or(0) : 0;
+    if (smart_watt_hour_meter->cumlative_watt_hour.has_value()) {
+      auto [cwh, unuse, unused] =
+          smart_watt_hour_meter->cumlative_watt_hour.value();
+      return cwh.get_time_t().value_or(0);
+    } else {
+      return 0;
+    }
   }();
   if constexpr (false) {
     char buf[50]{'\0'};
