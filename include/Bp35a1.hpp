@@ -14,7 +14,7 @@
 #include <string>
 #include <variant>
 
-#include "SmartWhm.hpp"
+#include "EchonetLite.hpp"
 #include "TypeDefine.hpp"
 
 namespace Bp35a1 {
