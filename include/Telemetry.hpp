@@ -36,6 +36,8 @@ using PayloadCumlativeWattHour =
 // 送信用
 using Payload = std::variant<PayloadInstantAmpere, PayloadInstantWatt,
                              PayloadCumlativeWattHour>;
+// ArduinoJSON用
+constexpr std::size_t Capacity{JSON_OBJECT_SIZE(128)};
 
 //
 std::string iso8601formatUTC(std::chrono::system_clock::time_point utctimept) {
@@ -49,8 +51,6 @@ std::string iso8601formatUTC(std::chrono::system_clock::time_point utctimept) {
   buffer.resize(len);
   return buffer;
 }
-
-constexpr std::size_t Capacity{JSON_OBJECT_SIZE(100)};
 
 // 送信用メッセージに変換する
 std::string to_json_message(MessageId messageId, PayloadInstantAmpere in) {
@@ -139,6 +139,14 @@ public:
     ESP_LOGI(TELEMETRY, "%s:%s", topic, buffer.data());
   }
   //
+  std::string lastError() {
+    constexpr std::size_t N{256};
+    std::string buff(N, '\0');
+    https_client.lastError(buff.data(), N);
+    buff.shrink_to_fit();
+    return buff;
+  }
+  //
   std::string_view strMqttState() {
     switch (mqtt_client.state()) {
     case MQTT_CONNECTION_TIMEOUT:
@@ -188,8 +196,8 @@ public:
       }
       delay(100);
     } while (system_clock::now() < tp);
-    ESP_LOGE(TELEMETRY, "connect fail to AWS IoT, reason: %s",
-             strMqttState().data());
+    ESP_LOGE(TELEMETRY, "connect fail to AWS IoT, state: %s, reason: %s",
+             strMqttState().data(), lastError().c_str());
     return false;
   }
   //
@@ -204,7 +212,8 @@ public:
       return true;
     }
     // MQTT再接続シーケンス
-    ESP_LOGD(TELEMETRY, "MQTT reconnect, reason: %s", strMqttState().data());
+    ESP_LOGE(TELEMETRY, "MQTT reconnect, state: %s, reason: %s",
+             strMqttState().data(), lastError().c_str());
     return connectToAwsIot(timeout);
   }
   //
