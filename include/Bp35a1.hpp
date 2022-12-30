@@ -406,8 +406,8 @@ std::optional<Response> receive_response(Stream &commport) {
       if (x.length() > 0) {
         // まだ何か残っていたら後ろに追加する
         std::copy(x.begin(), x.end(), std::back_inserter(ev.data));
-        std::reverse(ev.data.begin(), ev.data.end());
         // データの長さになるように前を削る(おそらく空白が入り込んでいる)
+        std::reverse(ev.data.begin(), ev.data.end());
         ev.data.resize(ev.datalen.u16);
         std::reverse(ev.data.begin(), ev.data.end());
       }
