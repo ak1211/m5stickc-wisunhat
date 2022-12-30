@@ -217,7 +217,7 @@ serializeFromEchonetLiteFrame(const EchonetLiteFrame &frame) {
   octets.push_back(frame.edata.seoj.s.u8[0]);
   octets.push_back(frame.edata.seoj.s.u8[1]);
   octets.push_back(frame.edata.seoj.s.u8[2]);
-  // bytes#8 and bytes#9 adn bytes#10
+  // bytes#8 and bytes#9 and bytes#10
   // DEOJ: メッセージの行き先
   octets.push_back(frame.edata.deoj.d.u8[0]);
   octets.push_back(frame.edata.deoj.d.u8[1]);
@@ -232,6 +232,8 @@ serializeFromEchonetLiteFrame(const EchonetLiteFrame &frame) {
     ESP_LOGD(MAIN, "size mismatched: OPC:%d, SIZE():%d", frame.edata.opc,
              frame.edata.props.size());
   }
+  //
+  // 以降,ECHONET Liteプロパティ
   //
   // EPC, PDC, EDTを繰り返す
   //
@@ -274,11 +276,11 @@ deserializeToEchonetLiteFrame(const std::vector<uint8_t> &data) {
   // EDATA
   //
   // bytes#5 and bytes#6 and bytes#7
-  // SEOJ: メッセージの送り元(sender : 自分自身)
+  // SEOJ: メッセージの送り元
   frame.edata.seoj =
       EchonetLiteSEOJ(EchonetLiteObjectCode({*it++, *it++, *it++}));
-  // bytes#8 and bytes#9 adn bytes#10
-  // DEOJ: メッセージの行き先(destination : スマートメーター)
+  // bytes#8 and bytes#9 and bytes#10
+  // DEOJ: メッセージの行き先
   frame.edata.deoj =
       EchonetLiteDEOJ(EchonetLiteObjectCode({*it++, *it++, *it++}));
   // bytes#11
@@ -314,7 +316,7 @@ deserializeToEchonetLiteFrame(const std::vector<uint8_t> &data) {
   }
   return std::make_optional(frame);
 insufficient_inputs:
-  ESP_LOGD(MAIN, "insufficient input of %d bytes.", data.size());
+  ESP_LOGD(MAIN, "insufficient input. This is %d bytes.", data.size());
   return std::nullopt;
 }
 
