@@ -517,36 +517,31 @@ static void process_erxudp(std::chrono::system_clock::time_point at,
         int32_t elapsed = seconds % (24 * 60 * 60) - tsec;
         ESP_LOGI(MAIN, "Response elasped time of seconds:%4d", elapsed);
       }
-      namespace Meter = SmartElectricEnergyMeter;
-      for (auto rx : Meter::process_echonet_lite_frame(frame)) {
-        if (std::holds_alternative<Meter::Coefficient>(rx)) {
-          auto coeff = std::get<Meter::Coefficient>(rx);
-          smart_watt_hour_meter->whm_coefficient = coeff;
-        } else if (std::holds_alternative<Meter::EffectiveDigits>(rx)) {
+      namespace M = SmartElectricEnergyMeter;
+      for (auto rx : M::process_echonet_lite_frame(frame)) {
+        if (auto *p = std::get_if<M::Coefficient>(&rx)) {
+          smart_watt_hour_meter->whm_coefficient = *p;
+        } else if (std::get_if<M::EffectiveDigits>(&rx)) {
           // no operation
-        } else if (std::holds_alternative<Meter::Unit>(rx)) {
-          auto unit = std::get<Meter::Unit>(rx);
-          smart_watt_hour_meter->whm_unit = unit;
-        } else if (std::holds_alternative<Meter::InstantAmpere>(rx)) {
-          auto ampere = std::get<Meter::InstantAmpere>(rx);
-          smart_watt_hour_meter->instant_ampere = std::make_pair(at, ampere);
+        } else if (auto *p = std::get_if<M::Unit>(&rx)) {
+          smart_watt_hour_meter->whm_unit = *p;
+        } else if (auto *p = std::get_if<M::InstantAmpere>(&rx)) {
+          smart_watt_hour_meter->instant_ampere = std::make_pair(at, *p);
           // 送信バッファへ追加する
-          telemetry.push_queue(std::make_pair(at, ampere));
-        } else if (std::holds_alternative<Meter::InstantWatt>(rx)) {
-          auto watt = std::get<Meter::InstantWatt>(rx);
-          smart_watt_hour_meter->instant_watt = std::make_pair(at, watt);
+          telemetry.push_queue(std::make_pair(at, *p));
+        } else if (auto *p = std::get_if<M::InstantWatt>(&rx)) {
+          smart_watt_hour_meter->instant_watt = std::make_pair(at, *p);
           // 送信バッファへ追加する
-          telemetry.push_queue(std::make_pair(at, watt));
-        } else if (std::holds_alternative<Meter::CumulativeWattHour>(rx)) {
-          auto cwh = std::get<Meter::CumulativeWattHour>(rx);
+          telemetry.push_queue(std::make_pair(at, *p));
+        } else if (auto *p = std::get_if<M::CumulativeWattHour>(&rx)) {
           if (smart_watt_hour_meter->whm_unit.has_value()) {
             auto unit = smart_watt_hour_meter->whm_unit.value();
             auto coeff = smart_watt_hour_meter->whm_coefficient.value_or(
-                Meter::Coefficient{});
+                M::Coefficient{});
             smart_watt_hour_meter->cumlative_watt_hour =
-                std::make_tuple(cwh, coeff, unit);
+                std::make_tuple(*p, coeff, unit);
             // 送信バッファへ追加する
-            telemetry.push_queue(std::make_tuple(cwh, coeff, unit));
+            telemetry.push_queue(std::make_tuple(*p, coeff, unit));
           }
         }
       }
@@ -690,14 +685,12 @@ inline void high_speed_loop(std::chrono::system_clock::time_point nowtp) {
     std::visit(
         [](const auto &x) { ESP_LOGD(MAIN, "%s", to_string(x).c_str()); },
         resp);
-    if (std::holds_alternative<Bp35a1::ResEvent>(resp)) {
-      Bp35a1::ResEvent &event = std::get<Bp35a1::ResEvent>(resp);
+    if (auto *pevent = std::get_if<Bp35a1::ResEvent>(&resp)) {
       // イベント受信処理
-      process_event(event);
-    } else if (std::holds_alternative<Bp35a1::ResErxudp>(resp)) {
-      Bp35a1::ResErxudp &event = std::get<Bp35a1::ResErxudp>(resp);
+      process_event(*pevent);
+    } else if (auto *perxudp = std::get_if<Bp35a1::ResErxudp>(&resp)) {
       // ERXUDPを処理する
-      process_erxudp(time_at, event);
+      process_erxudp(time_at, *perxudp);
       // 測定値をセットする
       instant_watt_gauge.set(smart_watt_hour_meter->instant_watt);
       instant_ampere_gauge.set(smart_watt_hour_meter->instant_ampere);
