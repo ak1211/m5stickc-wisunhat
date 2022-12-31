@@ -556,10 +556,9 @@ bool connect(Stream &commport, const SmartMeterIdentifier &smart_meter_ident,
       std::visit(
           [](const auto &x) { ESP_LOGD(MAIN, "%s", to_string(x).c_str()); },
           resp);
-      if (std::holds_alternative<ResEvent>(resp)) {
-        ResEvent &event = std::get<ResEvent>(resp);
+      if (ResEvent *eventp = std::get_if<ResEvent>(&resp)) {
         // イベント番号
-        switch (event.num.u8) {
+        switch (eventp->num.u8) {
         case 0x24: {
           // EVENT 24 :
           // PANAによる接続過程でエラーが発生した(接続が完了しなかった)
@@ -614,17 +613,16 @@ std::optional<ResEpandesc> do_active_scan(Stream &commport,
         std::visit(
             [](const auto &x) { ESP_LOGD(MAIN, "%s", to_string(x).c_str()); },
             resp);
-        if (std::holds_alternative<ResEvent>(resp)) {
-          ResEvent &event = std::get<ResEvent>(resp);
+        if (ResEvent *eventp = std::get_if<ResEvent>(&resp)) {
           // イベント番号
-          if (event.num.u8 == 0x22) {
+          if (eventp->num.u8 == 0x22) {
             // EVENT 22
             // つまりアクティブスキャンの完了報告を確認しているのでスキャン結果を返す
             return target_Whm;
           }
-        } else if (std::holds_alternative<ResEpandesc>(resp)) {
+        } else if (ResEpandesc *epandescp = std::get_if<ResEpandesc>(&resp)) {
           // 接続対象のスマートメータを発見した
-          target_Whm = std::get<ResEpandesc>(resp);
+          target_Whm = *epandescp;
         }
       }
     }
