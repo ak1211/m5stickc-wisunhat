@@ -5,6 +5,7 @@
 #pragma once
 #include <M5StickCPlus.h>
 #undef min
+#include <chrono>
 #include <cinttypes>
 #include <cstring>
 #include <iterator>
@@ -21,7 +22,7 @@ namespace Bp35a1 {
 using namespace std::literals::string_literals;
 using namespace std::literals::string_view_literals;
 
-static constexpr std::size_t RETRY_LIMITS{100};
+constexpr static auto RETRY_TIMEOUT = std::chrono::seconds{3};
 
 // メッセージを表示する関数型
 typedef void (*DisplayMessageT)(const char *);
@@ -76,8 +77,10 @@ void write_with_crln(Stream &commport, const std::string &line) {
 }
 
 // 成功ならtrue, それ以外ならfalse
-bool has_ok(Stream &commport) {
-  for (auto retry = 0; retry < RETRY_LIMITS; ++retry) {
+bool has_ok(Stream &commport, std::chrono::seconds timeout) {
+  using namespace std::chrono;
+  const time_point tp = system_clock::now() + timeout;
+  do {
     if (auto [token, sep] = get_token(commport, '\n'); token.length() > 0) {
       ESP_LOGV(MAIN, "\"%s\"", token.c_str());
       // OKで始まるかFAILで始まるか
@@ -89,7 +92,8 @@ bool has_ok(Stream &commport) {
     } else {
       delay(100);
     }
-  }
+  } while (system_clock::now() < tp);
+
   return false;
 }
 
@@ -247,24 +251,26 @@ using Response = std::variant<ResEvent, ResEpandesc, ResErxudp>;
 // ipv6 アドレスを受け取る関数
 //
 std::optional<IPv6Addr> get_ipv6_address(Stream &commport,
+                                         std::chrono::seconds timeout,
                                          const std::string &addr) {
+  using namespace std::chrono;
+  const time_point tp = system_clock::now() + timeout;
   // 返答を受け取る前にクリアしておく
   clear_read_buffer(commport);
   // ipv6 アドレス要求を送る
   write_with_crln(commport, "SKLL64 "s + addr);
   // ipv6 アドレスを受け取る
-  std::optional<IPv6Addr> result{};
-  for (auto retry = 1; retry <= RETRY_LIMITS; ++retry) {
-    // いったん止める
-    delay(100);
-    //
-    auto [token, _sep] = get_token(commport, '\n');
-    result = makeIPv6Addr(token);
-    if (result.has_value()) {
+  std::string token{};
+  token.reserve(100);
+  do {
+    auto [x, sep] = get_token(commport, '\n');
+    token += x;
+    if (sep.compare("\r\n") == 0) {
       break;
     }
-  }
-  return result;
+  } while (system_clock::now() < tp);
+
+  return makeIPv6Addr(token);
 }
 
 //
@@ -272,8 +278,7 @@ std::optional<IPv6Addr> get_ipv6_address(Stream &commport,
 //
 std::optional<Response> receive_response(Stream &commport) {
   // EVENTを受信する
-  auto rx_event =
-      [&commport](const std::string &name) -> std::optional<ResEvent> {
+  auto rx_event = [&](const std::string &name) -> std::optional<ResEvent> {
     std::vector<std::string> tokens;
     constexpr std::size_t N{3};
     // 必要なトークン数読み込む
@@ -442,7 +447,6 @@ struct SmartMeterIdentifier final {
   IPv6Addr ipv6_address;
   HexedU8 channel;
   HexedU16 pan_id;
-  explicit SmartMeterIdentifier() : ipv6_address{}, channel{}, pan_id{} {}
 };
 std::ostream &operator<<(std::ostream &os, const SmartMeterIdentifier &in) {
   auto save = os.flags();
@@ -512,7 +516,7 @@ bool send_request(
             std::ostream_iterator<HexedU8>(oss));
   ESP_LOGD(MAIN, "%s", oss.str().c_str());
   //
-  return has_ok(commport);
+  return has_ok(commport, RETRY_TIMEOUT);
 }
 
 // 接続(PANA認証)要求を送る
@@ -525,14 +529,14 @@ bool connect(Stream &commport, const SmartMeterIdentifier &smart_meter_ident,
   message("Set Channel\n");
   write_with_crln(commport,
                   "SKSREG S2 "s + std::string{smart_meter_ident.channel});
-  if (!has_ok(commport)) {
+  if (!has_ok(commport, RETRY_TIMEOUT)) {
     return false;
   }
   // Pan IDを設定する
   message("Set Pan ID\n");
   write_with_crln(commport,
                   "SKSREG S3 "s + std::string{smart_meter_ident.pan_id});
-  if (!has_ok(commport)) {
+  if (!has_ok(commport, RETRY_TIMEOUT)) {
     return false;
   }
   // 返答を受け取る前にクリアしておく
@@ -542,21 +546,23 @@ bool connect(Stream &commport, const SmartMeterIdentifier &smart_meter_ident,
   message("Connecting...\n");
   write_with_crln(commport,
                   "SKJOIN "s + std::string{smart_meter_ident.ipv6_address});
-  if (!has_ok(commport)) {
+  if (!has_ok(commport, RETRY_TIMEOUT)) {
     return false;
   }
   // PANA認証要求結果を受け取る
-  for (auto retry = 0; retry <= RETRY_LIMITS; ++retry) {
+  using namespace std::chrono;
+  const time_point tp = system_clock::now() + RETRY_TIMEOUT;
+  do {
     // いったん止める
     delay(100);
     //
-    if (auto opt_res = receive_response(commport); opt_res.has_value()) {
+    if (auto opt_res = receive_response(commport)) {
       // 何か受け取ったみたい
-      Response &resp = opt_res.value();
+      const Response &resp = opt_res.value();
       std::visit(
           [](const auto &x) { ESP_LOGD(MAIN, "%s", to_string(x).c_str()); },
           resp);
-      if (ResEvent *eventp = std::get_if<ResEvent>(&resp)) {
+      if (const auto *eventp = std::get_if<ResEvent>(&resp)) {
         // イベント番号
         switch (eventp->num.u8) {
         case 0x24: {
@@ -577,7 +583,7 @@ bool connect(Stream &commport, const SmartMeterIdentifier &smart_meter_ident,
         }
       }
     }
-  }
+  } while (system_clock::now() < tp);
   //
   return false;
 }
@@ -607,20 +613,20 @@ std::optional<ResEpandesc> do_active_scan(Stream &commport,
       // いったん止める
       delay(single_ch_scan_millis);
       // 結果を受け取る
-      if (auto opt_res = receive_response(commport); opt_res.has_value()) {
+      if (auto opt_res = receive_response(commport)) {
         // 何か受け取ったみたい
-        Response &resp = opt_res.value();
+        const Response &resp = opt_res.value();
         std::visit(
             [](const auto &x) { ESP_LOGD(MAIN, "%s", to_string(x).c_str()); },
             resp);
-        if (ResEvent *eventp = std::get_if<ResEvent>(&resp)) {
+        if (const auto *eventp = std::get_if<ResEvent>(&resp)) {
           // イベント番号
           if (eventp->num.u8 == 0x22) {
             // EVENT 22
             // つまりアクティブスキャンの完了報告を確認しているのでスキャン結果を返す
             return target_Whm;
           }
-        } else if (ResEpandesc *epandescp = std::get_if<ResEpandesc>(&resp)) {
+        } else if (const auto *epandescp = std::get_if<ResEpandesc>(&resp)) {
           // 接続対象のスマートメータを発見した
           target_Whm = *epandescp;
         }
@@ -637,7 +643,7 @@ std::optional<ResEpandesc> do_active_scan(Stream &commport,
     message(".");
     // スキャン要求を出す
     write_with_crln(commport, "SKSCAN 2 FFFFFFFF "s + std::to_string(duration));
-    if (!has_ok(commport)) {
+    if (!has_ok(commport, RETRY_TIMEOUT)) {
       break;
     }
     found = got_respond(duration);
@@ -650,7 +656,7 @@ std::optional<ResEpandesc> do_active_scan(Stream &commport,
   return found;
 }
 
-// BP35A1を起動して接続する
+// BP35A1を起動してアクティブスキャンを開始する
 std::optional<SmartMeterIdentifier> startup_and_find_meter(
     Stream &commport,
     std::pair<std::string_view, std::string_view> b_route_id_password,
@@ -663,7 +669,7 @@ std::optional<SmartMeterIdentifier> startup_and_find_meter(
 
   // エコーバック抑制
   write_with_crln(commport, "SKSREG SFE 0"s);
-  if (!has_ok(commport)) {
+  if (!has_ok(commport, RETRY_TIMEOUT)) {
     return std::nullopt;
   }
 
@@ -671,14 +677,14 @@ std::optional<SmartMeterIdentifier> startup_and_find_meter(
   // パスワード設定
   display_message("Set password\n");
   write_with_crln(commport, "SKSETPWD C "s + std::string{bpass});
-  if (!has_ok(commport)) {
+  if (!has_ok(commport, RETRY_TIMEOUT)) {
     return std::nullopt;
   }
 
   // ID設定
   display_message("Set ID\n");
   write_with_crln(commport, "SKSETRBID "s + std::string{bid});
-  if (!has_ok(commport)) {
+  if (!has_ok(commport, RETRY_TIMEOUT)) {
     return std::nullopt;
   }
 
@@ -694,21 +700,22 @@ std::optional<SmartMeterIdentifier> startup_and_find_meter(
   }
 
   // アクティブスキャン結果をもとにしてipv6アドレスを得る
-  display_message("Fetch ipv6 address\n");
-  if (auto opt_ipv6_address =
-          get_ipv6_address(commport, conn_target.value().addr);
-      opt_ipv6_address.has_value()) {
-    IPv6Addr &addr = opt_ipv6_address.value();
-    // アクティブスキャン結果
-    SmartMeterIdentifier ident;
-    ident.ipv6_address = makeIPv6Addr(addr).value_or(IPv6Addr{});
-    ident.channel = conn_target.value().channel;
-    ident.pan_id = conn_target.value().pan_id;
-    return std::make_optional(ident);
-  } else {
+  display_message("get ipv6 address\n");
+  auto str_addr = std::string(conn_target.value().addr);
+  std::optional<IPv6Addr> resp_ipv6_address =
+      get_ipv6_address(commport, RETRY_TIMEOUT, str_addr);
+
+  if (!resp_ipv6_address.has_value()) {
     display_message("get ipv6 address fail.");
     ESP_LOGD(MAIN, "get ipv6 address fail.");
     return std::nullopt;
   }
+  // アクティブスキャン結果
+  auto addr = resp_ipv6_address.value();
+  return SmartMeterIdentifier{
+      .ipv6_address = makeIPv6Addr(addr).value_or(IPv6Addr{}),
+      .channel = conn_target.value().channel,
+      .pan_id = conn_target.value().pan_id,
+  };
 }
 } // namespace Bp35a1

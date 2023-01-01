@@ -320,8 +320,7 @@ void setup() {
   //
 
   if (auto ident = Bp35a1::startup_and_find_meter(Serial2, {BID, BPASSWORD},
-                                                  display_boot_message);
-      ident.has_value()) {
+                                                  display_boot_message)) {
     //
     smart_watt_hour_meter =
         std::make_unique<SmartWhm>(SmartWhm(Serial2, ident.value()));
@@ -444,12 +443,9 @@ static void process_node_profile_class_frame(const EchonetLiteFrame &frame) {
         std::ostringstream oss;
         auto it = prop.edt.cbegin();
         uint8_t total_number_of_instances = *it++;
-        for (;;) {
-          if (std::distance(it, prop.edt.cend()) < 3) {
-            break;
-          }
-          auto o = EchonetLiteObjectCode({*it++, *it++, *it++});
-          oss << to_string(o) << ",";
+        while (std::distance(it, prop.edt.cend()) >= 3) {
+          auto obj = EchonetLiteObjectCode({*it++, *it++, *it++});
+          oss << obj << ",";
         }
         ESP_LOGD(MAIN, "list of instances (EOJ): %s", oss.str().c_str());
       }
@@ -468,9 +464,8 @@ static void process_node_profile_class_frame(const EchonetLiteFrame &frame) {
 //
 // 要求時間からトランザクションIDへ変換する
 //
-template <class Clock, class Duration>
 static EchonetLiteTransactionId
-time_to_transaction_id(std::chrono::time_point<Clock, Duration> tp) {
+time_to_transaction_id(std::chrono::system_clock::time_point tp) {
   using namespace std::chrono;
   auto epoch = tp.time_since_epoch();
   int32_t sec = duration_cast<seconds>(epoch).count();
@@ -496,7 +491,7 @@ static int32_t transaction_id_to_seconds(EchonetLiteTransactionId tid) {
 static void process_erxudp(std::chrono::system_clock::time_point at,
                            const Bp35a1::ResErxudp &ev) {
   // EchonetLiteFrameに変換
-  if (auto opt = deserializeToEchonetLiteFrame(ev.data); opt.has_value()) {
+  if (auto opt = deserializeToEchonetLiteFrame(ev.data)) {
     const EchonetLiteFrame &frame = opt.value();
     //  EchonetLiteフレームだった
     ESP_LOGD(MAIN, "%s", to_string(frame).c_str());
@@ -534,14 +529,13 @@ static void process_erxudp(std::chrono::system_clock::time_point at,
           // 送信バッファへ追加する
           telemetry.push_queue(std::make_pair(at, *p));
         } else if (auto *p = std::get_if<M::CumulativeWattHour>(&rx)) {
-          if (smart_watt_hour_meter->whm_unit.has_value()) {
-            auto unit = smart_watt_hour_meter->whm_unit.value();
+          if (auto unit = smart_watt_hour_meter->whm_unit) {
             auto coeff = smart_watt_hour_meter->whm_coefficient.value_or(
                 M::Coefficient{});
             smart_watt_hour_meter->cumlative_watt_hour =
-                std::make_tuple(*p, coeff, unit);
+                std::make_tuple(*p, coeff, *unit);
             // 送信バッファへ追加する
-            telemetry.push_queue(std::make_tuple(*p, coeff, unit));
+            telemetry.push_queue(std::make_tuple(*p, coeff, *unit));
           }
         }
       }
@@ -667,11 +661,10 @@ inline void high_speed_loop(std::chrono::system_clock::time_point nowtp) {
       received_message_fifo{};
 
   //
-  // (あれば)２５個連続でスマートメーターからのメッセージを受信する
+  // (あれば)連続でスマートメーターからのメッセージを受信する
   //
   for (auto count = 0; count < 25; ++count) {
-    if (auto resp = Bp35a1::receive_response(smart_watt_hour_meter->commport);
-        resp.has_value()) {
+    if (auto resp = Bp35a1::receive_response(smart_watt_hour_meter->commport)) {
       received_message_fifo.push({nowtp, resp.value()});
     }
     delay(10);

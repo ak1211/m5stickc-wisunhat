@@ -187,24 +187,34 @@ public:
     https_client.setCACert(AWS_IOT_ROOT_CA.data());
     https_client.setCertificate(AWS_IOT_CERTIFICATE.data());
     https_client.setPrivateKey(AWS_IOT_PRIVATE_KEY.data());
+    https_client.setTimeout(SOCKET_TIMEOUT);
     //
     mqtt_client.setServer(AWS_IOT_ENDPOINT.data(), AWS_IOT_MQTT_PORT);
     mqtt_client.setSocketTimeout(SOCKET_TIMEOUT);
     mqtt_client.setKeepAlive(KEEP_ALIVE);
     mqtt_client.setCallback(callbackfn);
     //
+    bool success{false};
     do {
-      if (mqtt_client.connect(AWS_IOT_DEVICE_ID.data(), nullptr,
-                              QuarityOfService, false, "")) {
-        mqtt_client.subscribe(sub_topic.c_str(), QuarityOfService);
-        return true;
-      }
-      delay(100);
-    } while (system_clock::now() < tp);
-    ESP_LOGE(TELEMETRY, "connect fail to AWS IoT, state: %s, reason: %s",
-             strMqttState().data(), lastError().c_str());
-    return false;
+      success = mqtt_client.connect(AWS_IOT_DEVICE_ID.data(), nullptr,
+                                    QuarityOfService, false, "");
+      yield();
+    } while (!success && system_clock::now() < tp);
+
+    if (!success) {
+      ESP_LOGE(TELEMETRY, "connect fail to AWS IoT, state: %s, reason: %s",
+               strMqttState().data(), lastError().c_str());
+      return false;
+    }
+
+    success = mqtt_client.subscribe(sub_topic.c_str(), QuarityOfService);
+    if (!success) {
+      ESP_LOGE(TELEMETRY, "subscribe fail. TOPIC:[%s]", sub_topic.c_str());
+      return false;
+    }
+    return true;
   }
+
   //
   // 送信用キューに積む
   //
