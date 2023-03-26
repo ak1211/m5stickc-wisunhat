@@ -13,7 +13,7 @@
 //
 // 測定値表示
 //
-template <class T> class Gauge {
+template <typename T> class Gauge {
   using ConvertFn = std::function<std::string(std::optional<T>)>;
   uint8_t size;
   uint8_t font;

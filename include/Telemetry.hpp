@@ -57,7 +57,7 @@ template <typename T> std::string to_json_message(MessageId messageId, T in);
 //
 template <>
 std::string to_json_message(MessageId messageId, PayloadInstantAmpere in) {
-  namespace M = SmartElectricEnergyMeter;
+  using SmartElectricEnergyMeter::Ampere;
   using std::chrono::duration_cast;
   auto &[timept, a] = in;
   StaticJsonDocument<Capacity> doc;
@@ -65,8 +65,8 @@ std::string to_json_message(MessageId messageId, PayloadInstantAmpere in) {
   doc["device_id"] = AWS_IOT_DEVICE_ID;
   doc["sensor_id"] = SENSOR_ID;
   doc["measured_at"] = iso8601formatUTC(timept);
-  doc["instant_ampere_R"] = duration_cast<M::Ampere>(a.ampereR).count();
-  doc["instant_ampere_T"] = duration_cast<M::Ampere>(a.ampereT).count();
+  doc["instant_ampere_R"] = duration_cast<Ampere>(a.ampereR).count();
+  doc["instant_ampere_T"] = duration_cast<Ampere>(a.ampereT).count();
   std::string output;
   serializeJson(doc, output);
   return output;
@@ -187,24 +187,34 @@ public:
     https_client.setCACert(AWS_IOT_ROOT_CA.data());
     https_client.setCertificate(AWS_IOT_CERTIFICATE.data());
     https_client.setPrivateKey(AWS_IOT_PRIVATE_KEY.data());
+    https_client.setTimeout(SOCKET_TIMEOUT);
     //
     mqtt_client.setServer(AWS_IOT_ENDPOINT.data(), AWS_IOT_MQTT_PORT);
     mqtt_client.setSocketTimeout(SOCKET_TIMEOUT);
     mqtt_client.setKeepAlive(KEEP_ALIVE);
     mqtt_client.setCallback(callbackfn);
     //
+    bool success{false};
     do {
-      if (mqtt_client.connect(AWS_IOT_DEVICE_ID.data(), nullptr,
-                              QuarityOfService, false, "")) {
-        mqtt_client.subscribe(sub_topic.c_str(), QuarityOfService);
-        return true;
-      }
-      delay(100);
-    } while (system_clock::now() < tp);
-    ESP_LOGE(TELEMETRY, "connect fail to AWS IoT, state: %s, reason: %s",
-             strMqttState().data(), lastError().c_str());
-    return false;
+      success = mqtt_client.connect(AWS_IOT_DEVICE_ID.data(), nullptr,
+                                    QuarityOfService, false, "");
+      yield();
+    } while (!success && system_clock::now() < tp);
+
+    if (!success) {
+      ESP_LOGE(TELEMETRY, "connect fail to AWS IoT, state: %s, reason: %s",
+               strMqttState().data(), lastError().c_str());
+      return false;
+    }
+
+    success = mqtt_client.subscribe(sub_topic.c_str(), QuarityOfService);
+    if (!success) {
+      ESP_LOGE(TELEMETRY, "subscribe fail. TOPIC:[%s]", sub_topic.c_str());
+      return false;
+    }
+    return true;
   }
+
   //
   // 送信用キューに積む
   //
@@ -225,27 +235,29 @@ public:
   // MQTT送受信
   //
   bool loop_mqtt() {
-    using namespace std::literals::chrono_literals;
-    using namespace std::chrono;
     // MQTT受信
     if (!mqtt_client.loop()) {
       return false;
     }
     if (sending_fifo_queue.empty()) {
       return true;
+    } else {
+      // 送信するべき測定値があればIoT Coreへ送信する
+      std::string msg = std::visit(
+          [this](auto x) -> std::string {
+            return to_json_message(messageId, x);
+          },
+          sending_fifo_queue.front());
+      // MQTT送信
+      ESP_LOGD(TELEMETRY, "%s", msg.c_str());
+      bool result = mqtt_client.publish(pub_topic.c_str(), msg.c_str());
+      if (result) {
+        messageId++;
+        // IoT Coreへ送信した測定値をFIFOから消す
+        sending_fifo_queue.pop();
+      }
+      return result;
     }
-    // 送信するべき測定値があればIoT Coreへ送信する
-    const Payload &item = sending_fifo_queue.front();
-    std::string msg = std::visit(
-        [this](auto x) { return to_json_message(messageId, x); }, item);
-    // MQTT送信
-    ESP_LOGD(TELEMETRY, "%s", msg.c_str());
-    if (mqtt_client.publish(pub_topic.c_str(), msg.c_str())) {
-      messageId++;
-      // IoT Coreへ送信した測定値をFIFOから消す
-      sending_fifo_queue.pop();
-    }
-    return true;
   }
 };
 } // namespace Telemetry

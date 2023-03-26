@@ -34,6 +34,7 @@ constexpr auto EchonetLiteUdpPort = HexedU16{0x0E1A};
 struct EchonetLiteEHeader final {
   std::array<uint8_t, 2> u8;
   constexpr EchonetLiteEHeader(std::array<uint8_t, 2> init = {}) : u8{init} {}
+  operator std::string();
 };
 static_assert(sizeof(EchonetLiteEHeader) == 2);
 //
@@ -45,18 +46,17 @@ bool operator!=(const EchonetLiteEHeader &left,
                 const EchonetLiteEHeader &right) {
   return !(left == right);
 }
-std::ostream &operator<<(std::ostream &os, const EchonetLiteEHeader &v) {
+std::ostream &operator<<(std::ostream &os, const EchonetLiteEHeader &in) {
   auto save = os.flags();
-  os << std::uppercase << std::hex                     //
-     << std::setfill('0') << std::setw(2) << +v.u8[0]  //
-     << std::setfill('0') << std::setw(2) << +v.u8[1]; //
+  os << std::uppercase << std::hex                      //
+     << std::setfill('0') << std::setw(2) << +in.u8[0]  //
+     << std::setfill('0') << std::setw(2) << +in.u8[1]; //
   os.flags(save);
   return os;
 }
-//
-std::string to_string(EchonetLiteEHeader ehd) {
+EchonetLiteEHeader::operator std::string() {
   std::ostringstream oss;
-  oss << ehd;
+  oss << *this;
   return oss.str();
 }
 
@@ -76,6 +76,7 @@ union EchonetLiteObjectCode {
   };
   constexpr EchonetLiteObjectCode(std::array<uint8_t, 3> init = {})
       : u8{init} {}
+  operator std::string();
 };
 static_assert(sizeof(EchonetLiteObjectCode) == 3);
 //
@@ -87,12 +88,17 @@ bool operator!=(const EchonetLiteObjectCode &left,
                 const EchonetLiteObjectCode &right) {
   return !(left.u8 == right.u8);
 }
-std::string to_string(EchonetLiteObjectCode eoj) {
+std::ostream &operator<<(std::ostream &os, const EchonetLiteObjectCode &in) {
+  auto save = os.flags();
+  os << std::uppercase << std::hex                     //
+     << std::setfill('0') << std::setw(2) << +in.u8[0] //
+     << std::setfill('0') << std::setw(2) << +in.u8[1] //
+     << std::setfill('0') << std::setw(2) << +in.u8[2];
+  return os;
+}
+EchonetLiteObjectCode::operator std::string() {
   std::ostringstream oss;
-  oss << std::uppercase << std::hex;
-  oss << std::setfill('0') << std::setw(2) << +eoj.u8[0];
-  oss << std::setfill('0') << std::setw(2) << +eoj.u8[1];
-  oss << std::setfill('0') << std::setw(2) << +eoj.u8[2];
+  oss << *this;
   return oss.str();
 }
 
@@ -101,14 +107,20 @@ struct EchonetLiteTransactionId final {
   std::array<uint8_t, 2> u8;
   constexpr EchonetLiteTransactionId(std::array<uint8_t, 2> init = {})
       : u8{init} {}
+  operator std::string();
 };
 static_assert(sizeof(EchonetLiteTransactionId) == 2);
 //
-std::string to_string(EchonetLiteTransactionId tid) {
+std::ostream &operator<<(std::ostream &os, const EchonetLiteTransactionId &in) {
+  auto save = os.flags();
+  os << std::uppercase << std::hex                     //
+     << std::setfill('0') << std::setw(2) << +in.u8[0] //
+     << std::setfill('0') << std::setw(2) << +in.u8[1];
+  return os;
+}
+EchonetLiteTransactionId::operator std::string() {
   std::ostringstream oss;
-  oss << std::uppercase << std::hex;
-  oss << std::setfill('0') << std::setw(2) << +tid.u8[0];
-  oss << std::setfill('0') << std::setw(2) << +tid.u8[1];
+  oss << *this;
   return oss.str();
 }
 
@@ -266,7 +278,7 @@ deserializeToEchonetLiteFrame(const std::vector<uint8_t> &data) {
   frame.ehd = EchonetLiteEHeader({*it++, *it++});
   if (frame.ehd != EchonetLiteEHD) {
     // ECHONET Lite 電文形式でないので
-    ESP_LOGD(MAIN, "Unknown EHD: %s", to_string(frame.ehd).c_str());
+    ESP_LOGD(MAIN, "Unknown EHD: %s", std::string(frame.ehd).c_str());
     return std::nullopt;
   }
   // bytes#3 and bytes#4
@@ -305,13 +317,14 @@ deserializeToEchonetLiteFrame(const std::vector<uint8_t> &data) {
     // PDC: 続くEDTのバイト数
     prop.pdc = *it++;
     // EDT: ECHONET Liteプロパティ値データ
-    prop.edt.reserve(prop.pdc);
     if (std::distance(it, data.cend()) < prop.pdc) {
       goto insufficient_inputs;
     }
-    for (auto k = 0; k < prop.pdc; ++k) {
-      prop.edt.push_back(*it++);
-    }
+    // EDTのバイト数ぶんコピーする
+    prop.edt.reserve(prop.pdc);
+    std::copy_n(it, prop.pdc, std::back_inserter(prop.edt));
+    it = std::next(it, prop.pdc);
+    //
     frame.edata.props.push_back(std::move(prop));
   }
   return std::make_optional(frame);
@@ -323,11 +336,11 @@ insufficient_inputs:
 //
 std::string to_string(const EchonetLiteFrame &frame) {
   std::ostringstream oss;
-  oss << "EHD:"s << to_string(frame.ehd)            //
-      << ",TID:"s << to_string(frame.tid)           //
-      << ",SEOJ:"s << to_string(frame.edata.seoj.s) //
-      << ",DEOJ:"s << to_string(frame.edata.deoj.d) //
-      << ",ESV:"s << to_string(frame.edata.esv)     //
+  oss << "EHD:"s << frame.ehd                   //
+      << ",TID:"s << frame.tid                  //
+      << ",SEOJ:"s << frame.edata.seoj.s        //
+      << ",DEOJ:"s << frame.edata.deoj.d        //
+      << ",ESV:"s << to_string(frame.edata.esv) //
       << ",OPC:"s << HexedU8(frame.edata.opc);
   for (const auto &prop : frame.edata.props) {
     oss << ",EPC:"s << HexedU8(prop.epc) //
@@ -400,14 +413,11 @@ static_assert(sizeof(EchonetLiteEPC) == 1);
 struct Coefficient final {
   uint32_t coefficient;
   //
-  explicit Coefficient() { coefficient = 1; }
+  explicit constexpr Coefficient() : coefficient{1} {}
   explicit Coefficient(std::array<uint8_t, 4> init) {
     coefficient = (init[0] << 24) | (init[1] << 16) | (init[2] << 8) | init[3];
   }
 };
-std::string to_string(const SmartElectricEnergyMeter::Coefficient &x) {
-  return "coefficient the "s + std::to_string(x.coefficient);
-}
 bool operator==(const Coefficient &left, const Coefficient &right) {
   return left.coefficient == right.coefficient;
 }
@@ -421,9 +431,6 @@ struct EffectiveDigits final {
   //
   explicit EffectiveDigits(uint8_t init) : digits{init} {}
 };
-std::string to_string(const SmartElectricEnergyMeter::EffectiveDigits &x) {
-  return std::to_string(x.digits) + " effective digits."s;
-}
 bool operator==(const EffectiveDigits &left, const EffectiveDigits &right) {
   return left.digits == right.digits;
 }
@@ -476,23 +483,21 @@ struct Unit final {
   }
   // 1kwhをベースとして, それに対して10のn乗を返す
   std::optional<int8_t> get_powers_of_10() const {
-    auto v = find();
-    return (v.has_value()) ? std::make_optional(v->power10) : std::nullopt;
+    if (auto v = find()) {
+      return v->power10;
+    } else {
+      return std::nullopt;
+    }
   }
   //
-  std::optional<std::string_view> get_description() const {
-    auto v = find();
-    return (v.has_value()) ? std::make_optional(v->description) : std::nullopt;
+  std::optional<std::string> get_description() const {
+    if (auto v = find()) {
+      return std::string(v->description);
+    } else {
+      return std::nullopt;
+    }
   }
 };
-std::string to_string(const SmartElectricEnergyMeter::Unit &x) {
-  auto opt = x.get_description();
-  if (opt.has_value()) {
-    return std::string{opt.value()};
-  } else {
-    return "no multiplier"s;
-  }
-}
 bool operator==(const Unit &left, const Unit &right) {
   return left.unit == right.unit;
 }
@@ -782,13 +787,13 @@ process_echonet_lite_frame(const EchonetLiteFrame &frame) {
         // 係数が無い場合は1倍となる
         coeff = Coefficient{};
       }
-      ESP_LOGD(MAIN, "%s", to_string(coeff).c_str());
+      ESP_LOGD(MAIN, "coefficient the %d", +coeff.coefficient);
       result.push_back(coeff);
     } break;
     case 0xD7: {                  // 積算電力量有効桁数
       if (prop.edt.size() == 1) { // 1バイト
         auto digits = EffectiveDigits(prop.edt[0]);
-        ESP_LOGD(MAIN, "%s", to_string(digits).c_str());
+        ESP_LOGD(MAIN, "%d effective digits.", +digits.digits);
         result.push_back(digits);
       } else {
         ESP_LOGD(MAIN,
@@ -800,7 +805,11 @@ process_echonet_lite_frame(const EchonetLiteFrame &frame) {
     case 0xE1: { // 積算電力量単位 (正方向、逆方向計測値)
       if (prop.edt.size() == 1) { // 1バイト
         auto unit = Unit(prop.edt[0]);
-        ESP_LOGD(MAIN, "%s", to_string(unit).c_str());
+        if (auto desc = unit.get_description()) {
+          ESP_LOGD(MAIN, "value %s", desc->c_str());
+        } else {
+          ESP_LOGD(MAIN, "invalid unit.");
+        }
         result.push_back(unit);
       } else {
         ESP_LOGD(MAIN,
