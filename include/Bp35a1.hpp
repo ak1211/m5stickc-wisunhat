@@ -409,12 +409,11 @@ std::optional<Response> receive_response(Stream &commport) {
       // 残ったCRLFを読み捨てる
       auto [x, _sep] = get_token(commport, '\r');
       if (x.length() > 0) {
-        // まだ何か残っていたら後ろに追加する
+        // まだ何か残っている場合
+        // ERXUDPイベントで指定されたデータの長さになるように前を削る(おそらく空白が入り込んでいる)
+        ev.data.erase(ev.data.begin(), ev.data.begin() + x.length());
+        // 後ろに追加する
         std::copy(x.begin(), x.end(), std::back_inserter(ev.data));
-        // データの長さになるように前を削る(おそらく空白が入り込んでいる)
-        std::reverse(ev.data.begin(), ev.data.end());
-        ev.data.resize(ev.datalen.u16);
-        std::reverse(ev.data.begin(), ev.data.end());
       }
       //
       return std::make_optional(ev);

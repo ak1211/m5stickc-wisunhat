@@ -57,7 +57,7 @@ template <typename T> std::string to_json_message(MessageId messageId, T in);
 //
 template <>
 std::string to_json_message(MessageId messageId, PayloadInstantAmpere in) {
-  namespace M = SmartElectricEnergyMeter;
+  using SmartElectricEnergyMeter::Ampere;
   using std::chrono::duration_cast;
   auto &[timept, a] = in;
   StaticJsonDocument<Capacity> doc;
@@ -65,8 +65,8 @@ std::string to_json_message(MessageId messageId, PayloadInstantAmpere in) {
   doc["device_id"] = AWS_IOT_DEVICE_ID;
   doc["sensor_id"] = SENSOR_ID;
   doc["measured_at"] = iso8601formatUTC(timept);
-  doc["instant_ampere_R"] = duration_cast<M::Ampere>(a.ampereR).count();
-  doc["instant_ampere_T"] = duration_cast<M::Ampere>(a.ampereT).count();
+  doc["instant_ampere_R"] = duration_cast<Ampere>(a.ampereR).count();
+  doc["instant_ampere_T"] = duration_cast<Ampere>(a.ampereT).count();
   std::string output;
   serializeJson(doc, output);
   return output;
@@ -235,27 +235,29 @@ public:
   // MQTT送受信
   //
   bool loop_mqtt() {
-    using namespace std::literals::chrono_literals;
-    using namespace std::chrono;
     // MQTT受信
     if (!mqtt_client.loop()) {
       return false;
     }
     if (sending_fifo_queue.empty()) {
       return true;
+    } else {
+      // 送信するべき測定値があればIoT Coreへ送信する
+      std::string msg = std::visit(
+          [this](auto x) -> std::string {
+            return to_json_message(messageId, x);
+          },
+          sending_fifo_queue.front());
+      // MQTT送信
+      ESP_LOGD(TELEMETRY, "%s", msg.c_str());
+      bool result = mqtt_client.publish(pub_topic.c_str(), msg.c_str());
+      if (result) {
+        messageId++;
+        // IoT Coreへ送信した測定値をFIFOから消す
+        sending_fifo_queue.pop();
+      }
+      return result;
     }
-    // 送信するべき測定値があればIoT Coreへ送信する
-    const Payload &item = sending_fifo_queue.front();
-    std::string msg = std::visit(
-        [this](auto x) { return to_json_message(messageId, x); }, item);
-    // MQTT送信
-    ESP_LOGD(TELEMETRY, "%s", msg.c_str());
-    if (mqtt_client.publish(pub_topic.c_str(), msg.c_str())) {
-      messageId++;
-      // IoT Coreへ送信した測定値をFIFOから消す
-      sending_fifo_queue.pop();
-    }
-    return true;
   }
 };
 } // namespace Telemetry
