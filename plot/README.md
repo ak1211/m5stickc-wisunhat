@@ -14,15 +14,15 @@ or
 cargo build --release
 
 # run
-cargo run --bin plotcharts 
+cargo run --bin plotcharts  
 cargo run --bin retrieve_plotdata 
 
 or
 
-./target/debug/plotcharts [-h, ...]
+./target/debug/plotcharts [-h, ...]  
 ./target/debug/retrieve_plotdata  [-h, ...]
 
 or
 
-./target/release/plotcharts -h
+./target/release/plotcharts -h  
 ./target/release/retrieve_plotdata [-h, ...]
