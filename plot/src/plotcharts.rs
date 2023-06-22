@@ -266,7 +266,7 @@ where
         // ピークパワーの凡例
         .label(format!("Peak {}W({})", peak.1, peak.0.format("%H:%M")))
         .legend(|coord| EmptyElement::at(coord) + Circle::new((0, 0), 3, RED.filled()));
-    //
+    // ピークパワー
     chart.draw_series(PointSeries::of_element(
         vec![(*peak.0, *peak.1)],
         3,
@@ -336,7 +336,7 @@ where
         .y_label_area_size(60)
         .build_cartesian_2d(
             range_datetime.clone(),
-            range_value.start.min(0.0)..range_value.end,
+            range_value.start.min(0.0)..(5.0 * ((range_value.end / 5.0).ceil())),
         )?;
     // 軸ラベルとか
     chart
