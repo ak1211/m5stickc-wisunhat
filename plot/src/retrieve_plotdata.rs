@@ -72,7 +72,7 @@ fn series_from_items(
 }
 
 //
-fn parse_iso8601_to_jst(s: &str) -> anyhow::Result<DateTime<FixedOffset>> {
+fn parse_rfc3339_to_jst(s: &str) -> anyhow::Result<DateTime<FixedOffset>> {
     let fixed = DateTime::parse_from_rfc3339(s)
         .or_else(|e| Err(anyhow!("ParseError: {:?}. input is \"{}\"", e, s)))?;
     let jst = fixed.with_timezone(&Asia::Tokyo).fixed_offset();
@@ -105,14 +105,14 @@ fn time_sequential_dataframe(
     let df = DataFrame::new(series)?;
     // 列を並び変える
     let df = df.select(ording)?;
-    // measured_at列をiso8601形式にする
+    // measured_at列をRFC3339形式にする
     let datetimes = df["measured_at"]
         .utf8()?
         .into_iter()
         .map(|opt| {
             opt.and_then(|s| {
                 // パースに失敗したらNone(NaN)値にする
-                match parse_iso8601_to_jst(s) {
+                match parse_rfc3339_to_jst(s) {
                     Ok(jst) => Some(jst),
                     Err(e) => {
                         eprintln!("WARNING: \"{:?}\" discarded.", e);

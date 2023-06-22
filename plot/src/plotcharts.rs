@@ -11,6 +11,7 @@ use chrono_tz::Asia::Tokyo;
 use chrono_tz::Tz;
 use clap::Parser;
 use plotters::prelude::*;
+use plotters::style::text_anchor::{HPos, Pos, VPos};
 use polars::lazy::dsl::{Expr, StrptimeOptions};
 use polars::lazy::prelude::*;
 use polars::prelude::PolarsError::{ComputeError, NoData};
@@ -229,6 +230,12 @@ where
     let (values, range_value) = as_values_vector(&df[colname::INSTANT_WATT])?;
     // XYの値
     let dataset: Vec<(&NaiveDateTime, &f64)> = datetimes.iter().zip(values.iter()).collect();
+    // 最大値
+    let peak: (&NaiveDateTime, &f64) = datetimes
+        .iter()
+        .zip(values.iter())
+        .max_by(|a, b| (a.1).total_cmp(b.1))
+        .ok_or(anyhow!("fail to compare!"))?;
     //
     let mut chart = ChartBuilder::on(area)
         .caption("瞬時電力測定値(1分値)", ("sans-serif", 16).into_font())
@@ -237,7 +244,7 @@ where
         .y_label_area_size(60)
         .build_cartesian_2d(
             range_datetime.clone(),
-            range_value.start.min(0.0)..range_value.end,
+            range_value.start.min(0.0)..(500.0 * ((range_value.end / 500.0).ceil())),
         )?;
     // 軸ラベルとか
     chart
@@ -248,13 +255,38 @@ where
         .y_desc("瞬時電力1分値(W)")
         .draw()?;
     // 瞬時電力量を高さと1分の横幅の四角で表現する
-    chart.draw_series(dataset.iter().copied().map(|(datetime, value)| {
-        let start_x = *datetime;
-        let end_x = start_x.checked_add_signed(Duration::minutes(1)).unwrap();
-        let mut bar = Rectangle::new([(start_x, 0.0), (end_x, *value)], box_style);
-        bar.set_margin(0, 0, 0, 0);
-        bar
-    }))?;
+    chart
+        .draw_series(dataset.iter().copied().map(|(datetime, value)| {
+            let start_x = *datetime;
+            let end_x = start_x.checked_add_signed(Duration::minutes(1)).unwrap();
+            let mut bar = Rectangle::new([(start_x, 0.0), (end_x, *value)], box_style);
+            bar.set_margin(0, 0, 0, 0);
+            bar
+        }))?
+        // ピークパワーの凡例
+        .label(format!("Peak {}W({})", peak.1, peak.0.format("%H:%M")))
+        .legend(|coord| EmptyElement::at(coord) + Circle::new((0, 0), 3, RED.filled()));
+    //
+    chart.draw_series(PointSeries::of_element(
+        vec![(*peak.0, *peak.1)],
+        3,
+        ShapeStyle::from(&RED),
+        &|coord, size, style| {
+            let text_style = ("sans-serif", 16)
+                .into_font()
+                .color(&RED)
+                .pos(Pos::new(HPos::Center, VPos::Bottom));
+            EmptyElement::at(coord)
+                + Circle::new((0, 0), size, style)
+                + Text::new(format!("{}W", coord.1), (0, -1), text_style)
+        },
+    ))?;
+    // 凡例
+    chart
+        .configure_series_labels()
+        .background_style(WHITE.mix(0.5))
+        .border_style(BLACK)
+        .draw()?;
 
     Ok(())
 }
