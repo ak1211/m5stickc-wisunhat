@@ -14,7 +14,7 @@ or
 cargo build --release
 
 # run
-cargo run --bin plotcharts   
+cargo run --bin plotcharts  
 cargo run --bin retrieve_plotdata 
 
 or
