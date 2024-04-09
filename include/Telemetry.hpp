@@ -36,8 +36,6 @@ using PayloadCumlativeWattHour =
 // 送信用
 using Payload = std::variant<PayloadInstantAmpere, PayloadInstantWatt,
                              PayloadCumlativeWattHour>;
-// ArduinoJSON用
-constexpr std::size_t Capacity{JSON_OBJECT_SIZE(128)};
 
 //
 std::string iso8601formatUTC(std::chrono::system_clock::time_point utctimept) {
@@ -60,7 +58,7 @@ std::string to_json_message(MessageId messageId, PayloadInstantAmpere in) {
   using SmartElectricEnergyMeter::Ampere;
   using std::chrono::duration_cast;
   auto &[timept, a] = in;
-  StaticJsonDocument<Capacity> doc;
+  JsonDocument doc;
   doc["message_id"] = messageId;
   doc["device_id"] = AWS_IOT_DEVICE_ID;
   doc["sensor_id"] = SENSOR_ID;
@@ -75,7 +73,7 @@ std::string to_json_message(MessageId messageId, PayloadInstantAmpere in) {
 template <>
 std::string to_json_message(MessageId messageId, PayloadInstantWatt in) {
   auto &[timept, w] = in;
-  StaticJsonDocument<Capacity> doc;
+  JsonDocument doc;
   doc["message_id"] = messageId;
   doc["device_id"] = AWS_IOT_DEVICE_ID;
   doc["sensor_id"] = SENSOR_ID;
@@ -90,7 +88,7 @@ template <>
 std::string to_json_message(MessageId messageId, PayloadCumlativeWattHour in) {
   namespace M = SmartElectricEnergyMeter;
   auto &[cwh, coeff, unit] = in;
-  StaticJsonDocument<Capacity> doc;
+  JsonDocument doc;
   doc["message_id"] = messageId;
   doc["device_id"] = AWS_IOT_DEVICE_ID;
   doc["sensor_id"] = SENSOR_ID;

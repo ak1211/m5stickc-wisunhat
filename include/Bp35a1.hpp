@@ -3,8 +3,8 @@
 // See LICENSE file in the project root for full license information.
 //
 #pragma once
-#include <M5StickCPlus.h>
-#undef min
+#include "EchonetLite.hpp"
+#include "TypeDefine.hpp"
 #include <chrono>
 #include <cinttypes>
 #include <cstring>
@@ -15,8 +15,7 @@
 #include <string>
 #include <variant>
 
-#include "EchonetLite.hpp"
-#include "TypeDefine.hpp"
+#include <M5Unified.h>
 
 namespace Bp35a1 {
 using namespace std::literals::string_literals;
