@@ -2,8 +2,12 @@
 // Licensed under the MIT License <https://spdx.org/licenses/MIT.html>
 // See LICENSE file in the project root for full license information.
 //
-#include <M5StickCPlus.h>
-#undef min
+#include "Application.hpp"
+#include "Bp35a1.hpp"
+#include "EchonetLite.hpp"
+#include "Gauge.hpp"
+#include "Telemetry.hpp"
+#include "credentials.h"
 #include <ArduinoJson.h>
 #include <WiFi.h>
 #include <chrono>
@@ -20,12 +24,7 @@
 #include <variant>
 #include <vector>
 
-#include "Application.hpp"
-#include "Bp35a1.hpp"
-#include "EchonetLite.hpp"
-#include "Gauge.hpp"
-#include "Telemetry.hpp"
-#include "credentials.h"
+#include <M5Unified.h>
 
 using namespace std::literals::string_view_literals;
 
@@ -295,15 +294,27 @@ static bool checkWiFi(std::chrono::seconds timeout) {
 //
 // bootメッセージ表示用
 //
-static void display_boot_message(const char *s) { M5.Lcd.print(s); }
+static void display_boot_message(const char *s) { M5.Display.print(s); }
 
 //
 // Arduinoのsetup()関数
 //
 void setup() {
-  M5.begin(true, true, true);
-  M5.Lcd.setRotation(3);
-  M5.Lcd.setTextSize(2);
+  // initializing M5Stickc with M5Unified
+  if constexpr (true) {
+    auto cfg = M5.config();
+    cfg.internal_imu = false;
+    cfg.internal_rtc = false;
+    cfg.internal_spk = false;
+    cfg.internal_mic = false;
+    cfg.external_imu = false;
+    cfg.external_rtc = false;
+    M5.begin(cfg);
+    // Display
+    M5.Display.setColorDepth(lgfx::color_depth_t::palette_8bit);
+    M5.Display.setRotation(3);
+    M5.Display.setTextSize(2);
+  }
   delay(2000);
   //
   Serial2.begin(115200, SERIAL_8N1, CommPortRx, CommPortTx);
@@ -315,8 +326,8 @@ void setup() {
     delay(60e3);
     esp_restart();
   }
-  M5.Lcd.fillScreen(BLACK);
-  M5.Lcd.setCursor(0, 0);
+  M5.Display.fillScreen(BLACK);
+  M5.Display.setCursor(0, 0);
   //
 
   if (auto ident = Bp35a1::startup_and_find_meter(Serial2, {BID, BPASSWORD},
@@ -348,7 +359,7 @@ void setup() {
   //
   // ディスプレイ表示
   //
-  M5.Lcd.fillScreen(BLACK);
+  M5.Display.fillScreen(BLACK);
   instant_watt_gauge.update(true);
   instant_ampere_gauge.update(true);
   cumulative_watt_hour_gauge.update(true);
@@ -387,8 +398,8 @@ static void process_event(const Bp35a1::ResEvent &ev) {
              // PANAによる接続過程でエラーが発生した(接続が完了しなかった)
     ESP_LOGD(MAIN, "PANA reconnect");
     // 再接続を試みる
-    M5.Lcd.fillScreen(BLACK);
-    M5.Lcd.setCursor(0, 0);
+    M5.Display.clearDisplay();
+    M5.Display.setCursor(0, 0);
     display_boot_message("reconnect");
     if (!connect(smart_watt_hour_meter->commport,
                  smart_watt_hour_meter->identifier, display_boot_message)) {
@@ -397,7 +408,7 @@ static void process_event(const Bp35a1::ResEvent &ev) {
       delay(5000);
       esp_restart();
     }
-    M5.Lcd.fillScreen(BLACK);
+    M5.Display.clearDisplay();
     instant_watt_gauge.set(std::nullopt).update();
     instant_ampere_gauge.set(std::nullopt).update();
     cumulative_watt_hour_gauge.set(std::nullopt).update();
@@ -719,10 +730,11 @@ inline void low_speed_loop(std::chrono::system_clock::time_point nowtp) {
   // プログレスバーを表示する
   uint16_t remain_sec =
       60 - duration_cast<seconds>(nowtp.time_since_epoch()).count() % 60;
-  int32_t bar_width = M5.Lcd.width() * remain_sec / 60;
-  int32_t y = M5.Lcd.height() - 2;
-  M5.Lcd.fillRect(bar_width, y, M5.Lcd.width(), M5.Lcd.height(), BLACK);
-  M5.Lcd.fillRect(0, y, bar_width, M5.Lcd.height(), YELLOW);
+  int32_t bar_width = M5.Display.width() * remain_sec / 60;
+  int32_t y = M5.Display.height() - 2;
+  M5.Display.fillRect(bar_width, y, M5.Display.width(), M5.Display.height(),
+                      BLACK);
+  M5.Display.fillRect(0, y, bar_width, M5.Display.height(), YELLOW);
 
   // 30秒以上の待ち時間があるうちに接続状態の検査をする:
   if (remain_sec >= 30) {

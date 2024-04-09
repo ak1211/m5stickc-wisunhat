@@ -3,12 +3,12 @@
 // See LICENSE file in the project root for full license information.
 //
 #pragma once
-#include <M5StickCPlus.h>
+#include "Application.hpp"
 #include <cstdint>
 #include <functional>
 #include <string>
 
-#include "Application.hpp"
+#include <M5Unified.h>
 
 //
 // 測定値表示
@@ -49,16 +49,16 @@ public:
       std::string current = value_to_string(current_value);
       std::string next = value_to_string(next_value);
       //
-      M5.Lcd.setTextSize(size);
+      M5.Display.setTextSize(size);
       // 黒色で現在表示中の文字を上書きする
-      M5.Lcd.setTextColor(BLACK);
-      M5.Lcd.setCursor(cursor_x, cursor_y, font);
-      M5.Lcd.print(current.c_str());
+      M5.Display.setTextColor(BLACK);
+      M5.Display.setCursor(cursor_x, cursor_y, font);
+      M5.Display.print(current.c_str());
       //
       // 現在値を表示する
-      M5.Lcd.setTextColor(color);
-      M5.Lcd.setCursor(cursor_x, cursor_y, font);
-      M5.Lcd.print(next.c_str());
+      M5.Display.setTextColor(color);
+      M5.Display.setCursor(cursor_x, cursor_y, font);
+      M5.Display.print(next.c_str());
       // 更新
       current_value = next_value;
     }
