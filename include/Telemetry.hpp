@@ -3,6 +3,8 @@
 // See LICENSE file in the project root for full license information.
 //
 #pragma once
+#include "Application.hpp"
+#include "EchonetLite.hpp"
 #include <ArduinoJson.h>
 #include <PubSubClient.h>
 #include <WiFi.h>
@@ -14,9 +16,6 @@
 #include <string>
 #include <tuple>
 #include <variant>
-
-#include "Application.hpp"
-#include "EchonetLite.hpp"
 
 using namespace std::literals::string_literals;
 
@@ -140,6 +139,8 @@ public:
     ESP_LOGI(TELEMETRY, "New message arrival. topic:\"%s\", payload:\"%s\"",
              topic, s.c_str());
   }
+  //
+  bool connected() { return mqtt_client.connected(); }
   //
   std::string lastError() {
     constexpr std::size_t N{256};

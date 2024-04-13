@@ -8,6 +8,7 @@
 #include <chrono>
 #include <cinttypes>
 #include <cstring>
+#include <functional>
 #include <iterator>
 #include <numeric>
 #include <optional>
@@ -21,10 +22,11 @@ namespace Bp35a1 {
 using namespace std::literals::string_literals;
 using namespace std::literals::string_view_literals;
 
-constexpr static auto RETRY_TIMEOUT = std::chrono::seconds{3};
+constexpr static auto RETRY_TIMEOUT = std::chrono::seconds{10};
 
-// メッセージを表示する関数型
-typedef void (*DisplayMessageT)(const char *);
+// メッセージを表示する関数の型
+using DisplayMessageT =
+    std::function<void(const std::string &message, void *user_data)>;
 
 // 受信メッセージを破棄する
 void clear_read_buffer(Stream &commport) {
@@ -519,19 +521,19 @@ bool send_request(
 
 // 接続(PANA認証)要求を送る
 bool connect(Stream &commport, const SmartMeterIdentifier &smart_meter_ident,
-             DisplayMessageT message) {
+             DisplayMessageT message, void *user_data) {
   //
   ESP_LOGD(MAIN, "%s", to_string(smart_meter_ident).c_str());
 
   // 通信チャネルを設定する
-  message("Set Channel\n");
+  message("Set Channel", user_data);
   write_with_crln(commport,
                   "SKSREG S2 "s + std::string{smart_meter_ident.channel});
   if (!has_ok(commport, RETRY_TIMEOUT)) {
     return false;
   }
   // Pan IDを設定する
-  message("Set Pan ID\n");
+  message("Set Pan ID", user_data);
   write_with_crln(commport,
                   "SKSREG S3 "s + std::string{smart_meter_ident.pan_id});
   if (!has_ok(commport, RETRY_TIMEOUT)) {
@@ -541,7 +543,7 @@ bool connect(Stream &commport, const SmartMeterIdentifier &smart_meter_ident,
   clear_read_buffer(commport);
 
   // PANA認証要求
-  message("Connecting...\n");
+  message("Connecting...", user_data);
   write_with_crln(commport,
                   "SKJOIN "s + std::string{smart_meter_ident.ipv6_address});
   if (!has_ok(commport, RETRY_TIMEOUT)) {
@@ -567,13 +569,13 @@ bool connect(Stream &commport, const SmartMeterIdentifier &smart_meter_ident,
           // EVENT 24 :
           // PANAによる接続過程でエラーが発生した(接続が完了しなかった)
           ESP_LOGD(MAIN, "Fail to connect");
-          message("Fail to connect\n");
+          message("Fail to connect", user_data);
           return false;
         }
         case 0x25: {
           // EVENT 25 : PANAによる接続が完了した
           ESP_LOGD(MAIN, "Connected");
-          message("Connected\n");
+          message("Connected", user_data);
           return true;
         }
         default:
@@ -587,8 +589,8 @@ bool connect(Stream &commport, const SmartMeterIdentifier &smart_meter_ident,
 }
 
 // アクティブスキャンを実行する
-std::optional<ResEpandesc> do_active_scan(Stream &commport,
-                                          DisplayMessageT message) {
+std::optional<ResEpandesc>
+do_active_scan(Stream &commport, DisplayMessageT message, void *user_data) {
   // スマートメーターからの返答を待ち受ける関数
   auto got_respond =
       [&commport](uint8_t duration) -> std::optional<ResEpandesc> {
@@ -635,10 +637,10 @@ std::optional<ResEpandesc> do_active_scan(Stream &commport,
   };
   //
   std::optional<ResEpandesc> found{std::nullopt};
-  message("Active Scan");
+  message("Active Scan", user_data);
   // 接続対象のスマートメータをスキャンする
   for (uint8_t duration : {5, 6, 7, 8}) {
-    message(".");
+    message("Now on scanning...", user_data);
     // スキャン要求を出す
     write_with_crln(commport, "SKSCAN 2 FFFFFFFF "s + std::to_string(duration));
     if (!has_ok(commport, RETRY_TIMEOUT)) {
@@ -650,7 +652,7 @@ std::optional<ResEpandesc> do_active_scan(Stream &commport,
       break;
     }
   }
-  message("\n");
+  message("Active Scan Completed.", user_data);
   return found;
 }
 
@@ -658,7 +660,7 @@ std::optional<ResEpandesc> do_active_scan(Stream &commport,
 std::optional<SmartMeterIdentifier> startup_and_find_meter(
     Stream &commport,
     std::pair<std::string_view, std::string_view> b_route_id_password,
-    DisplayMessageT display_message) {
+    DisplayMessageT display_message, void *user_data) {
   // 一旦セッションを切る
   write_with_crln(commport, "SKTERM"s);
 
@@ -673,14 +675,14 @@ std::optional<SmartMeterIdentifier> startup_and_find_meter(
 
   const auto [bid, bpass] = b_route_id_password;
   // パスワード設定
-  display_message("Set password\n");
+  display_message("Set password", user_data);
   write_with_crln(commport, "SKSETPWD C "s + std::string{bpass});
   if (!has_ok(commport, RETRY_TIMEOUT)) {
     return std::nullopt;
   }
 
   // ID設定
-  display_message("Set ID\n");
+  display_message("Set ID", user_data);
   write_with_crln(commport, "SKSETRBID "s + std::string{bid});
   if (!has_ok(commport, RETRY_TIMEOUT)) {
     return std::nullopt;
@@ -688,23 +690,23 @@ std::optional<SmartMeterIdentifier> startup_and_find_meter(
 
   // アクティブスキャン実行
   std::optional<ResEpandesc> conn_target =
-      do_active_scan(commport, display_message);
+      do_active_scan(commport, display_message, user_data);
   // アクティブスキャン結果を確認
   if (!conn_target.has_value()) {
     // 接続対象のスマートメーターが見つからなかった
-    display_message("smart meter not found.");
+    display_message("smart meter not found.", user_data);
     ESP_LOGD(MAIN, "smart meter not found.");
     return std::nullopt;
   }
 
   // アクティブスキャン結果をもとにしてipv6アドレスを得る
-  display_message("get ipv6 address\n");
+  display_message("get ipv6 address\n", user_data);
   auto str_addr = std::string(conn_target.value().addr);
   std::optional<IPv6Addr> resp_ipv6_address =
       get_ipv6_address(commport, RETRY_TIMEOUT, str_addr);
 
   if (!resp_ipv6_address.has_value()) {
-    display_message("get ipv6 address fail.");
+    display_message("get ipv6 address fail.", user_data);
     ESP_LOGD(MAIN, "get ipv6 address fail.");
     return std::nullopt;
   }
