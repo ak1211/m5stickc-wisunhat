@@ -3,6 +3,8 @@
 // See LICENSE file in the project root for full license information.
 //
 #pragma once
+#include "Application.hpp"
+#include "TypeDefine.hpp"
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -21,9 +23,6 @@
 #include <variant>
 #include <vector>
 
-#include "Application.hpp"
-#include "TypeDefine.hpp"
-
 using namespace std::literals::string_literals;
 using namespace std::literals::string_view_literals;
 
@@ -38,15 +37,16 @@ struct EchonetLiteEHeader final {
 };
 static_assert(sizeof(EchonetLiteEHeader) == 2);
 //
-bool operator==(const EchonetLiteEHeader &left,
-                const EchonetLiteEHeader &right) {
+inline bool operator==(const EchonetLiteEHeader &left,
+                       const EchonetLiteEHeader &right) {
   return left.u8 == right.u8;
 }
-bool operator!=(const EchonetLiteEHeader &left,
-                const EchonetLiteEHeader &right) {
+inline bool operator!=(const EchonetLiteEHeader &left,
+                       const EchonetLiteEHeader &right) {
   return !(left == right);
 }
-std::ostream &operator<<(std::ostream &os, const EchonetLiteEHeader &in) {
+inline std::ostream &operator<<(std::ostream &os,
+                                const EchonetLiteEHeader &in) {
   auto save = os.flags();
   os << std::uppercase << std::hex                      //
      << std::setfill('0') << std::setw(2) << +in.u8[0]  //
@@ -54,7 +54,7 @@ std::ostream &operator<<(std::ostream &os, const EchonetLiteEHeader &in) {
   os.flags(save);
   return os;
 }
-EchonetLiteEHeader::operator std::string() {
+inline EchonetLiteEHeader::operator std::string() {
   std::ostringstream oss;
   oss << *this;
   return oss.str();
@@ -80,15 +80,16 @@ union EchonetLiteObjectCode {
 };
 static_assert(sizeof(EchonetLiteObjectCode) == 3);
 //
-bool operator==(const EchonetLiteObjectCode &left,
-                const EchonetLiteObjectCode &right) {
+inline bool operator==(const EchonetLiteObjectCode &left,
+                       const EchonetLiteObjectCode &right) {
   return left.u8 == right.u8;
 }
-bool operator!=(const EchonetLiteObjectCode &left,
-                const EchonetLiteObjectCode &right) {
+inline bool operator!=(const EchonetLiteObjectCode &left,
+                       const EchonetLiteObjectCode &right) {
   return !(left.u8 == right.u8);
 }
-std::ostream &operator<<(std::ostream &os, const EchonetLiteObjectCode &in) {
+inline std::ostream &operator<<(std::ostream &os,
+                                const EchonetLiteObjectCode &in) {
   auto save = os.flags();
   os << std::uppercase << std::hex                     //
      << std::setfill('0') << std::setw(2) << +in.u8[0] //
@@ -96,7 +97,7 @@ std::ostream &operator<<(std::ostream &os, const EchonetLiteObjectCode &in) {
      << std::setfill('0') << std::setw(2) << +in.u8[2];
   return os;
 }
-EchonetLiteObjectCode::operator std::string() {
+inline EchonetLiteObjectCode::operator std::string() {
   std::ostringstream oss;
   oss << *this;
   return oss.str();
@@ -111,14 +112,15 @@ struct EchonetLiteTransactionId final {
 };
 static_assert(sizeof(EchonetLiteTransactionId) == 2);
 //
-std::ostream &operator<<(std::ostream &os, const EchonetLiteTransactionId &in) {
+inline std::ostream &operator<<(std::ostream &os,
+                                const EchonetLiteTransactionId &in) {
   auto save = os.flags();
   os << std::uppercase << std::hex                     //
      << std::setfill('0') << std::setw(2) << +in.u8[0] //
      << std::setfill('0') << std::setw(2) << +in.u8[1];
   return os;
 }
-EchonetLiteTransactionId::operator std::string() {
+inline EchonetLiteTransactionId::operator std::string() {
   std::ostringstream oss;
   oss << *this;
   return oss.str();
@@ -157,7 +159,7 @@ enum class EchonetLiteESV : uint8_t {
 };
 static_assert(sizeof(EchonetLiteESV) == 1);
 
-std::string to_string(EchonetLiteESV esv) {
+inline std::string to_string(EchonetLiteESV esv) {
   std::ostringstream oss;
   oss << std::uppercase << std::hex;
   oss << std::setfill('0') << std::setw(2) << +static_cast<uint8_t>(esv);
@@ -210,7 +212,7 @@ struct EchonetLiteFrame final {
 };
 
 // ECHONET Lite フレームからペイロードを作る
-std::vector<uint8_t>
+inline std::vector<uint8_t>
 serializeFromEchonetLiteFrame(const EchonetLiteFrame &frame) {
   std::vector<uint8_t> octets;
   // bytes#1 and bytes#2
@@ -265,7 +267,7 @@ serializeFromEchonetLiteFrame(const EchonetLiteFrame &frame) {
 }
 
 // ペイロードからECHONET Lite フレームを取り出す
-std::optional<EchonetLiteFrame>
+inline std::optional<EchonetLiteFrame>
 deserializeToEchonetLiteFrame(const std::vector<uint8_t> &data) {
   EchonetLiteFrame frame;
   auto it = data.cbegin();
@@ -334,7 +336,7 @@ insufficient_inputs:
 }
 
 //
-std::string to_string(const EchonetLiteFrame &frame) {
+inline std::string to_string(const EchonetLiteFrame &frame) {
   std::ostringstream oss;
   oss << "EHD:"s << frame.ehd                   //
       << ",TID:"s << frame.tid                  //
@@ -418,10 +420,10 @@ struct Coefficient final {
     coefficient = (init[0] << 24) | (init[1] << 16) | (init[2] << 8) | init[3];
   }
 };
-bool operator==(const Coefficient &left, const Coefficient &right) {
+inline bool operator==(const Coefficient &left, const Coefficient &right) {
   return left.coefficient == right.coefficient;
 }
-bool operator!=(const Coefficient &left, const Coefficient &right) {
+inline bool operator!=(const Coefficient &left, const Coefficient &right) {
   return !(left == right);
 }
 
@@ -431,10 +433,12 @@ struct EffectiveDigits final {
   //
   explicit EffectiveDigits(uint8_t init) : digits{init} {}
 };
-bool operator==(const EffectiveDigits &left, const EffectiveDigits &right) {
+inline bool operator==(const EffectiveDigits &left,
+                       const EffectiveDigits &right) {
   return left.digits == right.digits;
 }
-bool operator!=(const EffectiveDigits &left, const EffectiveDigits &right) {
+inline bool operator!=(const EffectiveDigits &left,
+                       const EffectiveDigits &right) {
   return !(left == right);
 }
 // 積算電力量単位 (正方向、逆方向計測値)
@@ -498,10 +502,10 @@ struct Unit final {
     }
   }
 };
-bool operator==(const Unit &left, const Unit &right) {
+inline bool operator==(const Unit &left, const Unit &right) {
   return left.unit == right.unit;
 }
-bool operator!=(const Unit &left, const Unit &right) {
+inline bool operator!=(const Unit &left, const Unit &right) {
   return !(left == right);
 }
 
@@ -520,13 +524,13 @@ struct InstantWatt final {
     watt = Watt{W};
   }
 };
-bool operator==(const InstantWatt &left, const InstantWatt &right) {
+inline bool operator==(const InstantWatt &left, const InstantWatt &right) {
   return left.watt == right.watt;
 }
-bool operator!=(const InstantWatt &left, const InstantWatt &right) {
+inline bool operator!=(const InstantWatt &left, const InstantWatt &right) {
   return left.watt != right.watt;
 }
-std::string to_string(const SmartElectricEnergyMeter::InstantWatt &x) {
+inline std::string to_string(const SmartElectricEnergyMeter::InstantWatt &x) {
   return std::to_string(x.watt.count()) + " W"s;
 }
 
@@ -547,13 +551,13 @@ struct InstantAmpere final {
     ampereT = DeciAmpere{T};
   }
 };
-bool operator==(const InstantAmpere &left, const InstantAmpere &right) {
+inline bool operator==(const InstantAmpere &left, const InstantAmpere &right) {
   return (left.ampereR == right.ampereR) && (left.ampereT == right.ampereT);
 }
-bool operator!=(const InstantAmpere &left, const InstantAmpere &right) {
+inline bool operator!=(const InstantAmpere &left, const InstantAmpere &right) {
   return (left.ampereR != right.ampereR) || (left.ampereT != right.ampereT);
 }
-std::string to_string(const SmartElectricEnergyMeter::InstantAmpere &x) {
+inline std::string to_string(const SmartElectricEnergyMeter::InstantAmpere &x) {
   using namespace SmartElectricEnergyMeter;
   auto R = std::chrono::duration_cast<Ampere>(x.ampereR);
   auto T = std::chrono::duration_cast<Ampere>(x.ampereT);
@@ -633,15 +637,16 @@ struct CumulativeWattHour final {
     }
   }
 };
-bool operator==(const CumulativeWattHour &left,
-                const CumulativeWattHour &right) {
+inline bool operator==(const CumulativeWattHour &left,
+                       const CumulativeWattHour &right) {
   return left.originalPayload == right.originalPayload;
 }
-bool operator!=(const CumulativeWattHour &left,
-                const CumulativeWattHour &right) {
+inline bool operator!=(const CumulativeWattHour &left,
+                       const CumulativeWattHour &right) {
   return left.originalPayload != right.originalPayload;
 }
-std::string to_string(const SmartElectricEnergyMeter::CumulativeWattHour &x) {
+inline std::string
+to_string(const SmartElectricEnergyMeter::CumulativeWattHour &x) {
   std::ostringstream oss;
   oss << std::setw(4) << +(x.year()) << "/"sv;
   oss << std::setw(2) << +(x.month()) << "/"sv;
@@ -654,7 +659,7 @@ std::string to_string(const SmartElectricEnergyMeter::CumulativeWattHour &x) {
 }
 
 // 積算電力量
-KiloWattHour
+inline KiloWattHour
 cumlative_kilo_watt_hour(std::tuple<CumulativeWattHour, Coefficient, Unit> in) {
   auto &[cwh, coeff, unit] = in;
   // 係数
@@ -666,7 +671,7 @@ cumlative_kilo_watt_hour(std::tuple<CumulativeWattHour, Coefficient, Unit> in) {
 }
 
 // 電力量
-std::string to_string_cumlative_kilo_watt_hour(
+inline std::string to_string_cumlative_kilo_watt_hour(
     CumulativeWattHour cwh, std::optional<Coefficient> opt_coeff, Unit unit) {
   // 係数(無い場合の係数は1)
   uint8_t coeff = (opt_coeff.has_value()) ? opt_coeff.value().coefficient : 1;
@@ -703,7 +708,7 @@ using ReceivedMessage =
 //
 // 低圧スマート電力量計クラスのイベントを処理する
 //
-std::vector<ReceivedMessage>
+inline std::vector<ReceivedMessage>
 process_echonet_lite_frame(const EchonetLiteFrame &frame) {
   std::vector<ReceivedMessage> result{};
   // EDATAは複数送られてくる
