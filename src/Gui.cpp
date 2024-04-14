@@ -510,6 +510,8 @@ bool Gui::begin() noexcept {
         }
         if (std::abs(countY) >= 10) {
           static_cast<M5GFX *>(arg->user_data)->setRotation(countY < 0 ? 3 : 1);
+          // force redraw
+          lv_obj_invalidate(lv_scr_act());
           countY = 0;
         }
         // timer
