@@ -370,7 +370,7 @@ void Widget::CumlativeWattHour::ValuePart::setValue(
     auto cumlative_kilo_watt_hour =
         SmartElectricEnergyMeter::cumlative_kilo_watt_hour(*cwh).count();
     lv_style_set_text_align(&style, LV_TEXT_ALIGN_RIGHT);
-    lv_label_set_text_fmt(label, "%.3f", cumlative_kilo_watt_hour);
+    lv_label_set_text_fmt(label, "%.2f", cumlative_kilo_watt_hour);
   } else {
     lv_style_set_text_align(&style, LV_TEXT_ALIGN_CENTER);
     lv_label_set_text(label, "Now loading");
