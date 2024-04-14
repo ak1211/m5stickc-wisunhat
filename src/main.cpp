@@ -513,6 +513,17 @@ inline void high_speed_loop(std::chrono::system_clock::time_point nowtp) {
   if (M5.BtnA.wasPressed()) {
     Gui::getInstance()->moveNext();
   }
+  if (M5.Power.isCharging() == m5::Power_Class::is_discharging) {
+    // バッテリー駆動時は明るさを下げる
+    if (M5.Display.getBrightness() != 75) {
+      M5.Display.setBrightness(75);
+    }
+  } else {
+    // 通常の明るさ
+    if (M5.Display.getBrightness() != 127) {
+      M5.Display.setBrightness(127);
+    }
+  }
   //
   // メッセージ受信バッファ
   //
@@ -555,6 +566,7 @@ inline void high_speed_loop(std::chrono::system_clock::time_point nowtp) {
 // 低速度loop()関数
 //
 inline void low_speed_loop(std::chrono::system_clock::time_point nowtp) {
+  //
   using namespace std::chrono;
   //
   auto display_message = [](const std::string &str, void *user_data) -> void {

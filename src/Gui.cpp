@@ -451,7 +451,6 @@ void Widget::CumlativeWattHour::timerHook() noexcept {
 //
 bool Gui::begin() noexcept {
   // Display init
-  gfx.setBrightness(127);
   gfx.setColorDepth(LV_COLOR_DEPTH);
   gfx.setRotation(3);
   // LVGL init
@@ -499,13 +498,27 @@ bool Gui::begin() noexcept {
 
   // set timer callback
   periodic_timer = lv_timer_create(
-      [](lv_timer_t *) noexcept -> void {
+      [](lv_timer_t *arg) noexcept -> void {
+        static int8_t countY = 0;
+        // Display rotation
+        if (float ax, ay, az; M5.Imu.getAccelData(&ax, &ay, &az)) {
+          if (ax < 0.0) {
+            countY--;
+          } else if (ax > 0.0) {
+            countY++;
+          }
+        }
+        if (std::abs(countY) >= 10) {
+          static_cast<M5GFX *>(arg->user_data)->setRotation(countY < 0 ? 3 : 1);
+          countY = 0;
+        }
+        // timer
         auto itr = Gui::getInstance()->active_tile_itr;
         if (auto p = itr->get(); p) {
           p->timerHook();
         }
       },
-      MILLISECONDS_OF_PERIODIC_TIMER, nullptr);
+      MILLISECONDS_OF_PERIODIC_TIMER, &gfx);
 
   return true;
 }
