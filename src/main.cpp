@@ -130,9 +130,7 @@ static bool initializeTime(Widget::Dialogue &dialogue,
 // Arduinoのsetup()関数
 //
 void setup() {
-  //
   // initializing M5Stickc with M5Unified
-  //
   auto cfg = M5.config();
   M5.begin(cfg);
   M5.Log.setLogLevel(m5::log_target_serial, ESP_LOG_DEBUG);
@@ -141,18 +139,19 @@ void setup() {
   // BP35A1用シリアルポート
   Serial2.begin(115200, SERIAL_8N1, CommPortRx, CommPortTx);
 
-  //
-  if (auto gui = new Gui(M5.Display); !gui) {
+  // initialize Gui
+  if (auto gui = new Gui(M5.Display); gui) {
+    if (gui->begin()) {
+      gui->startUi();
+    } else {
+      goto fatal_error;
+    }
+  } else {
     goto fatal_error;
   }
-  if (auto ok = Gui::getInstance()->begin(); !ok) {
-    goto fatal_error;
-  }
-  M5_LOGD("start Ui");
-  Gui::getInstance()->startUi();
 
-  // create LVGL Task
-  static TaskHandle_t user_task_handle{};
+  // create RTOS task
+  static TaskHandle_t rtos_task_handle{};
   xTaskCreatePinnedToCore(
       [](void *arg) -> void {
         while (true) {
@@ -160,7 +159,7 @@ void setup() {
           delay(120);
         }
       },
-      "Task:LVGL", 8192, nullptr, 10, &user_task_handle, ARDUINO_RUNNING_CORE);
+      "Task:LVGL", 8192, nullptr, 10, &rtos_task_handle, ARDUINO_RUNNING_CORE);
 
   // WiFiに接続する。
   M5_LOGD("Connect to WiFi");
@@ -169,13 +168,14 @@ void setup() {
   }
 
   // タイムサーバーと同期する。
-  M5_LOGD("Sync to internet time");
-  if (Widget::Dialogue dialogue{"Sync to internet time"};
+  M5_LOGD("Sync to time server");
+  if (Widget::Dialogue dialogue{"Sync to time server"};
       !initializeTime(dialogue)) {
     goto fatal_error;
   }
 
-  return; // success
+  return; // Successfully exit.
+  //
 fatal_error:
   M5.Display.clear();
   M5.Display.print("fatal error.");
@@ -610,7 +610,7 @@ inline void low_speed_loop(std::chrono::system_clock::time_point nowtp) {
   } else if (bool connected = telemetry.connected(); !connected) {
     // AWS IoTと接続されていない場合は接続する。
     Widget::Dialogue dialogue{"Connect to AWS IoT."};
-    display_message("connect MQTT", &dialogue);
+    display_message("protocol MQTT", &dialogue);
     if (auto ok = telemetry.connectToAwsIot(std::chrono::seconds{60}); !ok) {
       dialogue.error("ERROR");
       delay(10e3);
