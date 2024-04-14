@@ -220,7 +220,6 @@ public:
       ptr->setActiveTile(tileview);
     }
   }
-  //
 
 private:
   M5GFX &gfx;
