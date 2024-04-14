@@ -102,7 +102,6 @@ Widget::InstantWatt::ValuePart::ValuePart(lv_obj_t *parent,
     lv_style_set_bg_color(&style, lv_palette_darken(LV_PALETTE_BROWN, 4));
     lv_style_set_text_font(&style, &lv_font_montserrat_46);
     lv_style_set_text_color(&style, lv_palette_main(LV_PALETTE_ORANGE));
-    lv_style_set_text_align(&style, LV_TEXT_ALIGN_RIGHT);
     lv_style_set_text_letter_space(&style, 5);
     lv_obj_add_style(label, &style, LV_PART_MAIN);
     //
@@ -121,9 +120,11 @@ void Widget::InstantWatt::ValuePart::setValue(
     const std::optional<Repository::InstantWatt> &iw) {
   if (iw.has_value()) {
     auto [time, value] = *iw;
+    lv_style_set_text_align(&style, LV_TEXT_ALIGN_RIGHT);
     lv_label_set_text_fmt(label, "%d ", value.watt.count());
   } else {
-    lv_label_set_text(label, "---- ");
+    lv_style_set_text_align(&style, LV_TEXT_ALIGN_CENTER);
+    lv_label_set_text(label, "Now loading");
   }
 }
 //
@@ -132,7 +133,7 @@ Widget::InstantWatt::TimePart::TimePart(lv_obj_t *parent, lv_obj_t *above_obj) {
     lv_style_init(&style);
     lv_style_set_text_color(&style, lv_palette_darken(LV_PALETTE_BROWN, 3));
     lv_style_set_text_font(&style, &lv_font_montserrat_20);
-    lv_style_set_text_align(&style, LV_TEXT_ALIGN_RIGHT);
+    lv_style_set_text_align(&style, LV_TEXT_ALIGN_LEFT);
     lv_obj_add_style(label, &style, 0);
     lv_obj_set_size(label, lv_obj_get_content_width(parent),
                     lv_font_montserrat_20.line_height);
@@ -159,7 +160,7 @@ void Widget::InstantWatt::TimePart::setValue(
       lv_label_set_text_fmt(label, "W (%d seconds ago)", sec);
     }
   } else {
-    lv_label_set_text(label, "W ");
+    lv_label_set_text(label, "W");
   }
 }
 //
@@ -219,8 +220,7 @@ Widget::InstantAmpere::ValuePart::ValuePart(lv_obj_t *parent,
     lv_style_set_bg_opa(&style, LV_OPA_COVER);
     lv_style_set_bg_color(&style, lv_palette_darken(LV_PALETTE_BROWN, 4));
     lv_style_set_text_font(&style, &lv_font_montserrat_46);
-    lv_style_set_text_color(&style, lv_palette_lighten(LV_PALETTE_BROWN, 3));
-    lv_style_set_text_align(&style, LV_TEXT_ALIGN_RIGHT);
+    lv_style_set_text_color(&style, lv_palette_main(LV_PALETTE_ORANGE));
     lv_style_set_text_letter_space(&style, 5);
     lv_obj_add_style(label, &style, LV_PART_MAIN);
     //
@@ -245,12 +245,14 @@ void Widget::InstantAmpere::ValuePart::setValue(
     uint16_t t_A = value.ampereT.count() / 10;
     uint16_t t_dA = value.ampereT.count() % 10;
     //
-    lv_color32_t c32{.full = lv_color_to32(lv_palette_main(LV_PALETTE_ORANGE))};
-    lv_label_set_text_fmt(label, "#%02x%02x%02x R%d.%d#/#%02x%02x%02x T%d.%d#",
-                          c32.ch.red, c32.ch.green, c32.ch.blue, r_A, r_dA,
+    lv_style_set_text_align(&style, LV_TEXT_ALIGN_RIGHT);
+    lv_color32_t c32{
+        .full = lv_color_to32(lv_palette_lighten(LV_PALETTE_ORANGE, 4))};
+    lv_label_set_text_fmt(label, "R%d.%d#%02x%02x%02x /#T%d.%d", r_A, r_dA,
                           c32.ch.red, c32.ch.green, c32.ch.blue, t_A, t_dA);
   } else {
-    lv_label_set_text(label, "---- ");
+    lv_style_set_text_align(&style, LV_TEXT_ALIGN_CENTER);
+    lv_label_set_text(label, "Now loading");
   }
 }
 //
@@ -260,7 +262,7 @@ Widget::InstantAmpere::TimePart::TimePart(lv_obj_t *parent,
     lv_style_init(&style);
     lv_style_set_text_color(&style, lv_palette_darken(LV_PALETTE_BROWN, 3));
     lv_style_set_text_font(&style, &lv_font_montserrat_20);
-    lv_style_set_text_align(&style, LV_TEXT_ALIGN_RIGHT);
+    lv_style_set_text_align(&style, LV_TEXT_ALIGN_LEFT);
     lv_obj_add_style(label, &style, 0);
     lv_obj_set_size(label, lv_obj_get_content_width(parent),
                     lv_font_montserrat_20.line_height);
@@ -282,13 +284,13 @@ void Widget::InstantAmpere::TimePart::setValue(
     if (duration <= 1s) {
       lv_label_set_text(label, "A (just now)");
     } else if (duration < 2s) {
-      lv_label_set_text(label, "A (1 sec ago)");
+      lv_label_set_text(label, "A (1 second ago)");
     } else {
       int32_t sec = duration_cast<seconds>(duration).count();
-      lv_label_set_text_fmt(label, "A (%d secs ago)", sec);
+      lv_label_set_text_fmt(label, "A (%d seconds ago)", sec);
     }
   } else {
-    lv_label_set_text(label, "A ");
+    lv_label_set_text(label, "A");
   }
 }
 //
@@ -349,8 +351,6 @@ Widget::CumlativeWattHour::ValuePart::ValuePart(lv_obj_t *parent,
     lv_style_set_bg_color(&style, lv_palette_darken(LV_PALETTE_BROWN, 4));
     lv_style_set_text_font(&style, &lv_font_montserrat_46);
     lv_style_set_text_color(&style, lv_palette_main(LV_PALETTE_ORANGE));
-    lv_style_set_text_align(&style, LV_TEXT_ALIGN_RIGHT);
-    lv_style_set_text_letter_space(&style, 5);
     lv_obj_add_style(label, &style, LV_PART_MAIN);
     //
     lv_obj_set_size(label, lv_obj_get_content_width(parent),
@@ -369,9 +369,11 @@ void Widget::CumlativeWattHour::ValuePart::setValue(
   if (cwh.has_value()) {
     auto cumlative_kilo_watt_hour =
         SmartElectricEnergyMeter::cumlative_kilo_watt_hour(*cwh).count();
-    lv_label_set_text_fmt(label, "%.4f", cumlative_kilo_watt_hour);
+    lv_style_set_text_align(&style, LV_TEXT_ALIGN_RIGHT);
+    lv_label_set_text_fmt(label, "%.3f", cumlative_kilo_watt_hour);
   } else {
-    lv_label_set_text(label, "---- ");
+    lv_style_set_text_align(&style, LV_TEXT_ALIGN_CENTER);
+    lv_label_set_text(label, "Now loading");
   }
 }
 //
@@ -381,7 +383,7 @@ Widget::CumlativeWattHour::TimePart::TimePart(lv_obj_t *parent,
     lv_style_init(&style);
     lv_style_set_text_color(&style, lv_palette_darken(LV_PALETTE_BROWN, 3));
     lv_style_set_text_font(&style, &lv_font_montserrat_20);
-    lv_style_set_text_align(&style, LV_TEXT_ALIGN_RIGHT);
+    lv_style_set_text_align(&style, LV_TEXT_ALIGN_LEFT);
     lv_obj_add_style(label, &style, 0);
     lv_obj_set_size(label, lv_obj_get_content_width(parent),
                     lv_font_montserrat_20.line_height);
@@ -413,7 +415,7 @@ void Widget::CumlativeWattHour::TimePart::setValue(
       lv_label_set_text_fmt(label, "kWh (%d mins ago)", min);
     }
   } else {
-    lv_label_set_text(label, "kWh ");
+    lv_label_set_text(label, "kWh");
   }
 }
 //
