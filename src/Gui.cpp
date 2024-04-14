@@ -502,16 +502,20 @@ bool Gui::begin() noexcept {
         static int8_t countY = 0;
         // Display rotation
         if (float ax, ay, az; M5.Imu.getAccelData(&ax, &ay, &az)) {
-          if (ax < 0.0) {
+          if (ax <= 0.0) {
             countY--;
-          } else if (ax > 0.0) {
+          } else if (ax >= 0.0) {
             countY++;
           }
         }
         if (std::abs(countY) >= 10) {
-          static_cast<M5GFX *>(arg->user_data)->setRotation(countY < 0 ? 3 : 1);
-          // force redraw
-          lv_obj_invalidate(lv_scr_act());
+          auto current = static_cast<M5GFX *>(arg->user_data)->getRotation();
+          auto next = countY < 0 ? 3 : 1;
+          if (current != next) {
+            static_cast<M5GFX *>(arg->user_data)->setRotation(next);
+            // force redraw
+            lv_obj_invalidate(lv_scr_act());
+          }
           countY = 0;
         }
         // timer
@@ -531,7 +535,7 @@ void Gui::startUi() noexcept {
   lv_style_init(&tileview_style);
   lv_style_set_bg_opa(&tileview_style, LV_OPA_COVER);
   lv_style_set_bg_color(&tileview_style,
-                        lv_palette_lighten(LV_PALETTE_LIGHT_GREEN, 3));
+                        lv_palette_lighten(LV_PALETTE_LIGHT_GREEN, 2));
   // tileview init
   tileview = lv_tileview_create(lv_scr_act());
   lv_obj_add_style(tileview, &tileview_style, LV_PART_MAIN);
