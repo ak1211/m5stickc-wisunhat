@@ -306,30 +306,6 @@ static void process_node_profile_class_frame(const EchonetLiteFrame &frame) {
 }
 
 //
-// 要求時間からトランザクションIDへ変換する
-//
-static EchonetLiteTransactionId
-time_to_transaction_id(std::chrono::system_clock::time_point tp) {
-  using namespace std::chrono;
-  auto epoch = tp.time_since_epoch();
-  int32_t sec = duration_cast<seconds>(epoch).count();
-  EchonetLiteTransactionId tid{};
-  tid.u8[0] = static_cast<uint8_t>(sec / 3600 % 24);
-  tid.u8[1] = static_cast<uint8_t>(sec / 60 % 60);
-  return tid;
-}
-
-//
-// トランザクションIDから要求時間へ変換する
-//
-static int32_t transaction_id_to_seconds(EchonetLiteTransactionId tid) {
-  int32_t h = tid.u8[0];
-  int32_t m = tid.u8[1];
-  int32_t sec = h * 3600 + m * 60;
-  return sec;
-}
-
-//
 // BP35A1から受信したERXUDPイベントを処理する
 //
 static void process_erxudp(std::chrono::system_clock::time_point at,
@@ -345,17 +321,6 @@ static void process_erxudp(std::chrono::system_clock::time_point at,
       process_node_profile_class_frame(frame);
     } else if (frame.edata.seoj.s == SmartElectricEnergyMeter::EchonetLiteEOJ) {
       // 低圧スマート電力量計クラス
-      if constexpr (false) {
-        auto tsec = transaction_id_to_seconds(frame.tid);
-        int32_t h = tsec / 3600 % 24;
-        int32_t m = tsec / 60 % 60;
-        ESP_LOGD(MAIN, "tid(H:M) is %02d:%02d", h, m);
-        auto epoch = std::chrono::system_clock::now().time_since_epoch();
-        auto seconds =
-            std::chrono::duration_cast<std::chrono::seconds>(epoch).count();
-        int32_t elapsed = seconds % (24 * 60 * 60) - tsec;
-        ESP_LOGI(MAIN, "Response elasped time of seconds:%4d", elapsed);
-      }
       namespace M = SmartElectricEnergyMeter;
       for (auto rx : M::process_echonet_lite_frame(frame)) {
         if (auto *p = std::get_if<M::Coefficient>(&rx)) {
@@ -409,7 +374,7 @@ send_first_request(std::chrono::system_clock::time_point current_time) {
            "unit for whm / request number of "
            "effective digits");
   // スマートメーターに要求を出す
-  const auto tid = time_to_transaction_id(current_time);
+  const auto tid = EchonetLiteTransactionId({12, 34});
 
   if (smart_watt_hour_meter) {
     Bp35a1::send_request(smart_watt_hour_meter->commport,
@@ -466,7 +431,7 @@ send_periodical_request(std::chrono::system_clock::time_point current_time) {
 #endif
   // スマートメーターに要求を出す
   if (smart_watt_hour_meter) {
-    const auto tid = time_to_transaction_id(current_time);
+    const auto tid = EchonetLiteTransactionId({12, 34});
     Bp35a1::send_request(smart_watt_hour_meter->commport,
                          smart_watt_hour_meter->identifier, tid, epcs);
   } else {
@@ -591,7 +556,7 @@ inline void low_speed_loop(std::chrono::system_clock::time_point nowtp) {
       // スマートメーターが見つからなかった
       M5_LOGE("ERROR: meter not found.");
       dialogue.error("ERROR: meter not found.");
-      delay(10e3);
+      delay(1000);
     }
   } else if (!smart_watt_hour_meter->isPanaSessionEstablished) {
     // スマートメーターとのセッションを開始する。
@@ -610,22 +575,23 @@ inline void low_speed_loop(std::chrono::system_clock::time_point nowtp) {
       smart_watt_hour_meter->isPanaSessionEstablished = false;
       M5_LOGE("smart meter connection error.");
       dialogue.error("smart meter connection error.");
-      delay(10e3);
+      delay(1000);
     }
   } else if (WiFi.status() != WL_CONNECTED) {
     // WiFiが接続されていない場合は接続する。
     Widget::Dialogue dialogue{"Connect to WiFi."};
     if (auto ok = connectToWiFi(dialogue); !ok) {
       dialogue.error("ERROR: WiFi");
-      delay(10e3);
+      delay(1000);
     }
   } else if (bool connected = telemetry.connected(); !connected) {
     // AWS IoTと接続されていない場合は接続する。
     Widget::Dialogue dialogue{"Connect to AWS IoT."};
-    display_message("protocol MQTT", &dialogue);
-    if (auto ok = telemetry.connectToAwsIot(std::chrono::seconds{60}); !ok) {
+    if (auto ok = telemetry.connectToAwsIot(std::chrono::seconds{60},
+                                            display_message, &dialogue);
+        !ok) {
       dialogue.error("ERROR");
-      delay(10e3);
+      delay(1000);
     }
   }
 
