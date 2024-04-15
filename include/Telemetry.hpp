@@ -12,6 +12,7 @@
 #include <WiFiClientSecure.h>
 #include <chrono>
 #include <ctime>
+#include <functional>
 #include <queue>
 #include <string>
 #include <tuple>
@@ -179,9 +180,16 @@ public:
   //
   // AWS IoTへ接続確立を試みる
   //
-  bool connectToAwsIot(std::chrono::seconds timeout) {
+  bool connectToAwsIot(
+      std::chrono::seconds timeout,
+      std::function<void(const std::string &message, void *user_data)>
+          display_message,
+      void *user_data) {
+
     using namespace std::chrono;
     const time_point tp = system_clock::now() + timeout;
+    //
+    display_message("protocol MQTT", user_data);
     //
     https_client.setCACert(AWS_IOT_ROOT_CA.data());
     https_client.setCertificate(AWS_IOT_CERTIFICATE.data());
@@ -200,20 +208,25 @@ public:
       yield();
     } while (!success && system_clock::now() < tp);
 
-    if (!success) {
-      ESP_LOGE(TELEMETRY, "connect fail to AWS IoT, state: %s, reason: %s",
-               strMqttState().data(), lastError().c_str());
+    if (success) {
+      display_message("connected.", user_data);
+    } else {
+      display_message(
+          "connect fail to AWS IoT, state: " + std::string(strMqttState()) +
+              ", reason: " + lastError(),
+          user_data);
       return false;
     }
 
     success = mqtt_client.subscribe(sub_topic.c_str(), QuarityOfService);
-    if (!success) {
-      ESP_LOGE(TELEMETRY, "subscribe fail. TOPIC:[%s]", sub_topic.c_str());
+    if (success) {
+      display_message("topic:" + sub_topic + " subscribed.", user_data);
+    } else {
+      display_message("topic:" + sub_topic + " failed.", user_data);
       return false;
     }
     return true;
   }
-
   //
   // 送信用キューに積む
   //
@@ -221,14 +234,18 @@ public:
   //
   // MQTT接続検査
   //
-  bool check_mqtt(std::chrono::seconds timeout) {
+  bool
+  check_mqtt(std::chrono::seconds timeout,
+             std::function<void(const std::string &message, void *user_data)>
+                 display_message,
+             void *user_data) {
     if (mqtt_client.connected()) {
       return true;
     }
     // MQTT再接続シーケンス
     ESP_LOGE(TELEMETRY, "MQTT reconnect, state: %s, reason: %s",
              strMqttState().data(), lastError().c_str());
-    return connectToAwsIot(timeout);
+    return connectToAwsIot(timeout, display_message, user_data);
   }
   //
   // MQTT送受信

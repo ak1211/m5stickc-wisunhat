@@ -25,8 +25,7 @@ using namespace std::literals::string_view_literals;
 constexpr static auto RETRY_TIMEOUT = std::chrono::seconds{10};
 
 // メッセージを表示する関数の型
-using DisplayMessageT =
-    std::function<void(const std::string &message, void *user_data)>;
+using DisplayMessageT = std::function<void(const std::string &message, void *user_data)>;
 
 // 受信メッセージを破棄する
 void clear_read_buffer(Stream &commport) {

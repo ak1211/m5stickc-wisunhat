@@ -102,7 +102,7 @@ Widget::InstantWatt::ValuePart::ValuePart(lv_obj_t *parent,
     lv_style_set_bg_color(&style, lv_palette_darken(LV_PALETTE_BROWN, 4));
     lv_style_set_text_font(&style, &lv_font_montserrat_46);
     lv_style_set_text_color(&style, lv_palette_main(LV_PALETTE_ORANGE));
-    lv_style_set_text_letter_space(&style, 5);
+    lv_style_set_text_letter_space(&style, 2);
     lv_obj_add_style(label, &style, LV_PART_MAIN);
     //
     lv_obj_set_size(label, lv_obj_get_content_width(parent),
@@ -121,7 +121,7 @@ void Widget::InstantWatt::ValuePart::setValue(
   if (iw.has_value()) {
     auto [time, value] = *iw;
     lv_style_set_text_align(&style, LV_TEXT_ALIGN_RIGHT);
-    lv_label_set_text_fmt(label, "%d ", value.watt.count());
+    lv_label_set_text_fmt(label, "%d", value.watt.count());
   } else {
     lv_style_set_text_align(&style, LV_TEXT_ALIGN_CENTER);
     lv_label_set_text(label, "Now loading");
@@ -221,7 +221,7 @@ Widget::InstantAmpere::ValuePart::ValuePart(lv_obj_t *parent,
     lv_style_set_bg_color(&style, lv_palette_darken(LV_PALETTE_BROWN, 4));
     lv_style_set_text_font(&style, &lv_font_montserrat_46);
     lv_style_set_text_color(&style, lv_palette_main(LV_PALETTE_ORANGE));
-    lv_style_set_text_letter_space(&style, 5);
+    lv_style_set_text_letter_space(&style, 2);
     lv_obj_add_style(label, &style, LV_PART_MAIN);
     //
     lv_obj_set_size(label, lv_obj_get_content_width(parent),
@@ -351,6 +351,7 @@ Widget::CumlativeWattHour::ValuePart::ValuePart(lv_obj_t *parent,
     lv_style_set_bg_color(&style, lv_palette_darken(LV_PALETTE_BROWN, 4));
     lv_style_set_text_font(&style, &lv_font_montserrat_46);
     lv_style_set_text_color(&style, lv_palette_main(LV_PALETTE_ORANGE));
+    lv_style_set_text_letter_space(&style, 2);
     lv_obj_add_style(label, &style, LV_PART_MAIN);
     //
     lv_obj_set_size(label, lv_obj_get_content_width(parent),
