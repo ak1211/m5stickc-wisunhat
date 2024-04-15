@@ -520,7 +520,8 @@ inline void high_speed_loop(std::chrono::system_clock::time_point nowtp) {
 // 低速度loop()関数
 //
 inline void low_speed_loop(std::chrono::system_clock::time_point nowtp) {
-  if (M5.Power.isCharging() == m5::Power_Class::is_discharging) {
+  if (M5.Power.getBatteryLevel() < 100 &&
+      M5.Power.isCharging() == m5::Power_Class::is_discharging) {
     // バッテリー駆動時は明るさを下げる
     if (M5.Display.getBrightness() != 75) {
       M5.Display.setBrightness(75);
