@@ -109,6 +109,7 @@ std::string to_json_message(MessageId messageId, PayloadCumlativeWattHour in) {
 // MQTT通信
 //
 class Mqtt final {
+  constexpr static auto MAXIMUM_QUEUE_SIZE = 100;
   //
   WiFiClientSecure https_client;
   PubSubClient mqtt_client;
@@ -230,7 +231,17 @@ public:
   //
   // 送信用キューに積む
   //
-  void push_queue(const Payload &&in) { sending_fifo_queue.push(in); }
+  void push_queue(const Payload &&in) {
+
+    if (sending_fifo_queue.size() >= MAXIMUM_QUEUE_SIZE) {
+      ESP_LOGE(TELEMETRY, "MAXIMUM_QUEUE_SIZE reached.");
+      do {
+        // 溢れた測定値をFIFOから消す
+        sending_fifo_queue.pop();
+      } while (sending_fifo_queue.size() >= MAXIMUM_QUEUE_SIZE);
+    }
+    sending_fifo_queue.push(in);
+  }
   //
   // MQTT接続検査
   //

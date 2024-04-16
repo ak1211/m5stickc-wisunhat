@@ -155,8 +155,8 @@ void setup() {
   xTaskCreatePinnedToCore(
       [](void *arg) -> void {
         while (true) {
-          lv_timer_handler_run_in_period(120);
-          delay(120);
+          lv_timer_handler_run_in_period(30);
+          delay(30);
         }
       },
       "Task:LVGL", 8192, nullptr, 10, &rtos_task_handle, ARDUINO_RUNNING_CORE);
@@ -520,7 +520,8 @@ inline void high_speed_loop(std::chrono::system_clock::time_point nowtp) {
 // 低速度loop()関数
 //
 inline void low_speed_loop(std::chrono::system_clock::time_point nowtp) {
-  if (M5.Power.isCharging() == m5::Power_Class::is_discharging) {
+  if (M5.Power.getBatteryLevel() < 100 &&
+      M5.Power.isCharging() == m5::Power_Class::is_discharging) {
     // バッテリー駆動時は明るさを下げる
     if (M5.Display.getBrightness() != 75) {
       M5.Display.setBrightness(75);
