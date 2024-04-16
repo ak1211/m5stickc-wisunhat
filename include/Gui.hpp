@@ -190,7 +190,7 @@ public:
 //
 class Gui {
   inline static Gui *_instance{nullptr};
-  constexpr static uint16_t MILLISECONDS_OF_PERIODIC_TIMER = 300;
+  constexpr static uint16_t MILLISECONDS_OF_PERIODIC_TIMER = 100;
 
 public:
   //

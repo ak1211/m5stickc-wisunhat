@@ -12,8 +12,8 @@
 #include <WiFiClientSecure.h>
 #include <chrono>
 #include <ctime>
-#include <deque>
 #include <functional>
+#include <queue>
 #include <string>
 #include <tuple>
 #include <variant>

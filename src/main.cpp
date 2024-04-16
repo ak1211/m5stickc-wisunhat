@@ -155,8 +155,8 @@ void setup() {
   xTaskCreatePinnedToCore(
       [](void *arg) -> void {
         while (true) {
-          lv_timer_handler_run_in_period(120);
-          delay(120);
+          lv_timer_handler_run_in_period(30);
+          delay(30);
         }
       },
       "Task:LVGL", 8192, nullptr, 10, &rtos_task_handle, ARDUINO_RUNNING_CORE);

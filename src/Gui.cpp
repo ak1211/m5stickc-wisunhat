@@ -536,7 +536,7 @@ void Gui::startUi() noexcept {
   lv_style_init(&tileview_style);
   lv_style_set_bg_opa(&tileview_style, LV_OPA_COVER);
   lv_style_set_bg_color(&tileview_style,
-                        lv_palette_lighten(LV_PALETTE_LIGHT_GREEN, 2));
+                        lv_palette_lighten(LV_PALETTE_GREEN, 2));
   // tileview init
   tileview = lv_tileview_create(lv_scr_act());
   lv_obj_add_style(tileview, &tileview_style, LV_PART_MAIN);
