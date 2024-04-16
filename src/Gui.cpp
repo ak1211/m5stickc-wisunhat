@@ -121,7 +121,7 @@ void Widget::InstantWatt::ValuePart::setValue(
   if (iw.has_value()) {
     auto [time, value] = *iw;
     lv_style_set_text_align(&style, LV_TEXT_ALIGN_RIGHT);
-    lv_label_set_text_fmt(label, "%d", value.watt.count());
+    lv_label_set_text_fmt(label, "%ld", value.watt.count());
   } else {
     lv_style_set_text_align(&style, LV_TEXT_ALIGN_CENTER);
     lv_label_set_text(label, "Now loading");
@@ -157,7 +157,7 @@ void Widget::InstantWatt::TimePart::setValue(
       lv_label_set_text(label, "W (1 second ago)");
     } else {
       int32_t sec = duration_cast<seconds>(duration).count();
-      lv_label_set_text_fmt(label, "W (%d seconds ago)", sec);
+      lv_label_set_text_fmt(label, "W (%ld seconds ago)", sec);
     }
   } else {
     lv_label_set_text(label, "W");
@@ -239,16 +239,16 @@ void Widget::InstantAmpere::ValuePart::setValue(
     const std::optional<Repository::InstantAmpere> &ia) {
   if (ia.has_value()) {
     auto [time, value] = *ia;
-    uint16_t r_A = value.ampereR.count() / 10;
-    uint16_t r_dA = value.ampereR.count() % 10;
+    int32_t r_A = value.ampereR.count() / 10;
+    int32_t r_dA = value.ampereR.count() % 10;
     //
-    uint16_t t_A = value.ampereT.count() / 10;
-    uint16_t t_dA = value.ampereT.count() % 10;
+    int32_t t_A = value.ampereT.count() / 10;
+    int32_t t_dA = value.ampereT.count() % 10;
     //
     lv_style_set_text_align(&style, LV_TEXT_ALIGN_RIGHT);
     lv_color32_t c32{
         .full = lv_color_to32(lv_palette_lighten(LV_PALETTE_ORANGE, 4))};
-    lv_label_set_text_fmt(label, "R%d.%d#%02x%02x%02x /#T%d.%d", r_A, r_dA,
+    lv_label_set_text_fmt(label, "R%ld.%ld#%02x%02x%02x /#T%ld.%ld", r_A, r_dA,
                           c32.ch.red, c32.ch.green, c32.ch.blue, t_A, t_dA);
   } else {
     lv_style_set_text_align(&style, LV_TEXT_ALIGN_CENTER);
@@ -287,7 +287,7 @@ void Widget::InstantAmpere::TimePart::setValue(
       lv_label_set_text(label, "A (1 second ago)");
     } else {
       int32_t sec = duration_cast<seconds>(duration).count();
-      lv_label_set_text_fmt(label, "A (%d seconds ago)", sec);
+      lv_label_set_text_fmt(label, "A (%ld seconds ago)", sec);
     }
   } else {
     lv_label_set_text(label, "A");
@@ -413,7 +413,7 @@ void Widget::CumlativeWattHour::TimePart::setValue(
       lv_label_set_text(label, "kWh (1 min ago)");
     } else {
       int32_t min = duration_cast<minutes>(duration).count();
-      lv_label_set_text_fmt(label, "kWh (%d mins ago)", min);
+      lv_label_set_text_fmt(label, "kWh (%ld mins ago)", min);
     }
   } else {
     lv_label_set_text(label, "kWh");
