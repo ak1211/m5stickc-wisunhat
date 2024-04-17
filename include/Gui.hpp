@@ -21,7 +21,7 @@ using namespace std::chrono;
 //
 class Dialogue {
   lv_style_t dialogue_style{};
-  lv_obj_t *dialogue{nullptr};
+  lv_obj_t *dialogue_obj{nullptr};
   //
   struct TitlePart {
     lv_style_t style{};
@@ -40,7 +40,7 @@ class Dialogue {
 
 public:
   Dialogue(const std::string &title_text, lv_obj_t *parent = lv_scr_act());
-  virtual ~Dialogue() { lv_obj_del(dialogue); }
+  virtual ~Dialogue() { lv_obj_del(dialogue_obj); }
   void setMessage(const std::string &text) {
     if (message) {
       lv_label_set_text(message->label, text.c_str());
@@ -50,22 +50,14 @@ public:
   void error(const std::string &text) { setMessage("#ff0000 " + text + "#"); }
 };
 
-//
-//
-//
-struct TileBase {
-  virtual void setActiveTile(lv_obj_t *tileview) noexcept = 0;
-  virtual void timerHook() noexcept = 0;
-};
-
 // init argument for "lv_tileview_add_tile()"
 using InitArg = std::tuple<lv_obj_t *, uint8_t, uint8_t, lv_dir_t>;
 
 //
-// 測定値表示
 //
-class InstantWatt : public TileBase {
-  lv_obj_t *tile{nullptr};
+//
+class BasicTile {
+protected:
   //
   struct TitlePart {
     lv_style_t style{};
@@ -77,111 +69,57 @@ class InstantWatt : public TileBase {
     lv_style_t style{};
     lv_obj_t *label{nullptr};
     ValuePart(lv_obj_t *parent, lv_obj_t *above_obj);
-    void setValue(const std::optional<Repository::InstantWatt> &);
   };
   //
   struct TimePart {
     lv_style_t style{};
     lv_obj_t *label{nullptr};
     TimePart(lv_obj_t *parent, lv_obj_t *above_obj);
-    void setValue(const std::optional<Repository::InstantWatt> &);
   };
   //
-  std::unique_ptr<TitlePart> title{};
-  std::unique_ptr<ValuePart> value{};
-  std::unique_ptr<TimePart> time{};
+  std::unique_ptr<TitlePart> title_part{};
+  std::unique_ptr<ValuePart> value_part{};
+  std::unique_ptr<TimePart> time_part{};
+  lv_obj_t *tile_obj{nullptr};
 
+public:
+  BasicTile(BasicTile &&) = delete;
+  BasicTile &operator=(const BasicTile &) = delete;
+  //
+  BasicTile(InitArg init) noexcept;
+  virtual ~BasicTile() noexcept;
+  void setActiveTile(lv_obj_t *tileview) noexcept;
+  virtual void timerHook() noexcept = 0;
+};
+
+//
+// 測定値表示
+//
+class InstantWatt : public BasicTile {
 public:
   InstantWatt(InitArg init) noexcept;
-  InstantWatt(InstantWatt &&) = delete;
-  InstantWatt &operator=(const InstantWatt &) = delete;
-  virtual ~InstantWatt() noexcept { lv_obj_del(tile); }
-  virtual void setActiveTile(lv_obj_t *tileview) noexcept override {
-    lv_obj_set_tile(tileview, tile, LV_ANIM_OFF);
-  }
   virtual void timerHook() noexcept override;
+  void setValue(const std::optional<Repository::InstantWatt> iw);
 };
 
 //
 // 測定値表示
 //
-class InstantAmpere : public TileBase {
-  lv_obj_t *tile{nullptr};
-  //
-  struct TitlePart {
-    lv_style_t style{};
-    lv_obj_t *label{nullptr};
-    TitlePart(lv_obj_t *parent);
-  };
-  //
-  struct ValuePart {
-    lv_style_t style{};
-    lv_obj_t *label{nullptr};
-    ValuePart(lv_obj_t *parent, lv_obj_t *above_obj);
-    void setValue(const std::optional<Repository::InstantAmpere> &);
-  };
-  //
-  struct TimePart {
-    lv_style_t style{};
-    lv_obj_t *label{nullptr};
-    TimePart(lv_obj_t *parent, lv_obj_t *above_obj);
-    void setValue(const std::optional<Repository::InstantAmpere> &);
-  };
-  //
-  std::unique_ptr<TitlePart> title{};
-  std::unique_ptr<ValuePart> value{};
-  std::unique_ptr<TimePart> time{};
-
+class InstantAmpere : public BasicTile {
 public:
   InstantAmpere(InitArg init) noexcept;
-  InstantAmpere(InstantAmpere &&) = delete;
-  InstantAmpere &operator=(const InstantAmpere &) = delete;
-  virtual ~InstantAmpere() noexcept { lv_obj_del(tile); }
-  virtual void setActiveTile(lv_obj_t *tileview) noexcept override {
-    lv_obj_set_tile(tileview, tile, LV_ANIM_OFF);
-  }
   virtual void timerHook() noexcept override;
+  void setValue(const std::optional<Repository::InstantAmpere> ia);
 };
 
 //
 // 測定値表示
 //
-class CumlativeWattHour : public TileBase {
-  lv_obj_t *tile{nullptr};
-  //
-  struct TitlePart {
-    lv_style_t style{};
-    lv_obj_t *label{nullptr};
-    TitlePart(lv_obj_t *parent);
-  };
-  //
-  struct ValuePart {
-    lv_style_t style{};
-    lv_obj_t *label{nullptr};
-    ValuePart(lv_obj_t *parent, lv_obj_t *above_obj);
-    void setValue(const std::optional<Repository::CumlativeWattHour> &);
-  };
-  //
-  struct TimePart {
-    lv_style_t style{};
-    lv_obj_t *label{nullptr};
-    TimePart(lv_obj_t *parent, lv_obj_t *above_obj);
-    void setValue(const std::optional<Repository::CumlativeWattHour> &);
-  };
-  //
-  std::unique_ptr<TitlePart> title{};
-  std::unique_ptr<ValuePart> value{};
-  std::unique_ptr<TimePart> time{};
-
+class CumlativeWattHour : public BasicTile {
 public:
   CumlativeWattHour(InitArg init) noexcept;
-  CumlativeWattHour(CumlativeWattHour &&) = delete;
-  CumlativeWattHour &operator=(const CumlativeWattHour &) = delete;
-  virtual ~CumlativeWattHour() noexcept { lv_obj_del(tile); }
-  virtual void setActiveTile(lv_obj_t *tileview) noexcept override {
-    lv_obj_set_tile(tileview, tile, LV_ANIM_OFF);
-  }
   virtual void timerHook() noexcept override;
+  void setValue(const std::optional<Repository::CumlativeWattHour> iw);
 };
 } // namespace Widget
 
@@ -237,7 +175,7 @@ private:
   lv_style_t tileview_style{};
   lv_obj_t *tileview{nullptr};
   // tile widget
-  using TileVector = std::vector<std::unique_ptr<Widget::TileBase>>;
+  using TileVector = std::vector<std::unique_ptr<Widget::BasicTile>>;
   TileVector tiles{};
   TileVector::iterator active_tile_itr{};
 };
