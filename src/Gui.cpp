@@ -54,18 +54,18 @@ Widget::Dialogue::Dialogue(const std::string &title_text, lv_obj_t *parent) {
   lv_style_set_shadow_width(&dialogue_style, 55);
   lv_style_set_shadow_color(&dialogue_style, lv_palette_main(LV_PALETTE_BLUE));
   do {
-    if (dialogue = lv_obj_create(parent); !dialogue) {
+    if (dialogue_obj = lv_obj_create(parent); !dialogue_obj) {
       break;
     }
-    lv_obj_set_width(dialogue, lv_obj_get_width(parent) - 50);
-    lv_obj_set_height(dialogue, lv_obj_get_height(parent) - 50);
-    lv_obj_add_style(dialogue, &dialogue_style, 0);
-    lv_obj_align(dialogue, LV_ALIGN_CENTER, 0, 0);
-    if (title = std::make_unique<TitlePart>(dialogue); !title) {
+    lv_obj_set_width(dialogue_obj, lv_obj_get_width(parent) - 50);
+    lv_obj_set_height(dialogue_obj, lv_obj_get_height(parent) - 50);
+    lv_obj_add_style(dialogue_obj, &dialogue_style, 0);
+    lv_obj_align(dialogue_obj, LV_ALIGN_CENTER, 0, 0);
+    if (title = std::make_unique<TitlePart>(dialogue_obj); !title) {
       break;
     }
     lv_label_set_text(title->label, title_text.c_str());
-    if (message = std::make_unique<MessagePart>(dialogue, title->label);
+    if (message = std::make_unique<MessagePart>(dialogue_obj, title->label);
         !message) {
       break;
     }
@@ -73,15 +73,48 @@ Widget::Dialogue::Dialogue(const std::string &title_text, lv_obj_t *parent) {
 }
 
 //
-// 電力値表示
 //
-Widget::InstantWatt::TitlePart::TitlePart(lv_obj_t *parent) {
+//
+Widget::BasicTile::BasicTile(Widget::InitArg init) noexcept {
+  tile_obj = std::apply(lv_tileview_add_tile, init);
+  lv_obj_set_style_pad_all(tile_obj, 8, LV_PART_MAIN);
+  lv_obj_clear_flag(tile_obj, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_update_layout(tile_obj);
+  //
+  do {
+    if (title_part = std::make_unique<TitlePart>(tile_obj); !title_part) {
+      break;
+    }
+    if (value_part = std::make_unique<ValuePart>(tile_obj, title_part->label);
+        !value_part) {
+      break;
+    }
+    if (time_part = std::make_unique<TimePart>(tile_obj, value_part->label);
+        !time_part) {
+      break;
+    }
+  } while (false /* No looping */);
+}
+
+//
+Widget::BasicTile::~BasicTile() noexcept {
+  lv_obj_del(tile_obj);
+  tile_obj = nullptr;
+}
+
+//
+void Widget::BasicTile::setActiveTile(lv_obj_t *tileview) noexcept {
+  lv_obj_set_tile(tileview, tile_obj, LV_ANIM_OFF);
+}
+
+//
+Widget::BasicTile::TitlePart::TitlePart(lv_obj_t *parent) {
   if (label = lv_label_create(parent); label) {
     lv_style_init(&style);
-    lv_style_set_border_color(&style, lv_palette_darken(LV_PALETTE_BROWN, 3));
+    lv_style_set_border_color(&style, lv_palette_darken(LV_PALETTE_BROWN, 4));
     lv_style_set_border_side(&style, LV_BORDER_SIDE_BOTTOM);
     lv_style_set_border_width(&style, 3);
-    lv_style_set_text_color(&style, lv_palette_darken(LV_PALETTE_BROWN, 3));
+    lv_style_set_text_color(&style, lv_palette_darken(LV_PALETTE_BROWN, 4));
     lv_style_set_text_font(&style, &lv_font_montserrat_20);
     lv_style_set_text_align(&style, LV_TEXT_ALIGN_LEFT);
     lv_obj_add_style(label, &style, LV_PART_MAIN);
@@ -89,12 +122,10 @@ Widget::InstantWatt::TitlePart::TitlePart(lv_obj_t *parent) {
     lv_obj_set_size(label, lv_obj_get_content_width(parent), 30);
     lv_obj_align(label, LV_ALIGN_TOP_LEFT, 0, 0);
     lv_label_set_recolor(label, true);
-    lv_label_set_text(label, "instant watt");
   }
 }
 //
-Widget::InstantWatt::ValuePart::ValuePart(lv_obj_t *parent,
-                                          lv_obj_t *above_obj) {
+Widget::BasicTile::ValuePart::ValuePart(lv_obj_t *parent, lv_obj_t *above_obj) {
   if (label = lv_label_create(parent); label) {
     lv_style_init(&style);
     lv_style_set_radius(&style, 5);
@@ -111,27 +142,14 @@ Widget::InstantWatt::ValuePart::ValuePart(lv_obj_t *parent,
     //
     lv_label_set_long_mode(label, LV_LABEL_LONG_SCROLL_CIRCULAR);
     lv_label_set_recolor(label, true);
-    //
-    setValue(Repository::electric_power_data.instant_watt);
   }
 }
+
 //
-void Widget::InstantWatt::ValuePart::setValue(
-    const std::optional<Repository::InstantWatt> &iw) {
-  if (iw.has_value()) {
-    auto [time, value] = *iw;
-    lv_style_set_text_align(&style, LV_TEXT_ALIGN_RIGHT);
-    lv_label_set_text_fmt(label, "%ld", value.watt.count());
-  } else {
-    lv_style_set_text_align(&style, LV_TEXT_ALIGN_CENTER);
-    lv_label_set_text(label, "Now loading");
-  }
-}
-//
-Widget::InstantWatt::TimePart::TimePart(lv_obj_t *parent, lv_obj_t *above_obj) {
+Widget::BasicTile::TimePart::TimePart(lv_obj_t *parent, lv_obj_t *above_obj) {
   if (label = lv_label_create(parent); label) {
     lv_style_init(&style);
-    lv_style_set_text_color(&style, lv_palette_darken(LV_PALETTE_BROWN, 3));
+    lv_style_set_text_color(&style, lv_palette_darken(LV_PALETTE_BROWN, 4));
     lv_style_set_text_font(&style, &lv_font_montserrat_20);
     lv_style_set_text_align(&style, LV_TEXT_ALIGN_LEFT);
     lv_obj_add_style(label, &style, 0);
@@ -139,312 +157,162 @@ Widget::InstantWatt::TimePart::TimePart(lv_obj_t *parent, lv_obj_t *above_obj) {
                     lv_font_montserrat_20.line_height);
     lv_obj_align_to(label, above_obj, LV_ALIGN_OUT_BOTTOM_LEFT, 0, 8);
     lv_label_set_recolor(label, true);
-    setValue(Repository::electric_power_data.instant_watt);
   }
 }
-//
-void Widget::InstantWatt::TimePart::setValue(
-    const std::optional<Repository::InstantWatt> &iw) {
-  using namespace std::chrono;
-  if (iw.has_value()) {
-    auto [tp, value] = *iw;
-    auto nowtp = system_clock::now();
 
-    auto duration = nowtp - tp;
-    if (duration <= 1s) {
-      lv_label_set_text(label, "W (just now)");
-    } else if (duration < 2s) {
-      lv_label_set_text(label, "W (1 second ago)");
-    } else {
-      int32_t sec = duration_cast<seconds>(duration).count();
-      lv_label_set_text_fmt(label, "W (%ld seconds ago)", sec);
-    }
-  } else {
-    lv_label_set_text(label, "W");
+//
+// 電力値表示
+//
+Widget::InstantWatt::InstantWatt(Widget::InitArg init) noexcept
+    : BasicTile(init) {
+  if (title_part) {
+    lv_label_set_text(title_part->label, "instant watt");
   }
+  setValue(std::nullopt);
 }
 //
-Widget::InstantWatt::InstantWatt(Widget::InitArg init) noexcept {
-  tile = std::apply(lv_tileview_add_tile, init);
-  lv_obj_set_style_pad_all(tile, 8, LV_PART_MAIN);
-  lv_obj_clear_flag(tile, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_update_layout(tile);
-  do {
-    if (title = std::make_unique<TitlePart>(tile); !title) {
-      break;
+void Widget::InstantWatt::setValue(
+    const std::optional<Repository::InstantWatt> iw) {
+  if (value_part) {
+    if (iw.has_value()) {
+      auto [time, value] = *iw;
+      lv_style_set_text_align(&value_part->style, LV_TEXT_ALIGN_RIGHT);
+      int32_t instant_watt = value.watt.count();
+      lv_label_set_text_fmt(value_part->label, "%ld", instant_watt);
+    } else {
+      lv_style_set_text_align(&value_part->style, LV_TEXT_ALIGN_CENTER);
+      lv_label_set_text(value_part->label, "Now loading");
     }
-    if (value = std::make_unique<ValuePart>(tile, title->label); !value) {
-      break;
+  }
+  if (time_part) {
+    if (iw.has_value()) {
+      auto [tp, value] = *iw;
+      auto nowtp = system_clock::now();
+
+      auto duration = nowtp - tp;
+      if (duration <= 1s) {
+        lv_label_set_text(time_part->label, "W (just now)");
+      } else if (duration < 2s) {
+        lv_label_set_text(time_part->label, "W (1 second ago)");
+      } else {
+        int32_t sec = duration_cast<seconds>(duration).count();
+        lv_label_set_text_fmt(time_part->label, "W (%ld seconds ago)", sec);
+      }
+    } else {
+      lv_label_set_text(time_part->label, "W");
     }
-    if (time = std::make_unique<TimePart>(tile, value->label); !time) {
-      break;
-    }
-  } while (false /* No looping */);
+  }
 }
 //
 void Widget::InstantWatt::timerHook() noexcept {
-  if (value) {
-    value->setValue(Repository::electric_power_data.instant_watt);
-  }
-  if (time) {
-    time->setValue(Repository::electric_power_data.instant_watt);
-  }
+  setValue(Repository::electric_power_data.instant_watt);
 }
 
 //
 // 電流値表示
 //
-Widget::InstantAmpere::TitlePart::TitlePart(lv_obj_t *parent) {
-  if (label = lv_label_create(parent); label) {
-    lv_style_init(&style);
-    lv_style_set_border_color(&style, lv_palette_darken(LV_PALETTE_BROWN, 3));
-    lv_style_set_border_side(&style, LV_BORDER_SIDE_BOTTOM);
-    lv_style_set_border_width(&style, 3);
-    lv_style_set_text_color(&style, lv_palette_darken(LV_PALETTE_BROWN, 3));
-    lv_style_set_text_font(&style, &lv_font_montserrat_20);
-    lv_style_set_text_align(&style, LV_TEXT_ALIGN_LEFT);
-    lv_obj_add_style(label, &style, LV_PART_MAIN);
-    //
-    lv_obj_set_size(label, lv_obj_get_content_width(parent), 30);
-    lv_obj_align(label, LV_ALIGN_TOP_LEFT, 0, 0);
-    lv_label_set_recolor(label, true);
-    lv_label_set_text(label, "instant ampere");
+Widget::InstantAmpere::InstantAmpere(Widget::InitArg init) noexcept
+    : BasicTile(init) {
+  if (title_part) {
+    lv_label_set_text(title_part->label, "instant ampere");
   }
+  setValue(std::nullopt);
 }
 //
-Widget::InstantAmpere::ValuePart::ValuePart(lv_obj_t *parent,
-                                            lv_obj_t *above_obj) {
-  if (label = lv_label_create(parent); label) {
-    lv_style_init(&style);
-    lv_style_set_radius(&style, 5);
-    lv_style_set_bg_opa(&style, LV_OPA_COVER);
-    lv_style_set_bg_color(&style, lv_palette_darken(LV_PALETTE_BROWN, 4));
-    lv_style_set_text_font(&style, &lv_font_montserrat_46);
-    lv_style_set_text_color(&style, lv_palette_main(LV_PALETTE_ORANGE));
-    lv_style_set_text_letter_space(&style, 2);
-    lv_obj_add_style(label, &style, LV_PART_MAIN);
-    //
-    lv_obj_set_size(label, lv_obj_get_content_width(parent),
-                    lv_font_montserrat_46.line_height);
-    lv_obj_align_to(label, above_obj, LV_ALIGN_OUT_BOTTOM_LEFT, 0, 8);
-    //
-    lv_label_set_long_mode(label, LV_LABEL_LONG_SCROLL_CIRCULAR);
-    lv_label_set_recolor(label, true);
-    //
-    setValue(Repository::electric_power_data.instant_ampere);
-  }
-}
-//
-void Widget::InstantAmpere::ValuePart::setValue(
-    const std::optional<Repository::InstantAmpere> &ia) {
-  if (ia.has_value()) {
-    auto [time, value] = *ia;
-    int32_t r_A = value.ampereR.count() / 10;
-    int32_t r_dA = value.ampereR.count() % 10;
-    //
-    int32_t t_A = value.ampereT.count() / 10;
-    int32_t t_dA = value.ampereT.count() % 10;
-    //
-    lv_style_set_text_align(&style, LV_TEXT_ALIGN_RIGHT);
-    lv_color32_t c32{
-        .full = lv_color_to32(lv_palette_lighten(LV_PALETTE_ORANGE, 4))};
-    lv_label_set_text_fmt(label, "R%ld.%ld#%02x%02x%02x /#T%ld.%ld", r_A, r_dA,
-                          c32.ch.red, c32.ch.green, c32.ch.blue, t_A, t_dA);
-  } else {
-    lv_style_set_text_align(&style, LV_TEXT_ALIGN_CENTER);
-    lv_label_set_text(label, "Now loading");
-  }
-}
-//
-Widget::InstantAmpere::TimePart::TimePart(lv_obj_t *parent,
-                                          lv_obj_t *above_obj) {
-  if (label = lv_label_create(parent); label) {
-    lv_style_init(&style);
-    lv_style_set_text_color(&style, lv_palette_darken(LV_PALETTE_BROWN, 3));
-    lv_style_set_text_font(&style, &lv_font_montserrat_20);
-    lv_style_set_text_align(&style, LV_TEXT_ALIGN_LEFT);
-    lv_obj_add_style(label, &style, 0);
-    lv_obj_set_size(label, lv_obj_get_content_width(parent),
-                    lv_font_montserrat_20.line_height);
-    lv_obj_align_to(label, above_obj, LV_ALIGN_OUT_BOTTOM_LEFT, 0, 8);
-    lv_label_set_recolor(label, true);
-    setValue(Repository::electric_power_data.instant_ampere);
-  }
-}
-//
-void Widget::InstantAmpere::TimePart::setValue(
-    const std::optional<Repository::InstantAmpere> &ia) {
-  using namespace std::chrono;
-  //
-  if (ia.has_value()) {
-    auto [tp, value] = *ia;
-    auto nowtp = system_clock::now();
-
-    auto duration = nowtp - tp;
-    if (duration <= 1s) {
-      lv_label_set_text(label, "A (just now)");
-    } else if (duration < 2s) {
-      lv_label_set_text(label, "A (1 second ago)");
+void Widget::InstantAmpere::setValue(
+    const std::optional<Repository::InstantAmpere> ia) {
+  if (value_part) {
+    if (ia.has_value()) {
+      auto [time, value] = *ia;
+      int32_t r_A = value.ampereR.count() / 10;
+      int32_t r_dA = value.ampereR.count() % 10;
+      //
+      int32_t t_A = value.ampereT.count() / 10;
+      int32_t t_dA = value.ampereT.count() % 10;
+      //
+      lv_style_set_text_align(&value_part->style, LV_TEXT_ALIGN_RIGHT);
+      lv_color32_t c32{
+          .full = lv_color_to32(lv_palette_lighten(LV_PALETTE_ORANGE, 4))};
+      lv_label_set_text_fmt(value_part->label,
+                            "R%ld.%ld#%02x%02x%02x /#T%ld.%ld", r_A, r_dA,
+                            c32.ch.red, c32.ch.green, c32.ch.blue, t_A, t_dA);
     } else {
-      int32_t sec = duration_cast<seconds>(duration).count();
-      lv_label_set_text_fmt(label, "A (%ld seconds ago)", sec);
+      lv_style_set_text_align(&value_part->style, LV_TEXT_ALIGN_CENTER);
+      lv_label_set_text(value_part->label, "Now loading");
     }
-  } else {
-    lv_label_set_text(label, "A");
   }
-}
-//
-Widget::InstantAmpere::InstantAmpere(Widget::InitArg init) noexcept {
-  tile = std::apply(lv_tileview_add_tile, init);
-  lv_obj_set_style_pad_all(tile, 8, LV_PART_MAIN);
-  lv_obj_clear_flag(tile, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_update_layout(tile);
-  do {
-    if (title = std::make_unique<TitlePart>(tile); !title) {
-      break;
+  if (time_part) {
+    if (ia.has_value()) {
+      auto [tp, value] = *ia;
+      auto nowtp = system_clock::now();
+
+      auto duration = nowtp - tp;
+      if (duration <= 1s) {
+        lv_label_set_text(time_part->label, "A (just now)");
+      } else if (duration < 2s) {
+        lv_label_set_text(time_part->label, "A (1 second ago)");
+      } else {
+        int32_t sec = duration_cast<seconds>(duration).count();
+        lv_label_set_text_fmt(time_part->label, "A (%ld seconds ago)", sec);
+      }
+    } else {
+      lv_label_set_text(time_part->label, "A");
     }
-    if (value = std::make_unique<ValuePart>(tile, title->label); !value) {
-      break;
-    }
-    if (time = std::make_unique<TimePart>(tile, value->label); !time) {
-      break;
-    }
-  } while (false /* No looping */);
+  }
 }
 //
 void Widget::InstantAmpere::timerHook() noexcept {
-  if (auto p = value.get(); p) {
-    p->setValue(Repository::electric_power_data.instant_ampere);
-  }
-  if (auto p = time.get(); p) {
-    p->setValue(Repository::electric_power_data.instant_ampere);
-  }
+  setValue(Repository::electric_power_data.instant_ampere);
 }
 
 //
 // 積算電力量表示
 //
-Widget::CumlativeWattHour::TitlePart::TitlePart(lv_obj_t *parent) {
-  if (label = lv_label_create(parent); label) {
-    lv_style_init(&style);
-    lv_style_set_border_color(&style, lv_palette_darken(LV_PALETTE_BROWN, 3));
-    lv_style_set_border_side(&style, LV_BORDER_SIDE_BOTTOM);
-    lv_style_set_border_width(&style, 3);
-    lv_style_set_text_color(&style, lv_palette_darken(LV_PALETTE_BROWN, 3));
-    lv_style_set_text_font(&style, &lv_font_montserrat_20);
-    lv_style_set_text_align(&style, LV_TEXT_ALIGN_LEFT);
-    lv_obj_add_style(label, &style, LV_PART_MAIN);
-    //
-    lv_obj_set_size(label, lv_obj_get_content_width(parent), 30);
-    lv_obj_align(label, LV_ALIGN_TOP_LEFT, 0, 0);
-    lv_label_set_recolor(label, true);
-    lv_label_set_text(label, "cumlative watt hour");
+Widget::CumlativeWattHour::CumlativeWattHour(Widget::InitArg init) noexcept
+    : BasicTile(init) {
+  if (title_part) {
+    lv_label_set_text(title_part->label, "cumlative watt hour");
   }
+  setValue(std::nullopt);
 }
 //
-Widget::CumlativeWattHour::ValuePart::ValuePart(lv_obj_t *parent,
-                                                lv_obj_t *above_obj) {
-  if (label = lv_label_create(parent); label) {
-    lv_style_init(&style);
-    lv_style_set_radius(&style, 5);
-    lv_style_set_bg_opa(&style, LV_OPA_COVER);
-    lv_style_set_bg_color(&style, lv_palette_darken(LV_PALETTE_BROWN, 4));
-    lv_style_set_text_font(&style, &lv_font_montserrat_46);
-    lv_style_set_text_color(&style, lv_palette_main(LV_PALETTE_ORANGE));
-    lv_style_set_text_letter_space(&style, 2);
-    lv_obj_add_style(label, &style, LV_PART_MAIN);
-    //
-    lv_obj_set_size(label, lv_obj_get_content_width(parent),
-                    lv_font_montserrat_46.line_height);
-    lv_obj_align_to(label, above_obj, LV_ALIGN_OUT_BOTTOM_LEFT, 0, 8);
-    //
-    lv_label_set_long_mode(label, LV_LABEL_LONG_SCROLL_CIRCULAR);
-    lv_label_set_recolor(label, true);
-    //
-    setValue(Repository::electric_power_data.cumlative_watt_hour);
-  }
-}
-//
-void Widget::CumlativeWattHour::ValuePart::setValue(
-    const std::optional<Repository::CumlativeWattHour> &cwh) {
-  if (cwh.has_value()) {
-    auto cumlative_kilo_watt_hour =
-        SmartElectricEnergyMeter::cumlative_kilo_watt_hour(*cwh).count();
-    lv_style_set_text_align(&style, LV_TEXT_ALIGN_RIGHT);
-    lv_label_set_text_fmt(label, "%.2f", cumlative_kilo_watt_hour);
-  } else {
-    lv_style_set_text_align(&style, LV_TEXT_ALIGN_CENTER);
-    lv_label_set_text(label, "Now loading");
-  }
-}
-//
-Widget::CumlativeWattHour::TimePart::TimePart(lv_obj_t *parent,
-                                              lv_obj_t *above_obj) {
-  if (label = lv_label_create(parent); label) {
-    lv_style_init(&style);
-    lv_style_set_text_color(&style, lv_palette_darken(LV_PALETTE_BROWN, 3));
-    lv_style_set_text_font(&style, &lv_font_montserrat_20);
-    lv_style_set_text_align(&style, LV_TEXT_ALIGN_LEFT);
-    lv_obj_add_style(label, &style, 0);
-    lv_obj_set_size(label, lv_obj_get_content_width(parent),
-                    lv_font_montserrat_20.line_height);
-    lv_obj_align_to(label, above_obj, LV_ALIGN_OUT_BOTTOM_LEFT, 0, 8);
-    lv_label_set_recolor(label, true);
-    setValue(Repository::electric_power_data.cumlative_watt_hour);
-  }
-}
-//
-void Widget::CumlativeWattHour::TimePart::setValue(
-    const std::optional<Repository::CumlativeWattHour> &cwh) {
-  using namespace std::chrono;
-  //
-  std::optional<std::time_t> asia_tokyo_time{std::nullopt};
-  if (cwh.has_value()) {
-    auto [cumlative_kilo_watt_hour, b, c] = *cwh;
-    asia_tokyo_time = cumlative_kilo_watt_hour.get_time_t();
-  }
-
-  if (asia_tokyo_time.has_value()) {
-    auto nowtp = system_clock::now();
-    auto duration = nowtp - system_clock::from_time_t(*asia_tokyo_time);
-    if (duration <= 1min) {
-      lv_label_set_text(label, "kWh (just now)");
-    } else if (duration < 2min) {
-      lv_label_set_text(label, "kWh (1 min ago)");
+void Widget::CumlativeWattHour::setValue(
+    const std::optional<Repository::CumlativeWattHour> cwh) {
+  if (value_part) {
+    if (cwh.has_value()) {
+      auto cumlative_kilo_watt_hour =
+          SmartElectricEnergyMeter::cumlative_kilo_watt_hour(*cwh).count();
+      lv_style_set_text_align(&value_part->style, LV_TEXT_ALIGN_RIGHT);
+      lv_label_set_text_fmt(value_part->label, "%.2f",
+                            cumlative_kilo_watt_hour);
     } else {
-      int32_t min = duration_cast<minutes>(duration).count();
-      lv_label_set_text_fmt(label, "kWh (%ld mins ago)", min);
+      lv_style_set_text_align(&value_part->style, LV_TEXT_ALIGN_CENTER);
+      lv_label_set_text(value_part->label, "Now loading");
     }
-  } else {
-    lv_label_set_text(label, "kWh");
   }
-}
-//
-Widget::CumlativeWattHour::CumlativeWattHour(Widget::InitArg init) noexcept {
-  tile = std::apply(lv_tileview_add_tile, init);
-  lv_obj_set_style_pad_all(tile, 8, LV_PART_MAIN);
-  lv_obj_clear_flag(tile, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_update_layout(tile);
-  do {
-    if (title = std::make_unique<TitlePart>(tile); !title) {
-      break;
+  if (time_part) {
+    std::optional<std::time_t> asia_tokyo_time =
+        cwh.has_value() ? std::get<0>(*cwh).get_time_t() : std::nullopt;
+    //
+    if (asia_tokyo_time.has_value()) {
+      auto nowtp = system_clock::now();
+      auto duration = nowtp - system_clock::from_time_t(*asia_tokyo_time);
+      if (duration <= 1min) {
+        lv_label_set_text(time_part->label, "kWh (just now)");
+      } else if (duration < 2min) {
+        lv_label_set_text(time_part->label, "kWh (1 min ago)");
+      } else {
+        int32_t min = duration_cast<minutes>(duration).count();
+        lv_label_set_text_fmt(time_part->label, "kWh (%ld mins ago)", min);
+      }
+    } else {
+      lv_label_set_text(time_part->label, "kWh");
     }
-    if (value = std::make_unique<ValuePart>(tile, title->label); !value) {
-      break;
-    }
-    if (time = std::make_unique<TimePart>(tile, value->label); !time) {
-      break;
-    }
-  } while (false /* No looping */);
+  }
 }
 //
 void Widget::CumlativeWattHour::timerHook() noexcept {
-  if (auto p = value.get(); p) {
-    p->setValue(Repository::electric_power_data.cumlative_watt_hour);
-  }
-  if (auto p = time.get(); p) {
-    p->setValue(Repository::electric_power_data.cumlative_watt_hour);
-  }
+  setValue(Repository::electric_power_data.cumlative_watt_hour);
 }
 
 //
@@ -500,32 +368,35 @@ bool Gui::begin() noexcept {
   // set timer callback
   periodic_timer = lv_timer_create(
       [](lv_timer_t *arg) noexcept -> void {
-        static int8_t countY = 0;
+        auto &gui = *static_cast<Gui *>(arg->user_data);
+        auto &gfx = static_cast<Gui *>(arg->user_data)->gfx;
+        //
+        static int8_t gravity_dir_counter = 0;
         // Display rotation
         if (float ax, ay, az; M5.Imu.getAccelData(&ax, &ay, &az)) {
           if (ax <= 0.0) {
-            countY--;
+            gravity_dir_counter--;
           } else if (ax >= 0.0) {
-            countY++;
+            gravity_dir_counter++;
           }
         }
-        if (std::abs(countY) >= 10) {
-          auto current = static_cast<M5GFX *>(arg->user_data)->getRotation();
-          auto next = countY < 0 ? 3 : 1;
+        if (std::abs(gravity_dir_counter) >= 10) {
+          auto current = gui.gfx.getRotation();
+          auto next = gravity_dir_counter < 0 ? 3 : 1;
           if (current != next) {
-            static_cast<M5GFX *>(arg->user_data)->setRotation(next);
+            gfx.setRotation(next);
             // force redraw
             lv_obj_invalidate(lv_scr_act());
           }
-          countY = 0;
+          gravity_dir_counter = 0;
         }
         // timer
-        auto itr = Gui::getInstance()->active_tile_itr;
+        auto itr = gui.active_tile_itr;
         if (auto p = itr->get(); p) {
           p->timerHook();
         }
       },
-      MILLISECONDS_OF_PERIODIC_TIMER, &gfx);
+      MILLISECONDS_OF_PERIODIC_TIMER, static_cast<Gui *>(this));
 
   return true;
 }
