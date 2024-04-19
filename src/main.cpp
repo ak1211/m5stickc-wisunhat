@@ -79,15 +79,17 @@ static void gotWiFiEvent(WiFiEvent_t event) {
   case SYSTEM_EVENT_STA_CONNECTED:
     M5_LOGI("STA Connected");
     break;
-  case SYSTEM_EVENT_AP_STA_GOT_IP6:
-    M5_LOGI("STA IPv6: ");
-    break;
-  case SYSTEM_EVENT_STA_GOT_IP:
-    M5_LOGI("STA IPv4: %s", WiFi.localIP());
-    break;
+  case SYSTEM_EVENT_AP_STA_GOT_IP6: {
+    auto localipv6 = WiFi.localIPv6();
+    M5_LOGI("STA IPv6: %s", localipv6.toString());
+  } break;
+  case SYSTEM_EVENT_STA_GOT_IP: {
+    auto localip = WiFi.localIP();
+    M5_LOGI("STA IPv4: %s", localip.toString());
+  } break;
   case SYSTEM_EVENT_STA_DISCONNECTED:
     M5_LOGI("STA Disconnected");
-    WiFi.begin();
+    //    WiFi.begin();
     break;
   case SYSTEM_EVENT_STA_STOP:
     M5_LOGI("STA Stopped");
