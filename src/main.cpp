@@ -65,27 +65,53 @@ Repository::ElectricPowerData Repository::electric_power_data{};
 // グローバル変数おわり
 // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+static void gotWiFiEvent(WiFiEvent_t event) {
+  switch (event) {
+  case SYSTEM_EVENT_AP_START:
+    M5_LOGI("AP Started");
+    break;
+  case SYSTEM_EVENT_AP_STOP:
+    M5_LOGI("AP Stopped");
+    break;
+  case SYSTEM_EVENT_STA_START:
+    M5_LOGI("STA Started");
+    break;
+  case SYSTEM_EVENT_STA_CONNECTED:
+    M5_LOGI("STA Connected");
+    break;
+  case SYSTEM_EVENT_AP_STA_GOT_IP6:
+    M5_LOGI("STA IPv6: ");
+    break;
+  case SYSTEM_EVENT_STA_GOT_IP:
+    M5_LOGI("STA IPv4: %s", WiFi.localIP());
+    break;
+  case SYSTEM_EVENT_STA_DISCONNECTED:
+    M5_LOGI("STA Disconnected");
+    WiFi.begin();
+    break;
+  case SYSTEM_EVENT_STA_STOP:
+    M5_LOGI("STA Stopped");
+    break;
+  default:
+    break;
+  }
+}
+
 //
-// WiFi APへ接続確立を試みる
+// WiFi APとの接続待ち
 //
-static bool connectToWiFi(Widget::Dialogue &dialogue,
-                          uint16_t max_retries = 100U) {
+static bool waitingForWiFiConnection(Widget::Dialogue &dialogue,
+                                     uint16_t max_retries = 100U) {
   auto status = WiFi.status();
   //
-  if (status != WL_CONNECTED) {
-    dialogue.setMessage("Connecting to WiFi SSID "s + std::string(WIFI_SSID));
-    WiFi.mode(WIFI_STA);
-    WiFi.begin(WIFI_SSID.data(), WIFI_PASSWORD.data());
+  for (auto nth_tries = 1; status != WL_CONNECTED && nth_tries <= max_retries;
+       ++nth_tries) {
+    // wait for connection.
+    dialogue.setMessage("Waiting : "s + std::to_string(nth_tries) + " / "s +
+                        std::to_string(max_retries));
+    delay(1000);
     //
-    for (auto nth_tries = 1; status != WL_CONNECTED && nth_tries <= max_retries;
-         ++nth_tries) {
-      // wait for connection.
-      dialogue.setMessage("Waiting : "s + std::to_string(nth_tries) + " / "s +
-                          std::to_string(max_retries));
-      delay(1000);
-      //
-      status = WiFi.status();
-    }
+    status = WiFi.status();
   }
   if (status == WL_CONNECTED) {
     dialogue.setMessage("WiFi connected");
@@ -136,6 +162,11 @@ void setup() {
   M5.Log.setLogLevel(m5::log_target_serial, ESP_LOG_DEBUG);
   M5.Log.setEnableColor(m5::log_target_serial, false);
 
+  // init WiFi with Station mode
+  WiFi.onEvent(gotWiFiEvent);
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(WIFI_SSID.data(), WIFI_PASSWORD.data());
+
   // BP35A1用シリアルポート
   Serial2.begin(115200, SERIAL_8N1, CommPortRx, CommPortTx);
 
@@ -163,7 +194,8 @@ void setup() {
 
   // WiFiに接続する。
   M5_LOGD("Connect to WiFi");
-  if (Widget::Dialogue dialogue{"Connect to WiFi"}; !connectToWiFi(dialogue)) {
+  if (Widget::Dialogue dialogue{"Connect to WiFi"};
+      !waitingForWiFiConnection(dialogue)) {
     goto fatal_error;
   }
 
@@ -581,7 +613,7 @@ inline void low_speed_loop(std::chrono::system_clock::time_point nowtp) {
   } else if (WiFi.status() != WL_CONNECTED) {
     // WiFiが接続されていない場合は接続する。
     Widget::Dialogue dialogue{"Connect to WiFi."};
-    if (auto ok = connectToWiFi(dialogue); !ok) {
+    if (auto ok = waitingForWiFiConnection(dialogue); !ok) {
       dialogue.error("ERROR: WiFi");
       delay(1000);
     }
