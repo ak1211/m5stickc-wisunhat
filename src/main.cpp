@@ -15,6 +15,7 @@
 #include <cstring>
 #include <ctime>
 #include <esp_sntp.h>
+#include <future>
 #include <iomanip>
 #include <lvgl.h>
 #include <map>
@@ -29,6 +30,7 @@
 #include <M5Unified.h>
 
 using namespace std::literals::string_view_literals;
+using namespace std::chrono_literals;
 
 // time zone = Asia_Tokyo(UTC+9)
 constexpr char TZ_TIME_ZONE[] = "JST-9";
@@ -188,8 +190,8 @@ void setup() {
   xTaskCreatePinnedToCore(
       [](void *arg) -> void {
         while (true) {
-          lv_timer_handler_run_in_period(30);
-          delay(30);
+          lv_timer_handler();
+          std::this_thread::sleep_for(16ms);
         }
       },
       "Task:LVGL", 8192, nullptr, 10, &rtos_task_handle, ARDUINO_RUNNING_CORE);
