@@ -20,106 +20,92 @@ using namespace std::chrono;
 //
 //
 class Dialogue {
-  lv_style_t dialogue_style{};
-  lv_obj_t *dialogue_obj{nullptr};
-  //
-  struct TitlePart {
-    lv_style_t style{};
-    lv_obj_t *label{nullptr};
-    TitlePart(lv_obj_t *parent);
-  };
-  //
-  struct MessagePart {
-    lv_style_t style{};
-    lv_obj_t *label{nullptr};
-    MessagePart(lv_obj_t *parent, lv_obj_t *above_obj);
-  };
-  //
-  std::unique_ptr<TitlePart> title{};
-  std::unique_ptr<MessagePart> message{};
-
 public:
-  Dialogue(const std::string &title_text, lv_obj_t *parent = lv_scr_act());
-  virtual ~Dialogue() { lv_obj_del(dialogue_obj); }
-  void setMessage(const std::string &text) {
-    if (message) {
-      lv_label_set_text(message->label, text.c_str());
-    }
-  }
-  void info(const std::string &text) { setMessage(text); }
-  void error(const std::string &text) { setMessage("#ff0000 " + text + "#"); }
+  Dialogue(const std::string &title_text);
+  void setMessage(const std::string &text);
+  void info(const std::string &text);
+  void error(const std::string &text);
+
+private:
+  lv_style_t _dialogue_style{};
+  std::shared_ptr<lv_obj_t> _dialogue_obj;
+  //
+  lv_style_t _title_label_style{};
+  std::shared_ptr<lv_obj_t> _title_label_obj;
+  //
+  lv_style_t _message_label_style{};
+  std::shared_ptr<lv_obj_t> _message_label_obj;
 };
 
 // init argument for "lv_tileview_add_tile()"
-using InitArg = std::tuple<lv_obj_t *, uint8_t, uint8_t, lv_dir_t>;
+using InitArg =
+    std::tuple<std::shared_ptr<lv_obj_t>, uint8_t, uint8_t, lv_dir_t>;
 
 //
 //
 //
-class BasicTile {
+class TileBase {
+public:
+  TileBase(InitArg init);
+  //
+  bool isActiveTile() const;
+  //
+  void setActiveTile();
+  //
+  virtual void update() = 0;
+
 protected:
+  std::shared_ptr<lv_obj_t> _tileview_obj;
   //
-  struct TitlePart {
-    lv_style_t style{};
-    lv_obj_t *label{nullptr};
-    TitlePart(lv_obj_t *parent);
-  };
+  std::shared_ptr<lv_obj_t> _tile_obj;
   //
-  struct ValuePart {
-    lv_style_t style{};
-    lv_obj_t *label{nullptr};
-    ValuePart(lv_obj_t *parent, lv_obj_t *above_obj);
-  };
+  const lv_font_t &_title_label_font{lv_font_montserrat_20};
+  lv_style_t _title_label_style{};
+  std::shared_ptr<lv_obj_t> _title_label_obj;
   //
-  struct TimePart {
-    lv_style_t style{};
-    lv_obj_t *label{nullptr};
-    TimePart(lv_obj_t *parent, lv_obj_t *above_obj);
-  };
+  const lv_font_t &_value_label_font{lv_font_montserrat_46};
+  lv_style_t _value_label_style{};
+  std::shared_ptr<lv_obj_t> _value_label_obj;
   //
-  std::unique_ptr<TitlePart> title_part{};
-  std::unique_ptr<ValuePart> value_part{};
-  std::unique_ptr<TimePart> time_part{};
-  lv_obj_t *tile_obj{nullptr};
-
-public:
-  BasicTile(BasicTile &&) = delete;
-  BasicTile &operator=(const BasicTile &) = delete;
-  //
-  BasicTile(InitArg init) noexcept;
-  virtual ~BasicTile() noexcept;
-  void setActiveTile(lv_obj_t *tileview) noexcept;
-  virtual void timerHook() noexcept = 0;
+  const lv_font_t &_time_label_font{lv_font_montserrat_20};
+  lv_style_t _time_label_style{};
+  std::shared_ptr<lv_obj_t> _time_label_obj;
 };
 
 //
 // 測定値表示
 //
-class InstantWatt : public BasicTile {
+class InstantWatt : public TileBase {
 public:
-  InstantWatt(InitArg init) noexcept;
-  virtual void timerHook() noexcept override;
-  void setValue(const std::optional<Repository::InstantWatt> iw);
+  InstantWatt(InitArg init);
+  //
+  void showValue(const std::optional<Repository::InstantWatt> iw);
+  //
+  virtual void update() override;
 };
 
 //
 // 測定値表示
 //
-class InstantAmpere : public BasicTile {
+class InstantAmpere : public TileBase {
 public:
-  InstantAmpere(InitArg init) noexcept;
-  virtual void timerHook() noexcept override;
-  void setValue(const std::optional<Repository::InstantAmpere> ia);
+  InstantAmpere(InitArg init);
+  //
+  void showValue(const std::optional<Repository::InstantAmpere> ia);
+  //
+  virtual void update() override;
 };
 
 //
 // 測定値表示
 //
-class CumlativeWattHour : public BasicTile {
+class CumlativeWattHour : public TileBase {
 public:
-  CumlativeWattHour(InitArg init) noexcept;
-  virtual void timerHook() noexcept override;
-  void setValue(const std::optional<Repository::CumlativeWattHour> iw);
+  CumlativeWattHour(InitArg init);
+  //
+  void showValue(const std::optional<Repository::CumlativeWattHour> cwh);
+  //
+  virtual void update() override;
 };
 } // namespace Widget
 
@@ -128,39 +114,44 @@ public:
 //
 class Gui {
   inline static Gui *_instance{nullptr};
-  constexpr static uint16_t MILLISECONDS_OF_PERIODIC_TIMER = 100;
+  constexpr static uint16_t MILLISECONDS_OF_PERIODIC_TIMER = 125;
 
 public:
   //
-  Gui(M5GFX &gfx) : gfx{gfx}, active_tile_itr{tiles.begin()} {
+  Gui(M5GFX &gfx) : _gfx{gfx}, _active_tile_itr{_tiles.begin()} {
     if (_instance) {
       delete _instance;
     }
     _instance = this;
   }
   //
-  virtual ~Gui() { lv_obj_del(tileview); }
+  static Gui *getInstance() { return _instance; }
   //
-  static Gui *getInstance() noexcept { return _instance; }
+  bool begin();
   //
-  bool begin() noexcept;
+  void startUi();
   //
-  void startUi() noexcept;
-  //
-  void moveNext() noexcept {
-    if (active_tile_itr != tiles.end()) {
-      ++active_tile_itr;
+  void home() {
+    _active_tile_itr = _tiles.begin();
+    if (auto ptr = _active_tile_itr->get(); ptr) {
+      ptr->setActiveTile();
     }
-    if (active_tile_itr == tiles.end()) {
-      active_tile_itr = tiles.begin();
+  }
+  //
+  void moveNext() {
+    if (_active_tile_itr != _tiles.end()) {
+      ++_active_tile_itr;
     }
-    if (auto ptr = active_tile_itr->get(); ptr) {
-      ptr->setActiveTile(tileview);
+    if (_active_tile_itr == _tiles.end()) {
+      _active_tile_itr = _tiles.begin();
+    }
+    if (auto ptr = _active_tile_itr->get(); ptr) {
+      ptr->setActiveTile();
     }
   }
 
 private:
-  M5GFX &gfx;
+  M5GFX &_gfx;
   // LVGL use area
   struct {
     // LVGL draw buffer
@@ -168,14 +159,14 @@ private:
     std::unique_ptr<lv_color_t[]> draw_buf_2;
     lv_disp_draw_buf_t draw_buf_dsc;
     lv_disp_drv_t disp_drv;
-  } lvgl_use;
+  } _lvgl_use;
   // LVGL timer
   lv_timer_t *periodic_timer{nullptr};
   // LVGL tileview object
-  lv_style_t tileview_style{};
-  lv_obj_t *tileview{nullptr};
+  lv_style_t _tileview_style{};
+  std::shared_ptr<lv_obj_t> _tileview;
   // tile widget
-  using TileVector = std::vector<std::unique_ptr<Widget::BasicTile>>;
-  TileVector tiles{};
-  TileVector::iterator active_tile_itr{};
+  using TileVector = std::vector<std::unique_ptr<Widget::TileBase>>;
+  TileVector _tiles{};
+  TileVector::iterator _active_tile_itr{};
 };
