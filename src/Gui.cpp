@@ -14,6 +14,105 @@
 #include <M5Unified.h>
 
 //
+lv_color_t Gui::LvglUseArea::draw_buf_1[];
+lv_color_t Gui::LvglUseArea::draw_buf_2[];
+
+//
+void Gui::lvgl_use_display_flush_callback(lv_disp_drv_t *disp_drv,
+                                          const lv_area_t *area,
+                                          lv_color_t *color_p) {
+  M5GFX &gfx = *static_cast<M5GFX *>(disp_drv->user_data);
+
+  int32_t width = area->x2 - area->x1 + 1;
+  int32_t height = area->y2 - area->y1 + 1;
+  gfx.startWrite();
+  gfx.setAddrWindow(area->x1, area->y1, width, height);
+  gfx.writePixels(reinterpret_cast<uint16_t *>(color_p), width * height, true);
+  gfx.endWrite();
+
+  lv_disp_flush_ready(disp_drv);
+}
+
+//
+bool Gui::begin() {
+  // Display init
+  _gfx.setColorDepth(LV_COLOR_DEPTH);
+  _gfx.setRotation(3);
+  // LVGL init
+  M5_LOGD("initializing LVGL");
+  lv_init();
+  lv_disp_draw_buf_init(&_lvgl_use.draw_buf_dsc, _lvgl_use.draw_buf_1,
+                        _lvgl_use.draw_buf_2, std::size(_lvgl_use.draw_buf_1));
+
+  // LVGL display driver
+  lv_disp_drv_init(&_lvgl_use.disp_drv);
+  _lvgl_use.disp_drv.user_data = &_gfx;
+  _lvgl_use.disp_drv.hor_res = _gfx.width();
+  _lvgl_use.disp_drv.ver_res = _gfx.height();
+  _lvgl_use.disp_drv.flush_cb = lvgl_use_display_flush_callback;
+  _lvgl_use.disp_drv.draw_buf = &_lvgl_use.draw_buf_dsc;
+
+  // register the display driver
+  lv_disp_drv_register(&_lvgl_use.disp_drv);
+
+  // set timer callback
+  periodic_timer = lv_timer_create(
+      [](lv_timer_t *arg) -> void {
+        auto gui = static_cast<Gui *>(arg->user_data);
+        assert(gui);
+        //
+        static int8_t gravity_dir_counter = 0;
+        // Display rotation
+        if (float ax, ay, az; M5.Imu.getAccelData(&ax, &ay, &az)) {
+          if (ax <= 0.0) {
+            gravity_dir_counter--;
+          } else if (ax >= 0.0) {
+            gravity_dir_counter++;
+          }
+        }
+        if (std::abs(gravity_dir_counter) >= 10) {
+          auto current = gui->_gfx.getRotation();
+          auto next = gravity_dir_counter < 0 ? 3 : 1;
+          if (current != next) {
+            gui->_gfx.setRotation(next);
+            // force redraw
+            lv_obj_invalidate(lv_scr_act());
+          }
+          gravity_dir_counter = 0;
+          //
+          if (auto ptr = gui->_active_tile_itr->get(); ptr) {
+            ptr->update();
+          }
+        }
+      },
+      MILLISECONDS_OF_PERIODIC_TIMER, static_cast<Gui *>(this));
+
+  return true;
+}
+
+//
+void Gui::startUi() {
+  // tileview style init
+  lv_style_init(&_tileview_style);
+  lv_style_set_bg_opa(&_tileview_style, LV_OPA_COVER);
+  lv_style_set_bg_color(&_tileview_style,
+                        lv_palette_lighten(LV_PALETTE_GREEN, 2));
+  // tileview init
+  _tileview.reset(lv_tileview_create(lv_scr_act()), lv_obj_del);
+  if (_tileview) {
+    lv_obj_add_style(_tileview.get(), &_tileview_style, LV_PART_MAIN);
+
+    Widget::InitArg iwatt{_tileview, 0, 0, LV_DIR_NONE};
+    Widget::InitArg iampere{_tileview, 0, 1, LV_DIR_NONE};
+    Widget::InitArg cwatthour{_tileview, 0, 2, LV_DIR_NONE};
+    _tiles.emplace_back(std::make_unique<Widget::InstantWatt>(iwatt));
+    _tiles.emplace_back(std::make_unique<Widget::InstantAmpere>(iampere));
+    _tiles.emplace_back(std::make_unique<Widget::CumlativeWattHour>(cwatthour));
+  }
+  home();
+}
+
+//
 //
 //
 Widget::Dialogue::Dialogue(const std::string &title_text) {
@@ -347,111 +446,4 @@ void Widget::CumlativeWattHour::showValue(
 //
 void Widget::CumlativeWattHour::update() {
   showValue(Repository::electric_power_data.cumlative_watt_hour);
-}
-
-//
-//
-//
-bool Gui::begin() {
-  // Display init
-  _gfx.setColorDepth(LV_COLOR_DEPTH);
-  _gfx.setRotation(3);
-  // LVGL init
-  M5_LOGD("initializing LVGL");
-  lv_init();
-
-  // allocate LVGL draw buffer
-  const int32_t DRAW_BUFFER_SIZE = _gfx.width() * (_gfx.height() / 10);
-  _lvgl_use.draw_buf_1 = std::make_unique<lv_color_t[]>(DRAW_BUFFER_SIZE);
-  _lvgl_use.draw_buf_2 = std::make_unique<lv_color_t[]>(DRAW_BUFFER_SIZE);
-  if (_lvgl_use.draw_buf_1 == nullptr || _lvgl_use.draw_buf_2 == nullptr) {
-    M5_LOGE("memory allocation error");
-    return false;
-  }
-  lv_disp_draw_buf_init(&_lvgl_use.draw_buf_dsc, _lvgl_use.draw_buf_1.get(),
-                        _lvgl_use.draw_buf_2.get(), DRAW_BUFFER_SIZE);
-
-  // LVGL display driver
-  lv_disp_drv_init(&_lvgl_use.disp_drv);
-  _lvgl_use.disp_drv.user_data = &_gfx;
-  _lvgl_use.disp_drv.hor_res = _gfx.width();
-  _lvgl_use.disp_drv.ver_res = _gfx.height();
-  // vvvvvvvvvv DISPLAY FLUSH CALLBACK FUNCTION vvvvvvvvvv
-  _lvgl_use.disp_drv.flush_cb = [](lv_disp_drv_t *disp_drv,
-                                   const lv_area_t *area,
-                                   lv_color_t *color_p) -> void {
-    M5GFX &gfx = *static_cast<M5GFX *>(disp_drv->user_data);
-
-    int32_t width = area->x2 - area->x1 + 1;
-    int32_t height = area->y2 - area->y1 + 1;
-
-    gfx.startWrite();
-    gfx.setAddrWindow(area->x1, area->y1, width, height);
-    gfx.writePixels(reinterpret_cast<uint16_t *>(color_p), width * height,
-                    true);
-    gfx.endWrite();
-
-    lv_disp_flush_ready(disp_drv);
-  };
-  // ^^^^^^^^^^ DISPLAY FLUSH CALLBACK FUNCTION ^^^^^^^^^^
-  _lvgl_use.disp_drv.draw_buf = &_lvgl_use.draw_buf_dsc;
-
-  // register the display driver
-  lv_disp_drv_register(&_lvgl_use.disp_drv);
-
-  // set timer callback
-  periodic_timer = lv_timer_create(
-      [](lv_timer_t *arg) -> void {
-        auto gui = static_cast<Gui *>(arg->user_data);
-        assert(gui);
-        //
-        static int8_t gravity_dir_counter = 0;
-        // Display rotation
-        if (float ax, ay, az; M5.Imu.getAccelData(&ax, &ay, &az)) {
-          if (ax <= 0.0) {
-            gravity_dir_counter--;
-          } else if (ax >= 0.0) {
-            gravity_dir_counter++;
-          }
-        }
-        if (std::abs(gravity_dir_counter) >= 10) {
-          auto current = gui->_gfx.getRotation();
-          auto next = gravity_dir_counter < 0 ? 3 : 1;
-          if (current != next) {
-            gui->_gfx.setRotation(next);
-            // force redraw
-            lv_obj_invalidate(lv_scr_act());
-          }
-          gravity_dir_counter = 0;
-          //
-          if (auto ptr = gui->_active_tile_itr->get(); ptr) {
-            ptr->update();
-          }
-        }
-      },
-      MILLISECONDS_OF_PERIODIC_TIMER, static_cast<Gui *>(this));
-
-  return true;
-}
-
-//
-void Gui::startUi() {
-  // tileview style init
-  lv_style_init(&_tileview_style);
-  lv_style_set_bg_opa(&_tileview_style, LV_OPA_COVER);
-  lv_style_set_bg_color(&_tileview_style,
-                        lv_palette_lighten(LV_PALETTE_GREEN, 2));
-  // tileview init
-  _tileview.reset(lv_tileview_create(lv_scr_act()), lv_obj_del);
-  if (_tileview) {
-    lv_obj_add_style(_tileview.get(), &_tileview_style, LV_PART_MAIN);
-
-    Widget::InitArg iwatt{_tileview, 0, 0, LV_DIR_NONE};
-    Widget::InitArg iampere{_tileview, 0, 1, LV_DIR_NONE};
-    Widget::InitArg cwatthour{_tileview, 0, 2, LV_DIR_NONE};
-    _tiles.emplace_back(std::make_unique<Widget::InstantWatt>(iwatt));
-    _tiles.emplace_back(std::make_unique<Widget::InstantAmpere>(iampere));
-    _tiles.emplace_back(std::make_unique<Widget::CumlativeWattHour>(cwatthour));
-  }
-  home();
 }

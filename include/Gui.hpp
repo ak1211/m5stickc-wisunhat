@@ -152,14 +152,6 @@ public:
 
 private:
   M5GFX &_gfx;
-  // LVGL use area
-  struct {
-    // LVGL draw buffer
-    std::unique_ptr<lv_color_t[]> draw_buf_1;
-    std::unique_ptr<lv_color_t[]> draw_buf_2;
-    lv_disp_draw_buf_t draw_buf_dsc;
-    lv_disp_drv_t disp_drv;
-  } _lvgl_use;
   // LVGL timer
   lv_timer_t *periodic_timer{nullptr};
   // LVGL tileview object
@@ -169,4 +161,21 @@ private:
   using TileVector = std::vector<std::unique_ptr<Widget::TileBase>>;
   TileVector _tiles{};
   TileVector::iterator _active_tile_itr{};
+
+private:
+  constexpr static auto LVGL_BUFFER_ONE_SIZE_OF_BYTES = size_t{2048};
+  // LVGL use area
+  struct LvglUseArea {
+    // LVGL draw buffer
+    static lv_color_t
+        draw_buf_1[LVGL_BUFFER_ONE_SIZE_OF_BYTES / sizeof(lv_color_t)];
+    static lv_color_t
+        draw_buf_2[LVGL_BUFFER_ONE_SIZE_OF_BYTES / sizeof(lv_color_t)];
+    lv_disp_draw_buf_t draw_buf_dsc;
+    lv_disp_drv_t disp_drv;
+  } _lvgl_use;
+  //
+  static void lvgl_use_display_flush_callback(lv_disp_drv_t *disp_drv,
+                                              const lv_area_t *area,
+                                              lv_color_t *color_p);
 };
