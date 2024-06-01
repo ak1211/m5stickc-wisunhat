@@ -214,7 +214,8 @@ public:
         sending_fifo_queue{},
         _message_id_counter{0} {}
   //
-  static void callbackfn(char *topic, uint8_t *payload, unsigned int length) {
+  static void mqtt_callback(char *topic, uint8_t *payload,
+                            unsigned int length) {
     std::string s(length + 1, '\0');
     std::copy_n(payload, length, s.begin());
     s.shrink_to_fit();
@@ -224,16 +225,16 @@ public:
   //
   bool connected() { return mqtt_client.connected(); }
   //
-  std::string lastError() {
+  static std::string httpsLastError(WiFiClientSecure &client) {
     constexpr std::size_t N{256};
     std::string buff(N, '\0');
-    https_client.lastError(buff.data(), N);
+    client.lastError(buff.data(), N);
     buff.shrink_to_fit();
     return buff;
   }
   //
-  std::string_view strMqttState() {
-    switch (mqtt_client.state()) {
+  static std::string strMqttState(PubSubClient &client) {
+    switch (client.state()) {
     case MQTT_CONNECTION_TIMEOUT:
       return "MQTT_CONNECTION_TIMEOUT";
     case MQTT_CONNECTION_LOST:
@@ -280,21 +281,21 @@ public:
     mqtt_client.setServer(_endpoint.get().c_str(), MQTT_PORT);
     mqtt_client.setSocketTimeout(SOCKET_TIMEOUT);
     mqtt_client.setKeepAlive(KEEP_ALIVE);
-    mqtt_client.setCallback(callbackfn);
+    mqtt_client.setCallback(mqtt_callback);
     //
     bool success{false};
     do {
       success = mqtt_client.connect(_deviceId.get().c_str(), nullptr,
                                     QUARITY_OF_SERVICE, false, "");
-      yield();
+      std::this_thread::yield();
     } while (!success && system_clock::now() < tp);
 
     if (success) {
       display_message("connected.", user_data);
     } else {
       display_message(
-          "connect fail to AWS IoT, state: " + std::string(strMqttState()) +
-              ", reason: " + lastError(),
+          "connect fail to AWS IoT, state: " + strMqttState(mqtt_client) +
+              ", reason: " + httpsLastError(https_client),
           user_data);
       return false;
     }
@@ -335,8 +336,9 @@ public:
       return true;
     }
     // MQTT再接続シーケンス
-    M5_LOGE("MQTT reconnect, state: %s, reason: %s", strMqttState().data(),
-            lastError().c_str());
+    M5_LOGE("MQTT reconnect, state: %s, reason: %s",
+            strMqttState(mqtt_client).c_str(),
+            httpsLastError(https_client).c_str());
     return connectToAwsIot(timeout, display_message, user_data);
   }
   //
