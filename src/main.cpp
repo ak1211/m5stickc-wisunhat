@@ -64,10 +64,10 @@ static Telemetry::Mqtt
     telemetry(Telemetry::DeviceId{AWS_IOT_DEVICE_ID},
               // データーベースのパーティションキーであるセンサーＩＤ
               Telemetry::SensorId{"smartmeter"},
-              Telemetry::AwsIot::Endpoint{AWS_IOT_ENDPOINT},
-              Telemetry::AwsIot::RootCa{AWS_IOT_ROOT_CA},
-              Telemetry::AwsIot::Certificate{AWS_IOT_CERTIFICATE},
-              Telemetry::AwsIot::PrivateKey{AWS_IOT_PRIVATE_KEY});
+              Telemetry::AwsIotEndpoint{AWS_IOT_ENDPOINT},
+              Telemetry::AwsIotRootCa{AWS_IOT_ROOT_CA},
+              Telemetry::AwsIotCertificate{AWS_IOT_CERTIFICATE},
+              Telemetry::AwsIotPrivateKey{AWS_IOT_PRIVATE_KEY});
 //
 Repository::ElectricPowerData Repository::electric_power_data{};
 //
