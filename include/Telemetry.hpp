@@ -5,25 +5,14 @@
 #pragma once
 #include "Application.hpp"
 #include "EchonetLite.hpp"
-#include <ArduinoJson.h>
 #include <PubSubClient.h>
-#include <WiFi.h>
-#include <WiFiClient.h>
 #include <WiFiClientSecure.h>
 #include <chrono>
-#include <ctime>
-#include <functional>
-#include <future>
 #include <queue>
 #include <string>
 #include <tuple>
 #include <variant>
 
-using namespace std::literals::string_literals;
-
-//
-//
-//
 //
 // MQTT通信
 //
@@ -98,8 +87,8 @@ public:
 public:
   constexpr static auto MAXIMUM_QUEUE_SIZE = size_t{100};
   constexpr static auto MQTT_PORT = uint16_t{8883};
-  constexpr static auto SOCKET_TIMEOUT = uint16_t{90};
-  constexpr static auto KEEP_ALIVE = uint16_t{60};
+  constexpr static auto SOCKET_TIMEOUT = std::chrono::seconds{90};
+  constexpr static auto KEEP_ALIVE = std::chrono::seconds{60};
   constexpr static auto QUARITY_OF_SERVICE = uint8_t{1};
   //
   Telemetry(DeviceId deviceId, SensorId sensorId, AwsIotEndpoint endpoint,
@@ -113,8 +102,10 @@ public:
         _root_ca{root_ca},
         _certificate{certificate},
         _private_key{private_key},
-        _publish_topic{"device/"s + _deviceId.get() + "/data"s},
-        _subscribe_topic{"device/"s + _deviceId.get() + "/cmd"s},
+        _publish_topic{std::string{"device/"} + _deviceId.get() +
+                       std::string{"/data"}},
+        _subscribe_topic{std::string{"device/"} + _deviceId.get() +
+                         std::string{"/cmd"}},
         sending_fifo_queue{},
         _message_id_counter{0} {}
   //
