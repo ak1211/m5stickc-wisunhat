@@ -25,7 +25,8 @@ using namespace std::literals::string_view_literals;
 constexpr static auto RETRY_TIMEOUT = std::chrono::seconds{10};
 
 // メッセージを表示する関数の型
-using DisplayMessageT = std::function<void(const std::string &message, void *user_data)>;
+using DisplayMessageT =
+    std::function<void(const std::string &message, void *user_data)>;
 
 // 受信メッセージを破棄する
 void clear_read_buffer(Stream &commport) {
@@ -69,7 +70,7 @@ std::pair<std::string, std::string> get_token(Stream &commport, int sep) {
 
 // CRLFを付けてストリームに1行書き込む関数
 void write_with_crln(Stream &commport, const std::string &line) {
-  ESP_LOGD(SEND, "%s", line.c_str());
+  M5_LOGD("%s", line.c_str());
   commport.write(line.c_str(), line.length());
   commport.write("\r\n");
   // メッセージ送信完了待ち
@@ -82,7 +83,7 @@ bool has_ok(Stream &commport, std::chrono::seconds timeout) {
   const time_point tp = system_clock::now() + timeout;
   do {
     if (auto [token, sep] = get_token(commport, '\n'); token.length() > 0) {
-      ESP_LOGV(MAIN, "\"%s\"", token.c_str());
+      M5_LOGV("\"%s\"", token.c_str());
       // OKで始まるかFAILで始まるか
       if (token.find("OK") == 0) {
         return true;
@@ -294,7 +295,7 @@ std::optional<Response> receive_response(Stream &commport) {
       std::string str = std::accumulate(
           tokens.begin(), tokens.end(), name,
           [](auto acc, auto x) -> std::string { return acc + " " + x; });
-      ESP_LOGD(MAIN, "%s", str.c_str());
+      M5_LOGD("%s", str.c_str());
     }
     if (tokens.size() == 2) { // 3番目のパラメータがない場合がある
       ResEvent ev;
@@ -309,7 +310,7 @@ std::optional<Response> receive_response(Stream &commport) {
       ev.param = makeHexedU8(tokens[2]);
       return std::make_optional(ev);
     }
-    ESP_LOGE(MAIN, "rx_event: Unexpected end of input.");
+    M5_LOGE("rx_event: Unexpected end of input.");
     return std::nullopt;
   };
   // EPANDESCを受信する
@@ -331,7 +332,7 @@ std::optional<Response> receive_response(Stream &commport) {
                             auto [l, r] = LandR;
                             return acc + " [" + l + ":" + r + "],";
                           });
-      ESP_LOGD(MAIN, "%s", str.c_str());
+      M5_LOGD("%s", str.c_str());
     }
     ResEpandesc ev;
     auto counter = 0;
@@ -359,14 +360,14 @@ std::optional<Response> receive_response(Stream &commport) {
         ev.pairid = right;
         counter = counter + 1;
       } else {
-        ESP_LOGE(MAIN, "rx_epandesc: Unexpected input. \"%s\":\"%s\"", //
-                 left, right);
+        M5_LOGE("rx_epandesc: Unexpected input. \"%s\":\"%s\"", //
+                left, right);
       }
     }
     if (counter == N) {
       return std::make_optional(ev);
     } else {
-      ESP_LOGE(MAIN, "rx_epandesc: Unexpected end of input.");
+      M5_LOGE("rx_epandesc: Unexpected end of input.");
       return std::nullopt;
     }
   };
@@ -388,7 +389,7 @@ std::optional<Response> receive_response(Stream &commport) {
       std::string str = std::accumulate(
           tokens.begin(), tokens.end(), name,
           [](auto acc, auto x) -> std::string { return acc + " " + x; });
-      ESP_LOGD(MAIN, "%s", str.c_str());
+      M5_LOGD("%s", str.c_str());
     }
     if (tokens.size() >= 7) {
       ResErxudp ev;
@@ -418,14 +419,14 @@ std::optional<Response> receive_response(Stream &commport) {
       //
       return std::make_optional(ev);
     } else {
-      ESP_LOGE(MAIN, "rx_erxudp: Unexpected end of input.");
+      M5_LOGE("rx_erxudp: Unexpected end of input.");
       return std::nullopt;
     }
   };
   // よくわからないイベントを受信する
   auto rx_fallthrough =
       [&commport](const std::string &token) -> std::optional<Response> {
-    ESP_LOGE(MAIN, "Unknown event: \"%s\"", token.c_str());
+    M5_LOGE("Unknown event: \"%s\"", token.c_str());
     return std::nullopt;
   };
   //
@@ -513,7 +514,7 @@ bool send_request(
   // デバッグ用
   std::copy(payload.begin(), payload.end(),
             std::ostream_iterator<HexedU8>(oss));
-  ESP_LOGD(MAIN, "%s", oss.str().c_str());
+  M5_LOGD("%s", oss.str().c_str());
   //
   return has_ok(commport, RETRY_TIMEOUT);
 }
@@ -522,7 +523,7 @@ bool send_request(
 bool connect(Stream &commport, const SmartMeterIdentifier &smart_meter_ident,
              DisplayMessageT message, void *user_data) {
   //
-  ESP_LOGD(MAIN, "%s", to_string(smart_meter_ident).c_str());
+  M5_LOGD("%s", to_string(smart_meter_ident).c_str());
 
   // 通信チャネルを設定する
   message("Set Channel", user_data);
@@ -558,22 +559,21 @@ bool connect(Stream &commport, const SmartMeterIdentifier &smart_meter_ident,
     if (auto opt_res = receive_response(commport)) {
       // 何か受け取ったみたい
       const Response &resp = opt_res.value();
-      std::visit(
-          [](const auto &x) { ESP_LOGD(MAIN, "%s", to_string(x).c_str()); },
-          resp);
+      std::visit([](const auto &x) { M5_LOGD("%s", to_string(x).c_str()); },
+                 resp);
       if (const auto *eventp = std::get_if<ResEvent>(&resp)) {
         // イベント番号
         switch (eventp->num.u8) {
         case 0x24: {
           // EVENT 24 :
           // PANAによる接続過程でエラーが発生した(接続が完了しなかった)
-          ESP_LOGD(MAIN, "Fail to connect");
+          M5_LOGD("Fail to connect");
           message("Fail to connect", user_data);
           return false;
         }
         case 0x25: {
           // EVENT 25 : PANAによる接続が完了した
-          ESP_LOGD(MAIN, "Connected");
+          M5_LOGD("Connected");
           message("Connected", user_data);
           return true;
         }
@@ -615,9 +615,8 @@ do_active_scan(Stream &commport, DisplayMessageT message, void *user_data) {
       if (auto opt_res = receive_response(commport)) {
         // 何か受け取ったみたい
         const Response &resp = opt_res.value();
-        std::visit(
-            [](const auto &x) { ESP_LOGD(MAIN, "%s", to_string(x).c_str()); },
-            resp);
+        std::visit([](const auto &x) { M5_LOGD("%s", to_string(x).c_str()); },
+                   resp);
         if (const auto *eventp = std::get_if<ResEvent>(&resp)) {
           // イベント番号
           if (eventp->num.u8 == 0x22) {
@@ -694,7 +693,7 @@ std::optional<SmartMeterIdentifier> startup_and_find_meter(
   if (!conn_target.has_value()) {
     // 接続対象のスマートメーターが見つからなかった
     display_message("smart meter not found.", user_data);
-    ESP_LOGD(MAIN, "smart meter not found.");
+    M5_LOGD("smart meter not found.");
     return std::nullopt;
   }
 
@@ -706,7 +705,7 @@ std::optional<SmartMeterIdentifier> startup_and_find_meter(
 
   if (!resp_ipv6_address.has_value()) {
     display_message("get ipv6 address fail.", user_data);
-    ESP_LOGD(MAIN, "get ipv6 address fail.");
+    M5_LOGD("get ipv6 address fail.");
     return std::nullopt;
   }
   // アクティブスキャン結果

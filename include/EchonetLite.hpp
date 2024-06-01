@@ -11,7 +11,6 @@
 #include <cmath>
 #include <cstdint>
 #include <ctime>
-#include <esp_log.h>
 #include <iomanip>
 #include <iterator>
 #include <memory>
@@ -22,6 +21,8 @@
 #include <tuple>
 #include <variant>
 #include <vector>
+
+#include <M5Unified.h>
 
 using namespace std::literals::string_literals;
 using namespace std::literals::string_view_literals;
@@ -243,8 +244,8 @@ serializeFromEchonetLiteFrame(const EchonetLiteFrame &frame) {
   // OPC: 処理プロパティ数
   octets.push_back(static_cast<uint8_t>(frame.edata.props.size()));
   if (frame.edata.opc != frame.edata.props.size()) {
-    ESP_LOGD(MAIN, "size mismatched: OPC:%d, SIZE():%d", frame.edata.opc,
-             frame.edata.props.size());
+    M5_LOGD("size mismatched: OPC:%d, SIZE():%d", frame.edata.opc,
+            frame.edata.props.size());
   }
   //
   // 以降,ECHONET Liteプロパティ
@@ -257,8 +258,7 @@ serializeFromEchonetLiteFrame(const EchonetLiteFrame &frame) {
     // PDC: EDTのバイト数
     octets.push_back(prop.edt.size());
     if (prop.pdc != prop.edt.size()) {
-      ESP_LOGD(MAIN, "size mismatched: PDC:%d, SIZE():%d", prop.pdc,
-               prop.edt.size());
+      M5_LOGD("size mismatched: PDC:%d, SIZE():%d", prop.pdc, prop.edt.size());
     }
     // EDT: データ
     std::copy(prop.edt.cbegin(), prop.edt.cend(), std::back_inserter(octets));
@@ -280,7 +280,7 @@ deserializeToEchonetLiteFrame(const std::vector<uint8_t> &data) {
   frame.ehd = EchonetLiteEHeader({*it++, *it++});
   if (frame.ehd != EchonetLiteEHD) {
     // ECHONET Lite 電文形式でないので
-    ESP_LOGD(MAIN, "Unknown EHD: %s", std::string(frame.ehd).c_str());
+    M5_LOGD("Unknown EHD: %s", std::string(frame.ehd).c_str());
     return std::nullopt;
   }
   // bytes#3 and bytes#4
@@ -331,7 +331,7 @@ deserializeToEchonetLiteFrame(const std::vector<uint8_t> &data) {
   }
   return std::make_optional(frame);
 insufficient_inputs:
-  ESP_LOGD(MAIN, "insufficient input. This is %d bytes.", data.size());
+  M5_LOGD("insufficient input. This is %d bytes.", data.size());
   return std::nullopt;
 }
 
@@ -723,30 +723,28 @@ process_echonet_lite_frame(const EchonetLiteFrame &frame) {
         };
         switch (static_cast<OpStatus>(prop.edt[0])) {
         case OpStatus::ON:
-          ESP_LOGD(MAIN, "operation status : ON");
+          M5_LOGD("operation status : ON");
           break;
         case OpStatus::OFF:
-          ESP_LOGD(MAIN, "operation status : OFF");
+          M5_LOGD("operation status : OFF");
           break;
         }
       } else {
-        ESP_LOGD(MAIN,
-                 "pdc is should be 1 bytes, this is "
-                 "%d bytes.",
-                 prop.edt.size());
+        M5_LOGD("pdc is should be 1 bytes, this is "
+                "%d bytes.",
+                prop.edt.size());
       }
     } break;
     case 0x81: {                  // 設置場所
       if (prop.edt.size() == 1) { // 1バイト
         uint8_t a = prop.edt[0];
-        ESP_LOGD(MAIN, "installation location: 0x%02X", a);
+        M5_LOGD("installation location: 0x%02X", a);
       } else if (prop.edt.size() == 17) { // 17バイト
-        ESP_LOGD(MAIN, "installation location");
+        M5_LOGD("installation location");
       } else {
-        ESP_LOGD(MAIN,
-                 "pdc is should be 1 or 17 bytes, "
-                 "this is %d bytes.",
-                 prop.edt.size());
+        M5_LOGD("pdc is should be 1 or 17 bytes, "
+                "this is %d bytes.",
+                prop.edt.size());
       }
     } break;
     case 0x88: {                  // 異常発生状態
@@ -757,17 +755,16 @@ process_echonet_lite_frame(const EchonetLiteFrame &frame) {
         };
         switch (static_cast<FaultStatus>(prop.edt[0])) {
         case FaultStatus::FaultOccurred:
-          ESP_LOGD(MAIN, "FaultStatus::FaultOccurred");
+          M5_LOGD("FaultStatus::FaultOccurred");
           break;
         case FaultStatus::NoFault:
-          ESP_LOGD(MAIN, "FaultStatus::NoFault");
+          M5_LOGD("FaultStatus::NoFault");
           break;
         }
       } else {
-        ESP_LOGD(MAIN,
-                 "pdc is should be 1 bytes, this is "
-                 "%d bytes.",
-                 prop.edt.size());
+        M5_LOGD("pdc is should be 1 bytes, this is "
+                "%d bytes.",
+                prop.edt.size());
       }
     } break;
     case 0x8A: {                  // メーカーコード
@@ -775,12 +772,11 @@ process_echonet_lite_frame(const EchonetLiteFrame &frame) {
         uint8_t a = prop.edt[0];
         uint8_t b = prop.edt[1];
         uint8_t c = prop.edt[2];
-        ESP_LOGD(MAIN, "Manufacturer: 0x%02X%02X%02X", a, b, c);
+        M5_LOGD("Manufacturer: 0x%02X%02X%02X", a, b, c);
       } else {
-        ESP_LOGD(MAIN,
-                 "pdc is should be 3 bytes, this is "
-                 "%d bytes.",
-                 prop.edt.size());
+        M5_LOGD("pdc is should be 3 bytes, this is "
+                "%d bytes.",
+                prop.edt.size());
       }
     } break;
     case 0xD3: { // 係数
@@ -792,72 +788,67 @@ process_echonet_lite_frame(const EchonetLiteFrame &frame) {
         // 係数が無い場合は1倍となる
         coeff = Coefficient{};
       }
-      ESP_LOGD(MAIN, "coefficient the %d", +coeff.coefficient);
+      M5_LOGD("coefficient the %d", +coeff.coefficient);
       result.push_back(coeff);
     } break;
     case 0xD7: {                  // 積算電力量有効桁数
       if (prop.edt.size() == 1) { // 1バイト
         auto digits = EffectiveDigits(prop.edt[0]);
-        ESP_LOGD(MAIN, "%d effective digits.", +digits.digits);
+        M5_LOGD("%d effective digits.", +digits.digits);
         result.push_back(digits);
       } else {
-        ESP_LOGD(MAIN,
-                 "pdc is should be 1 bytes, this is "
-                 "%d bytes.",
-                 prop.edt.size());
+        M5_LOGD("pdc is should be 1 bytes, this is "
+                "%d bytes.",
+                prop.edt.size());
       }
     } break;
     case 0xE1: { // 積算電力量単位 (正方向、逆方向計測値)
       if (prop.edt.size() == 1) { // 1バイト
         auto unit = Unit(prop.edt[0]);
         if (auto desc = unit.get_description()) {
-          ESP_LOGD(MAIN, "value %s", desc->c_str());
+          M5_LOGD("value %s", desc->c_str());
         } else {
-          ESP_LOGD(MAIN, "invalid unit.");
+          M5_LOGD("invalid unit.");
         }
         result.push_back(unit);
       } else {
-        ESP_LOGD(MAIN,
-                 "pdc is should be 1 bytes, this is "
-                 "%d bytes.",
-                 prop.edt.size());
+        M5_LOGD("pdc is should be 1 bytes, this is "
+                "%d bytes.",
+                prop.edt.size());
       }
     } break;
     case 0xE5: {                  // 積算履歴収集日１
       if (prop.edt.size() == 1) { // 1バイト
         uint8_t day = prop.edt[0];
-        ESP_LOGD(MAIN, "day of historical 1: (%d)", day);
+        M5_LOGD("day of historical 1: (%d)", day);
       } else {
-        ESP_LOGD(MAIN,
-                 "pdc is should be 1 bytes, this is "
-                 "%d bytes.",
-                 prop.edt.size());
+        M5_LOGD("pdc is should be 1 bytes, this is "
+                "%d bytes.",
+                prop.edt.size());
       }
     } break;
     case 0xE7: {                  // 瞬時電力値
       if (prop.edt.size() == 4) { // 4バイト
         auto watt =
             InstantWatt({prop.edt[0], prop.edt[1], prop.edt[2], prop.edt[3]});
-        ESP_LOGD(MAIN, "%s", to_string(watt).c_str());
+        M5_LOGD("%s", to_string(watt).c_str());
         result.push_back(watt);
       } else {
-        ESP_LOGD(MAIN,
-                 "pdc is should be 4 bytes, this is "
-                 "%d bytes.",
-                 prop.edt.size());
+        M5_LOGD("pdc is should be 4 bytes, this is "
+                "%d bytes.",
+                prop.edt.size());
       }
     } break;
     case 0xE8: {                  // 瞬時電流値
       if (prop.edt.size() == 4) { // 4バイト
         auto ampere =
             InstantAmpere({prop.edt[0], prop.edt[1], prop.edt[2], prop.edt[3]});
-        ESP_LOGD(MAIN, "%s", to_string(ampere).c_str());
+        M5_LOGD("%s", to_string(ampere).c_str());
         result.push_back(ampere);
       } else {
-        ESP_LOGD(MAIN,
-                 "pdc is should be 4 bytes, this is "
-                 "%d bytes.",
-                 prop.edt.size());
+        M5_LOGD("pdc is should be 4 bytes, this is "
+                "%d bytes.",
+                prop.edt.size());
       }
     } break;
     case 0xEA: {                   // 定時積算電力量
@@ -866,13 +857,12 @@ process_echonet_lite_frame(const EchonetLiteFrame &frame) {
         std::copy_n(prop.edt.begin(), memory.size(), memory.begin());
         //
         auto cwh = CumulativeWattHour(memory);
-        ESP_LOGD(MAIN, "%s", to_string(cwh).c_str());
+        M5_LOGD("%s", to_string(cwh).c_str());
         result.push_back(cwh);
       } else {
-        ESP_LOGD(MAIN,
-                 "pdc is should be 11 bytes, this is "
-                 "%d bytes.",
-                 prop.edt.size());
+        M5_LOGD("pdc is should be 11 bytes, this is "
+                "%d bytes.",
+                prop.edt.size());
       }
     } break;
     case 0xED: {                  // 積算履歴収集日２
@@ -884,19 +874,17 @@ process_echonet_lite_frame(const EchonetLiteFrame &frame) {
         uint8_t e = prop.edt[4];
         uint8_t f = prop.edt[5];
         uint8_t g = prop.edt[6];
-        ESP_LOGD(MAIN,
-                 "day of historical 2: "
-                 "[%02X,%02X,%02X,%02X,%02X,%02X,%02X]",
-                 a, b, c, d, e, f, g);
+        M5_LOGD("day of historical 2: "
+                "[%02X,%02X,%02X,%02X,%02X,%02X,%02X]",
+                a, b, c, d, e, f, g);
       } else {
-        ESP_LOGD(MAIN,
-                 "pdc is should be 7 bytes, this is "
-                 "%d bytes.",
-                 prop.edt.size());
+        M5_LOGD("pdc is should be 7 bytes, this is "
+                "%d bytes.",
+                prop.edt.size());
       }
     } break;
     default:
-      ESP_LOGD(MAIN, "unknown epc: 0x%X", prop.epc);
+      M5_LOGD("unknown epc: 0x%X", prop.epc);
       break;
     }
   }

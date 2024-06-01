@@ -60,7 +60,14 @@ struct SmartWhm {
 // 接続相手のスマートメーター
 static std::unique_ptr<SmartWhm> smart_watt_hour_meter;
 // MQTT
-static Telemetry::Mqtt telemetry;
+static Telemetry::Mqtt
+    telemetry(Telemetry::DeviceId{AWS_IOT_DEVICE_ID},
+              // データーベースのパーティションキーであるセンサーＩＤ
+              Telemetry::SensorId{"smartmeter"},
+              Telemetry::AwsIot::Endpoint{AWS_IOT_ENDPOINT},
+              Telemetry::AwsIot::RootCa{AWS_IOT_ROOT_CA},
+              Telemetry::AwsIot::Certificate{AWS_IOT_CERTIFICATE},
+              Telemetry::AwsIot::PrivateKey{AWS_IOT_PRIVATE_KEY});
 //
 Repository::ElectricPowerData Repository::electric_power_data{};
 //
@@ -226,31 +233,31 @@ static void process_event(const Bp35a1::ResEvent &ev) {
   switch (ev.num.u8) {
   case 0x01: // EVENT 1 :
              // NSを受信した
-    ESP_LOGI(MAIN, "Received NS");
+    M5_LOGI("Received NS");
     break;
   case 0x02: // EVENT 2 :
              // NAを受信した
-    ESP_LOGI(MAIN, "Received NA");
+    M5_LOGI("Received NA");
     break;
   case 0x05: // EVENT 5 :
              // Echo Requestを受信した
-    ESP_LOGI(MAIN, "Received Echo Request");
+    M5_LOGI("Received Echo Request");
     break;
   case 0x1F: // EVENT 1F :
              // EDスキャンが完了した
-    ESP_LOGI(MAIN, "Complete ED Scan.");
+    M5_LOGI("Complete ED Scan.");
     break;
   case 0x20: // EVENT 20 :
              // BeaconRequestを受信した
-    ESP_LOGI(MAIN, "Received BeaconRequest");
+    M5_LOGI("Received BeaconRequest");
     break;
   case 0x21: // EVENT 21 :
              // UDP送信処理が完了した
-    ESP_LOGD(MAIN, "UDP transmission successful.");
+    M5_LOGD("UDP transmission successful.");
     break;
   case 0x24: // EVENT 24 :
              // PANAによる接続過程でエラーが発生した(接続が完了しなかった)
-    ESP_LOGD(MAIN, "PANA reconnect");
+    M5_LOGD("PANA reconnect");
     if (smart_watt_hour_meter) {
       smart_watt_hour_meter->isPanaSessionEstablished = false;
     } else {
@@ -259,7 +266,7 @@ static void process_event(const Bp35a1::ResEvent &ev) {
     break;
   case 0x25: // EVENT 25 :
              // PANAによる接続が完了した
-    ESP_LOGD(MAIN, "PANA session connected");
+    M5_LOGD("PANA session connected");
     if (smart_watt_hour_meter) {
       smart_watt_hour_meter->isPanaSessionEstablished = true;
     } else {
@@ -268,7 +275,7 @@ static void process_event(const Bp35a1::ResEvent &ev) {
     break;
   case 0x26: // EVENT 26 :
              // 接続相手からセッション終了要求を受信した
-    ESP_LOGD(MAIN, "session terminate request");
+    M5_LOGD("session terminate request");
     if (smart_watt_hour_meter) {
       smart_watt_hour_meter->isPanaSessionEstablished = false;
     } else {
@@ -277,7 +284,7 @@ static void process_event(const Bp35a1::ResEvent &ev) {
     break;
   case 0x27: // EVENT 27 :
              // PANAセッションの終了に成功した
-    ESP_LOGD(MAIN, "PANA session terminate");
+    M5_LOGD("PANA session terminate");
     if (smart_watt_hour_meter) {
       smart_watt_hour_meter->isPanaSessionEstablished = false;
     } else {
@@ -286,7 +293,7 @@ static void process_event(const Bp35a1::ResEvent &ev) {
     break;
   case 0x28: // EVENT 28 :
              // PANAセッションの終了要求に対する応答がなくタイムアウトした(セッションは終了)
-    ESP_LOGD(MAIN, "PANA session terminate. reason: timeout");
+    M5_LOGD("PANA session terminate. reason: timeout");
     if (smart_watt_hour_meter) {
       smart_watt_hour_meter->isPanaSessionEstablished = false;
     } else {
@@ -294,7 +301,7 @@ static void process_event(const Bp35a1::ResEvent &ev) {
     }
     break;
   case 0x29: // PANAセッションのライフタイムが経過して期限切れになった
-    ESP_LOGI(MAIN, "PANA session expired");
+    M5_LOGI("PANA session expired");
     if (smart_watt_hour_meter) {
       smart_watt_hour_meter->isPanaSessionEstablished = false;
     } else {
@@ -302,10 +309,10 @@ static void process_event(const Bp35a1::ResEvent &ev) {
     }
     break;
   case 0x32: // ARIB108の送信緩和時間の制限が発動した
-    ESP_LOGI(MAIN, "");
+    M5_LOGI("");
     break;
   case 0x33: // ARIB108の送信緩和時間の制限が解除された
-    ESP_LOGI(MAIN, "");
+    M5_LOGI("");
     break;
   default:
     break;
@@ -327,7 +334,7 @@ static void process_node_profile_class_frame(const EchonetLiteFrame &frame) {
           auto obj = EchonetLiteObjectCode({*it++, *it++, *it++});
           oss << obj << ",";
         }
-        ESP_LOGD(MAIN, "list of instances (EOJ): %s", oss.str().c_str());
+        M5_LOGD("list of instances (EOJ): %s", oss.str().c_str());
       }
       //
       // 通知されているのは自分自身だろうから
@@ -335,7 +342,7 @@ static void process_node_profile_class_frame(const EchonetLiteFrame &frame) {
       //
       break;
     default:
-      ESP_LOGD(MAIN, "unknown EPC: %02X", prop.epc);
+      M5_LOGD("unknown EPC: %02X", prop.epc);
       break;
     }
   }
@@ -350,7 +357,7 @@ static void process_erxudp(std::chrono::system_clock::time_point at,
   if (auto opt = deserializeToEchonetLiteFrame(ev.data)) {
     const EchonetLiteFrame &frame = opt.value();
     //  EchonetLiteフレームだった
-    ESP_LOGD(MAIN, "%s", to_string(frame).c_str());
+    M5_LOGD("%s", to_string(frame).c_str());
     //
     if (frame.edata.seoj.s == NodeProfileClass::EchonetLiteEOJ) {
       // ノードプロファイルクラス
@@ -369,11 +376,11 @@ static void process_erxudp(std::chrono::system_clock::time_point at,
           Repository::electric_power_data.instant_ampere =
               std::make_pair(at, *p);
           // 送信バッファへ追加する
-          telemetry.push_queue(std::make_pair(at, *p));
+          telemetry.enqueue(std::make_pair(at, *p));
         } else if (auto *p = std::get_if<M::InstantWatt>(&rx)) {
           Repository::electric_power_data.instant_watt = std::make_pair(at, *p);
           // 送信バッファへ追加する
-          telemetry.push_queue(std::make_pair(at, *p));
+          telemetry.enqueue(std::make_pair(at, *p));
         } else if (auto *p = std::get_if<M::CumulativeWattHour>(&rx)) {
           if (auto unit = Repository::electric_power_data.whm_unit) {
             auto coeff =
@@ -382,7 +389,7 @@ static void process_erxudp(std::chrono::system_clock::time_point at,
             Repository::electric_power_data.cumlative_watt_hour =
                 std::make_tuple(*p, coeff, *unit);
             // 送信バッファへ追加する
-            telemetry.push_queue(std::make_tuple(*p, coeff, *unit));
+            telemetry.enqueue(std::make_tuple(*p, coeff, *unit));
           }
         }
       }
@@ -405,10 +412,9 @@ send_first_request(std::chrono::system_clock::time_point current_time) {
       E::Unit_for_cumulative_amounts, // 積算電力量単位
       E::Number_of_effective_digits,  // 積算電力量有効桁数
   };
-  ESP_LOGD(MAIN,
-           "request status / location / fault / manufacturer / coefficient / "
-           "unit for whm / request number of "
-           "effective digits");
+  M5_LOGD("request status / location / fault / manufacturer / coefficient / "
+          "unit for whm / request number of "
+          "effective digits");
   // スマートメーターに要求を出す
   const auto tid = EchonetLiteTransactionId({12, 34});
 
@@ -430,7 +436,7 @@ send_periodical_request(std::chrono::system_clock::time_point current_time) {
       E::Measured_instantaneous_power,    // 瞬時電力要求
       E::Measured_instantaneous_currents, // 瞬時電流要求
   };
-  ESP_LOGD(MAIN, "request inst-epower and inst-current");
+  M5_LOGD("request inst-epower and inst-current");
   //
   std::time_t displayed_jst = []() -> std::time_t {
     if (Repository::electric_power_data.cumlative_watt_hour.has_value()) {
@@ -444,8 +450,8 @@ send_periodical_request(std::chrono::system_clock::time_point current_time) {
   if constexpr (false) {
     char buf[50]{'\0'};
     auto tm = std::chrono::system_clock::to_time_t(current_time);
-    ESP_LOGI(MAIN, "current time:%s", ctime_r(&tm, buf));
-    ESP_LOGI(MAIN, "displayed time:%s", ctime_r(&displayed_jst, buf));
+    M5_LOGI("current time:%s", ctime_r(&tm, buf));
+    M5_LOGI("displayed time:%s", ctime_r(&displayed_jst, buf));
   }
   auto measured_at = std::chrono::system_clock::from_time_t(displayed_jst);
   if (auto elapsed = current_time - measured_at;
@@ -456,7 +462,7 @@ send_periodical_request(std::chrono::system_clock::time_point current_time) {
     epcs.push_back(
         E::Cumulative_amounts_of_electric_energy_measured_at_fixed_time);
     // 定時積算電力量計測値(正方向計測値)
-    ESP_LOGD(MAIN, "request amounts of electric power");
+    M5_LOGD("request amounts of electric power");
   }
 #if 0
 // 積算履歴収集日
