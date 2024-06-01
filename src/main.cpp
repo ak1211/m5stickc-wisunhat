@@ -6,7 +6,6 @@
 #include "Bp35a1.hpp"
 #include "EchonetLite.hpp"
 #include "Gui.hpp"
-#include "Repository.hpp"
 #include "Telemetry.hpp"
 #include "credentials.h"
 #include <ArduinoJson.h>

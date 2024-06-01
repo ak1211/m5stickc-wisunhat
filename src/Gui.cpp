@@ -3,7 +3,7 @@
 // See LICENSE file in the project root for full license information.
 //
 #include "Gui.hpp"
-#include "Repository.hpp"
+#include "Application.hpp"
 #include <algorithm>
 #include <chrono>
 #include <lvgl.h>
