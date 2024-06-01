@@ -68,7 +68,6 @@ static Telemetry
               Telemetry::AwsIotCertificate{AWS_IOT_CERTIFICATE},
               Telemetry::AwsIotPrivateKey{AWS_IOT_PRIVATE_KEY});
 //
-Repository::ElectricPowerData Repository::electric_power_data{};
 //
 // グローバル変数おわり
 // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -366,26 +365,27 @@ static void process_erxudp(std::chrono::system_clock::time_point at,
       namespace M = SmartElectricEnergyMeter;
       for (auto rx : M::process_echonet_lite_frame(frame)) {
         if (auto *p = std::get_if<M::Coefficient>(&rx)) {
-          Repository::electric_power_data.whm_coefficient = *p;
+          Application::getElectricPowerData().whm_coefficient = *p;
         } else if (std::get_if<M::EffectiveDigits>(&rx)) {
           // no operation
         } else if (auto *p = std::get_if<M::Unit>(&rx)) {
-          Repository::electric_power_data.whm_unit = *p;
+          Application::getElectricPowerData().whm_unit = *p;
         } else if (auto *p = std::get_if<M::InstantAmpere>(&rx)) {
-          Repository::electric_power_data.instant_ampere =
+          Application::getElectricPowerData().instant_ampere =
               std::make_pair(at, *p);
           // 送信バッファへ追加する
           telemetry.enqueue(std::make_pair(at, *p));
         } else if (auto *p = std::get_if<M::InstantWatt>(&rx)) {
-          Repository::electric_power_data.instant_watt = std::make_pair(at, *p);
+          Application::getElectricPowerData().instant_watt =
+              std::make_pair(at, *p);
           // 送信バッファへ追加する
           telemetry.enqueue(std::make_pair(at, *p));
         } else if (auto *p = std::get_if<M::CumulativeWattHour>(&rx)) {
-          if (auto unit = Repository::electric_power_data.whm_unit) {
+          if (auto unit = Application::getElectricPowerData().whm_unit) {
             auto coeff =
-                Repository::electric_power_data.whm_coefficient.value_or(
+                Application::getElectricPowerData().whm_coefficient.value_or(
                     M::Coefficient{});
-            Repository::electric_power_data.cumlative_watt_hour =
+            Application::getElectricPowerData().cumlative_watt_hour =
                 std::make_tuple(*p, coeff, *unit);
             // 送信バッファへ追加する
             telemetry.enqueue(std::make_tuple(*p, coeff, *unit));
@@ -438,9 +438,9 @@ send_periodical_request(std::chrono::system_clock::time_point current_time) {
   M5_LOGD("request inst-epower and inst-current");
   //
   std::time_t displayed_jst = []() -> std::time_t {
-    if (Repository::electric_power_data.cumlative_watt_hour.has_value()) {
+    if (Application::getElectricPowerData().cumlative_watt_hour.has_value()) {
       auto [cwh, unuse, unused] =
-          Repository::electric_power_data.cumlative_watt_hour.value();
+          Application::getElectricPowerData().cumlative_watt_hour.value();
       return cwh.get_time_t().value_or(0);
     } else {
       return 0;
@@ -496,7 +496,7 @@ static void send_request_to_smart_meter() {
   //
   // 積算電力量単位が初期値の場合にスマートメーターに最初の要求を出す
   //
-  if (!Repository::electric_power_data.whm_unit.has_value()) {
+  if (!Application::getElectricPowerData().whm_unit.has_value()) {
     send_first_request(nowtp);
     // 送信時間を記録する
     send_time_at = nowtp;

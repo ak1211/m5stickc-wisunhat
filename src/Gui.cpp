@@ -336,7 +336,7 @@ void Widget::InstantWatt::showValue(
 
 //
 void Widget::InstantWatt::update() {
-  showValue(Repository::electric_power_data.instant_watt);
+  showValue(Application::getElectricPowerData().instant_watt);
 }
 
 //
@@ -393,7 +393,7 @@ void Widget::InstantAmpere::showValue(
 
 //
 void Widget::InstantAmpere::update() {
-  showValue(Repository::electric_power_data.instant_ampere);
+  showValue(Application::getElectricPowerData().instant_ampere);
 }
 
 //
@@ -445,5 +445,5 @@ void Widget::CumlativeWattHour::showValue(
 
 //
 void Widget::CumlativeWattHour::update() {
-  showValue(Repository::electric_power_data.cumlative_watt_hour);
+  showValue(Application::getElectricPowerData().cumlative_watt_hour);
 }

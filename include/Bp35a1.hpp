@@ -29,14 +29,15 @@ using DisplayMessageT =
     std::function<void(const std::string &message, void *user_data)>;
 
 // 受信メッセージを破棄する
-void clear_read_buffer(Stream &commport) {
+inline void clear_read_buffer(Stream &commport) {
   while (commport.available() > 0) {
     commport.read();
   }
 }
 
 // ストリームからsepで区切られたトークンを得る
-std::pair<std::string, std::string> get_token(Stream &commport, int sep) {
+inline std::pair<std::string, std::string> get_token(Stream &commport,
+                                                     int sep) {
   constexpr std::size_t LINE_BUFFER_SIZE{512};
   std::string separator;
   std::string token;
@@ -69,7 +70,7 @@ std::pair<std::string, std::string> get_token(Stream &commport, int sep) {
 }
 
 // CRLFを付けてストリームに1行書き込む関数
-void write_with_crln(Stream &commport, const std::string &line) {
+inline void write_with_crln(Stream &commport, const std::string &line) {
   M5_LOGD("%s", line.c_str());
   commport.write(line.c_str(), line.length());
   commport.write("\r\n");
@@ -78,7 +79,7 @@ void write_with_crln(Stream &commport, const std::string &line) {
 }
 
 // 成功ならtrue, それ以外ならfalse
-bool has_ok(Stream &commport, std::chrono::seconds timeout) {
+inline bool has_ok(Stream &commport, std::chrono::seconds timeout) {
   using namespace std::chrono;
   const time_point tp = system_clock::now() + timeout;
   do {
@@ -115,7 +116,7 @@ struct IPv6Addr {
       : fields{init} {}
   operator std::string() const;
 };
-std::istream &operator>>(std::istream &is, IPv6Addr &v) {
+inline std::istream &operator>>(std::istream &is, IPv6Addr &v) {
   auto save = is.flags();
   char colon;
   is >> v.fields[0] >> colon  //
@@ -129,7 +130,7 @@ std::istream &operator>>(std::istream &is, IPv6Addr &v) {
   is.flags(save);
   return is;
 }
-std::ostream &operator<<(std::ostream &os, const IPv6Addr &v) {
+inline std::ostream &operator<<(std::ostream &os, const IPv6Addr &v) {
   auto save = os.flags();
   auto colon = ":"s;
   os << v.fields[0] << colon //
@@ -143,13 +144,13 @@ std::ostream &operator<<(std::ostream &os, const IPv6Addr &v) {
   os.flags(save);
   return os;
 }
-std::optional<IPv6Addr> makeIPv6Addr(const std::string &in) {
+inline std::optional<IPv6Addr> makeIPv6Addr(const std::string &in) {
   IPv6Addr v;
   std::istringstream iss{in};
   iss >> v;
   return (iss.fail()) ? std::nullopt : std::make_optional(v);
 }
-IPv6Addr::operator std::string() const {
+inline IPv6Addr::operator std::string() const {
   std::ostringstream oss;
   oss << *this;
   return oss.str();
@@ -163,7 +164,7 @@ struct ResEvent final {
   IPv6Addr sender; // イベントのトリガーとなったメッセージの発信元アドレス
   std::optional<HexedU8> param; // イベント固有の引数
 };
-std::ostream &operator<<(std::ostream &os, const ResEvent &in) {
+inline std::ostream &operator<<(std::ostream &os, const ResEvent &in) {
   auto save = os.flags();
   os << "num:" << in.num //
      << ",sender:" << in.sender;
@@ -175,7 +176,7 @@ std::ostream &operator<<(std::ostream &os, const ResEvent &in) {
   os.flags(save);
   return os;
 }
-std::string to_string(const ResEvent &in) {
+inline std::string to_string(const ResEvent &in) {
   std::ostringstream oss;
   oss << in;
   return oss.str();
@@ -192,7 +193,7 @@ struct ResEpandesc final {
   HexedU8 lqi;          // 受信したビーコンの受信ED値(RSSI)
   std::string pairid; // (IEが含まれる場合)相手から受信したPairingID
 };
-std::ostream &operator<<(std::ostream &os, const ResEpandesc &in) {
+inline std::ostream &operator<<(std::ostream &os, const ResEpandesc &in) {
   auto save = os.flags();
   os << "channel:" << in.channel            //
      << ",channel_page:" << in.channel_page //
@@ -203,7 +204,7 @@ std::ostream &operator<<(std::ostream &os, const ResEpandesc &in) {
   os.flags(save);
   return os;
 }
-std::string to_string(const ResEpandesc &in) {
+inline std::string to_string(const ResEpandesc &in) {
   std::ostringstream oss;
   oss << in;
   return oss.str();
@@ -223,7 +224,7 @@ struct ResErxudp final {
   HexedU16 datalen;      // データの長さ
   std::vector<uint8_t> data; // データ
 };
-std::ostream &operator<<(std::ostream &os, const ResErxudp &in) {
+inline std::ostream &operator<<(std::ostream &os, const ResErxudp &in) {
   auto save = os.flags();
   os << "sender:" << in.sender        //
      << ",dest:" << in.dest           //
@@ -237,7 +238,7 @@ std::ostream &operator<<(std::ostream &os, const ResErxudp &in) {
   os.flags(save);
   return os;
 }
-std::string to_string(const ResErxudp &in) {
+inline std::string to_string(const ResErxudp &in) {
   std::ostringstream oss;
   oss << in;
   return oss.str();
@@ -251,9 +252,9 @@ using Response = std::variant<ResEvent, ResEpandesc, ResErxudp>;
 //
 // ipv6 アドレスを受け取る関数
 //
-std::optional<IPv6Addr> get_ipv6_address(Stream &commport,
-                                         std::chrono::seconds timeout,
-                                         const std::string &addr) {
+inline std::optional<IPv6Addr> get_ipv6_address(Stream &commport,
+                                                std::chrono::seconds timeout,
+                                                const std::string &addr) {
   using namespace std::chrono;
   const time_point tp = system_clock::now() + timeout;
   // 返答を受け取る前にクリアしておく
@@ -277,7 +278,7 @@ std::optional<IPv6Addr> get_ipv6_address(Stream &commport,
 //
 // 受信
 //
-std::optional<Response> receive_response(Stream &commport) {
+inline std::optional<Response> receive_response(Stream &commport) {
   // EVENTを受信する
   auto rx_event = [&](const std::string &name) -> std::optional<ResEvent> {
     std::vector<std::string> tokens;
@@ -448,7 +449,7 @@ struct SmartMeterIdentifier final {
   HexedU8 channel;
   HexedU16 pan_id;
 };
-std::ostream &operator<<(std::ostream &os, const SmartMeterIdentifier &in) {
+inline std::ostream &operator<<(std::ostream &os, const SmartMeterIdentifier &in) {
   auto save = os.flags();
   os << "ipv6_address:" << in.ipv6_address //
      << ",channel:"s << in.channel         //
@@ -456,14 +457,14 @@ std::ostream &operator<<(std::ostream &os, const SmartMeterIdentifier &in) {
   os.flags(save);
   return os;
 }
-std::string to_string(const SmartMeterIdentifier &in) {
+inline std::string to_string(const SmartMeterIdentifier &in) {
   std::ostringstream oss;
   oss << in;
   return oss.str();
 }
 
 // 要求を送る
-bool send_request(
+inline bool send_request(
     Stream &commport, const SmartMeterIdentifier &smart_meter_ident,
     EchonetLiteTransactionId tid,
     const std::vector<SmartElectricEnergyMeter::EchonetLiteEPC> epcs) {
@@ -520,7 +521,7 @@ bool send_request(
 }
 
 // 接続(PANA認証)要求を送る
-bool connect(Stream &commport, const SmartMeterIdentifier &smart_meter_ident,
+inline bool connect(Stream &commport, const SmartMeterIdentifier &smart_meter_ident,
              DisplayMessageT message, void *user_data) {
   //
   M5_LOGD("%s", to_string(smart_meter_ident).c_str());
@@ -588,7 +589,7 @@ bool connect(Stream &commport, const SmartMeterIdentifier &smart_meter_ident,
 }
 
 // アクティブスキャンを実行する
-std::optional<ResEpandesc>
+inline std::optional<ResEpandesc>
 do_active_scan(Stream &commport, DisplayMessageT message, void *user_data) {
   // スマートメーターからの返答を待ち受ける関数
   auto got_respond =
@@ -655,7 +656,7 @@ do_active_scan(Stream &commport, DisplayMessageT message, void *user_data) {
 }
 
 // BP35A1を起動してアクティブスキャンを開始する
-std::optional<SmartMeterIdentifier> startup_and_find_meter(
+inline std::optional<SmartMeterIdentifier> startup_and_find_meter(
     Stream &commport,
     std::pair<std::string_view, std::string_view> b_route_id_password,
     DisplayMessageT display_message, void *user_data) {
