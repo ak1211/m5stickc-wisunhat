@@ -13,6 +13,7 @@
 #include <chrono>
 #include <ctime>
 #include <functional>
+#include <future>
 #include <queue>
 #include <string>
 #include <tuple>
@@ -91,106 +92,10 @@ using Payload = std::variant<PayloadInstantAmpere, PayloadInstantWatt,
                              PayloadCumlativeWattHour>;
 
 //
-std::string iso8601formatUTC(std::chrono::system_clock::time_point utctimept) {
-  auto utc = std::chrono::system_clock::to_time_t(utctimept);
-  struct tm tm;
-  gmtime_r(&utc, &tm);
-  constexpr char format[] = "%Y-%m-%dT%H:%M:%SZ";
-  constexpr std::size_t SIZE = std::size(format) * 2;
-  std::string buffer(SIZE, '\0');
-  std::size_t len = std::strftime(buffer.data(), SIZE, format, &tm);
-  buffer.resize(len);
-  return buffer;
-}
-
-// 送信用メッセージに変換する
-template <typename T>
-std::string to_json_message(const DeviceId &deviceId, const SensorId &sensorId,
-                            MessageId messageId, T in);
-//
-template <>
-std::string to_json_message(const DeviceId &deviceId, const SensorId &sensorId,
-                            MessageId messageId, PayloadInstantAmpere in) {
-  using SmartElectricEnergyMeter::Ampere;
-  using std::chrono::duration_cast;
-  auto &[timept, a] = in;
-  JsonDocument doc;
-  doc["message_id"] = messageId;
-  doc["device_id"] = deviceId.get();
-  doc["sensor_id"] = sensorId.get();
-  doc["measured_at"] = iso8601formatUTC(timept);
-  doc["instant_ampere_R"] = duration_cast<Ampere>(a.ampereR).count();
-  doc["instant_ampere_T"] = duration_cast<Ampere>(a.ampereT).count();
-  std::string output;
-  serializeJson(doc, output);
-  return output;
-}
-//
-template <>
-std::string to_json_message(const DeviceId &deviceId, const SensorId &sensorId,
-                            MessageId messageId, PayloadInstantWatt in) {
-  auto &[timept, w] = in;
-  JsonDocument doc;
-  doc["message_id"] = messageId;
-  doc["device_id"] = deviceId.get();
-  doc["sensor_id"] = sensorId.get();
-  doc["measured_at"] = iso8601formatUTC(timept);
-  doc["instant_watt"] = w.watt.count();
-  std::string output;
-  serializeJson(doc, output);
-  return output;
-}
-//
-template <>
-std::string to_json_message(const DeviceId &deviceId, const SensorId &sensorId,
-                            MessageId messageId, PayloadCumlativeWattHour in) {
-  namespace M = SmartElectricEnergyMeter;
-  auto &[cwh, coeff, unit] = in;
-  JsonDocument doc;
-  doc["message_id"] = messageId;
-  doc["device_id"] = deviceId.get();
-  doc["sensor_id"] = sensorId.get();
-  // 時刻をISO8601形式で得る
-  auto opt_iso8601 = cwh.get_iso8601_datetime();
-  if (opt_iso8601.has_value()) {
-    doc["measured_at"] = opt_iso8601.value();
-  }
-  // 積算電力量(kwh)
-  M::KiloWattHour kwh = M::cumlative_kilo_watt_hour({cwh, coeff, unit});
-  doc["cumlative_kwh"] = kwh.count();
-  std::string output;
-  serializeJson(doc, output);
-  return output;
-}
-
-//
 // MQTT通信
 //
 class Mqtt final {
   constexpr static auto MAXIMUM_QUEUE_SIZE = 100;
-  //
-  WiFiClientSecure https_client;
-  PubSubClient mqtt_client;
-  // IoT Core送信用バッファ
-  std::queue<Payload> sending_fifo_queue;
-  // メッセージIDカウンタ(IoT Core用)
-  MessageId _message_id_counter;
-  //
-  const DeviceId _deviceId;
-  //
-  const SensorId _sensorId;
-  //
-  const AwsIot::Endpoint _endpoint;
-  //
-  const AwsIot::RootCa _root_ca;
-  //
-  const AwsIot::Certificate _certificate;
-  //
-  const AwsIot::PrivateKey _private_key;
-  //
-  const std::string _publish_topic;
-  //
-  const std::string _subscribe_topic;
 
 public:
   constexpr static auto MQTT_PORT = uint16_t{8883};
@@ -344,31 +249,39 @@ public:
   //
   // MQTT送受信
   //
-  bool loop_mqtt() {
-    // MQTT受信
-    if (!mqtt_client.loop()) {
-      return false;
-    }
-    if (sending_fifo_queue.empty()) {
-      return true;
-    } else {
-      // 送信するべき測定値があればIoT Coreへ送信する
-      std::string msg = std::visit(
-          [this](auto x) -> std::string {
-            return to_json_message(_deviceId, _sensorId, _message_id_counter,
-                                   x);
-          },
-          sending_fifo_queue.front());
-      // MQTT送信
-      M5_LOGD("%s", msg.c_str());
-      bool result = mqtt_client.publish(_publish_topic.c_str(), msg.c_str());
-      if (result) {
-        _message_id_counter++;
-        // IoT Coreへ送信した測定値をFIFOから消す
-        sending_fifo_queue.pop();
-      }
-      return result;
-    }
-  }
+  bool loop_mqtt();
+
+private:
+  //
+  WiFiClientSecure https_client;
+  PubSubClient mqtt_client;
+  // IoT Core送信用バッファ
+  std::queue<Payload> sending_fifo_queue;
+  // メッセージIDカウンタ(IoT Core用)
+  MessageId _message_id_counter;
+  //
+  const DeviceId _deviceId;
+  //
+  const SensorId _sensorId;
+  //
+  const AwsIot::Endpoint _endpoint;
+  //
+  const AwsIot::RootCa _root_ca;
+  //
+  const AwsIot::Certificate _certificate;
+  //
+  const AwsIot::PrivateKey _private_key;
+  //
+  const std::string _publish_topic;
+  //
+  const std::string _subscribe_topic;
+  //
+  static std::string
+  iso8601formatUTC(std::chrono::system_clock::time_point utctimept);
+  // 送信用メッセージに変換する
+  template <typename T>
+  static std::string to_json_message(const DeviceId &deviceId,
+                                     const SensorId &sensorId,
+                                     const MessageId &messageId, T in);
 };
 } // namespace Telemetry
