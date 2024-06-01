@@ -60,7 +60,7 @@ struct SmartWhm {
 // 接続相手のスマートメーター
 static std::unique_ptr<SmartWhm> smart_watt_hour_meter;
 // MQTT
-static Telemetry::Mqtt
+static Telemetry
     telemetry(Telemetry::DeviceId{AWS_IOT_DEVICE_ID},
               // データーベースのパーティションキーであるセンサーＩＤ
               Telemetry::SensorId{"smartmeter"},

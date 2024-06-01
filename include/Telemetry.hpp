@@ -24,6 +24,9 @@ using namespace std::literals::string_literals;
 //
 //
 //
+//
+// MQTT通信
+//
 class Telemetry {
 public:
   //
@@ -92,90 +95,83 @@ public:
   using Payload = std::variant<PayloadInstantAmpere, PayloadInstantWatt,
                                PayloadCumlativeWattHour>;
 
+public:
+  constexpr static auto MAXIMUM_QUEUE_SIZE = size_t{100};
+  constexpr static auto MQTT_PORT = uint16_t{8883};
+  constexpr static auto SOCKET_TIMEOUT = uint16_t{90};
+  constexpr static auto KEEP_ALIVE = uint16_t{60};
+  constexpr static auto QUARITY_OF_SERVICE = uint8_t{1};
   //
-  // MQTT通信
+  Telemetry(DeviceId deviceId, SensorId sensorId, AwsIotEndpoint endpoint,
+            AwsIotRootCa root_ca, AwsIotCertificate certificate,
+            AwsIotPrivateKey private_key)
+      : https_client{},
+        mqtt_client{https_client},
+        _deviceId{deviceId},
+        _sensorId{sensorId},
+        _endpoint{endpoint},
+        _root_ca{root_ca},
+        _certificate{certificate},
+        _private_key{private_key},
+        _publish_topic{"device/"s + _deviceId.get() + "/data"s},
+        _subscribe_topic{"device/"s + _deviceId.get() + "/cmd"s},
+        sending_fifo_queue{},
+        _message_id_counter{0} {}
   //
-  class Mqtt final {
-    constexpr static auto MAXIMUM_QUEUE_SIZE = 100;
+  bool connected() { return mqtt_client.connected(); }
+  // AWS IoTへ接続確立を試みる
+  bool connectToAwsIot(
+      std::chrono::seconds timeout,
+      std::function<void(const std::string &message, void *user_data)>
+          display_message,
+      void *user_data);
+  // 送信用キューに積む
+  void enqueue(const Payload &&in);
+  // MQTT接続検査
+  bool
+  check_mqtt(std::chrono::seconds timeout,
+             std::function<void(const std::string &message, void *user_data)>
+                 display_message,
+             void *user_data);
+  // MQTT送受信
+  bool loop_mqtt();
 
-  public:
-    constexpr static auto MQTT_PORT = uint16_t{8883};
-    constexpr static auto SOCKET_TIMEOUT = uint16_t{90};
-    constexpr static auto KEEP_ALIVE = uint16_t{60};
-    constexpr static auto QUARITY_OF_SERVICE = uint8_t{1};
-    //
-    Mqtt(DeviceId deviceId, SensorId sensorId, AwsIotEndpoint endpoint,
-         AwsIotRootCa root_ca, AwsIotCertificate certificate,
-         AwsIotPrivateKey private_key)
-        : https_client{},
-          mqtt_client{https_client},
-          _deviceId{deviceId},
-          _sensorId{sensorId},
-          _endpoint{endpoint},
-          _root_ca{root_ca},
-          _certificate{certificate},
-          _private_key{private_key},
-          _publish_topic{"device/"s + _deviceId.get() + "/data"s},
-          _subscribe_topic{"device/"s + _deviceId.get() + "/cmd"s},
-          sending_fifo_queue{},
-          _message_id_counter{0} {}
-    //
-    bool connected() { return mqtt_client.connected(); }
-    // AWS IoTへ接続確立を試みる
-    bool connectToAwsIot(
-        std::chrono::seconds timeout,
-        std::function<void(const std::string &message, void *user_data)>
-            display_message,
-        void *user_data);
-    // 送信用キューに積む
-    void enqueue(const Payload &&in);
-    // MQTT接続検査
-    bool
-    check_mqtt(std::chrono::seconds timeout,
-               std::function<void(const std::string &message, void *user_data)>
-                   display_message,
-               void *user_data);
-    // MQTT送受信
-    bool loop_mqtt();
-
-  private:
-    //
-    WiFiClientSecure https_client;
-    PubSubClient mqtt_client;
-    // IoT Core送信用バッファ
-    std::queue<Payload> sending_fifo_queue;
-    // メッセージIDカウンタ(IoT Core用)
-    MessageId _message_id_counter;
-    //
-    const DeviceId _deviceId;
-    //
-    const SensorId _sensorId;
-    //
-    const AwsIotEndpoint _endpoint;
-    //
-    const AwsIotRootCa _root_ca;
-    //
-    const AwsIotCertificate _certificate;
-    //
-    const AwsIotPrivateKey _private_key;
-    //
-    const std::string _publish_topic;
-    //
-    const std::string _subscribe_topic;
-    //
-    static void mqtt_callback(char *topic, uint8_t *payload,
-                              unsigned int length);
-    //
-    static std::string
-    iso8601formatUTC(std::chrono::system_clock::time_point utctimept);
-    // 送信用メッセージに変換する
-    template <typename T>
-    static std::string to_json_message(const DeviceId &deviceId,
-                                       const SensorId &sensorId,
-                                       const MessageId &messageId, T in);
-    //
-    static std::string httpsLastError(WiFiClientSecure &client);
-    //
-    static std::string strMqttState(PubSubClient &client);
-  };
+private:
+  //
+  WiFiClientSecure https_client;
+  PubSubClient mqtt_client;
+  // IoT Core送信用バッファ
+  std::queue<Payload> sending_fifo_queue;
+  // メッセージIDカウンタ(IoT Core用)
+  MessageId _message_id_counter;
+  //
+  const DeviceId _deviceId;
+  //
+  const SensorId _sensorId;
+  //
+  const AwsIotEndpoint _endpoint;
+  //
+  const AwsIotRootCa _root_ca;
+  //
+  const AwsIotCertificate _certificate;
+  //
+  const AwsIotPrivateKey _private_key;
+  //
+  const std::string _publish_topic;
+  //
+  const std::string _subscribe_topic;
+  //
+  static void mqtt_callback(char *topic, uint8_t *payload, unsigned int length);
+  //
+  static std::string
+  iso8601formatUTC(std::chrono::system_clock::time_point utctimept);
+  // 送信用メッセージに変換する
+  template <typename T>
+  static std::string to_json_message(const DeviceId &deviceId,
+                                     const SensorId &sensorId,
+                                     const MessageId &messageId, T in);
+  //
+  static std::string httpsLastError(WiFiClientSecure &client);
+  //
+  static std::string strMqttState(PubSubClient &client);
 };
