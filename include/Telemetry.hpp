@@ -119,136 +119,22 @@ public:
         sending_fifo_queue{},
         _message_id_counter{0} {}
   //
-  static void mqtt_callback(char *topic, uint8_t *payload,
-                            unsigned int length) {
-    std::string s(length + 1, '\0');
-    std::copy_n(payload, length, s.begin());
-    s.shrink_to_fit();
-    M5_LOGI("New message arrival. topic:\"%s\", payload:\"%s\"", topic,
-            s.c_str());
-  }
-  //
   bool connected() { return mqtt_client.connected(); }
-  //
-  static std::string httpsLastError(WiFiClientSecure &client) {
-    constexpr std::size_t N{256};
-    std::string buff(N, '\0');
-    client.lastError(buff.data(), N);
-    buff.shrink_to_fit();
-    return buff;
-  }
-  //
-  static std::string strMqttState(PubSubClient &client) {
-    switch (client.state()) {
-    case MQTT_CONNECTION_TIMEOUT:
-      return "MQTT_CONNECTION_TIMEOUT";
-    case MQTT_CONNECTION_LOST:
-      return "MQTT_CONNECTION_LOST";
-    case MQTT_CONNECT_FAILED:
-      return "MQTT_CONNECT_FAILED";
-    case MQTT_DISCONNECTED:
-      return "MQTT_DISCONNECTED";
-    case MQTT_CONNECTED:
-      return "MQTT_CONNECTED";
-    case MQTT_CONNECT_BAD_PROTOCOL:
-      return "MQTT_CONNECT_BAD_PROTOCOL";
-    case MQTT_CONNECT_BAD_CLIENT_ID:
-      return "MQTT_CONNECT_BAD_CLIENT_ID";
-    case MQTT_CONNECT_UNAVAILABLE:
-      return "MQTT_CONNECT_UNAVAILABLE";
-    case MQTT_CONNECT_BAD_CREDENTIALS:
-      return "MQTT_CONNECT_BAD_CREDENTIALS";
-    case MQTT_CONNECT_UNAUTHORIZED:
-      return "MQTT_CONNECT_UNAUTHORIZED";
-    default:
-      return "MQTT_STATE_UNKNOWN";
-    }
-  }
-  //
   // AWS IoTへ接続確立を試みる
-  //
   bool connectToAwsIot(
       std::chrono::seconds timeout,
       std::function<void(const std::string &message, void *user_data)>
           display_message,
-      void *user_data) {
-
-    using namespace std::chrono;
-    const time_point tp = system_clock::now() + timeout;
-    //
-    display_message("protocol MQTT", user_data);
-    //
-    https_client.setCACert(_root_ca.get().c_str());
-    https_client.setCertificate(_certificate.get().c_str());
-    https_client.setPrivateKey(_private_key.get().c_str());
-    https_client.setTimeout(SOCKET_TIMEOUT);
-    //
-    mqtt_client.setServer(_endpoint.get().c_str(), MQTT_PORT);
-    mqtt_client.setSocketTimeout(SOCKET_TIMEOUT);
-    mqtt_client.setKeepAlive(KEEP_ALIVE);
-    mqtt_client.setCallback(mqtt_callback);
-    //
-    bool success{false};
-    do {
-      success = mqtt_client.connect(_deviceId.get().c_str(), nullptr,
-                                    QUARITY_OF_SERVICE, false, "");
-      std::this_thread::yield();
-    } while (!success && system_clock::now() < tp);
-
-    if (success) {
-      display_message("connected.", user_data);
-    } else {
-      display_message(
-          "connect fail to AWS IoT, state: " + strMqttState(mqtt_client) +
-              ", reason: " + httpsLastError(https_client),
-          user_data);
-      return false;
-    }
-
-    success =
-        mqtt_client.subscribe(_subscribe_topic.c_str(), QUARITY_OF_SERVICE);
-    if (success) {
-      display_message("topic:" + _subscribe_topic + " subscribed.", user_data);
-    } else {
-      display_message("topic:" + _subscribe_topic + " failed.", user_data);
-      return false;
-    }
-    return true;
-  }
-  //
+      void *user_data);
   // 送信用キューに積む
-  //
-  void enqueue(const Payload &&in) {
-
-    if (sending_fifo_queue.size() >= MAXIMUM_QUEUE_SIZE) {
-      M5_LOGE("MAXIMUM_QUEUE_SIZE reached.");
-      do {
-        // 溢れた測定値をFIFOから消す
-        sending_fifo_queue.pop();
-      } while (sending_fifo_queue.size() >= MAXIMUM_QUEUE_SIZE);
-    }
-    sending_fifo_queue.push(in);
-  }
-  //
+  void enqueue(const Payload &&in);
   // MQTT接続検査
-  //
   bool
   check_mqtt(std::chrono::seconds timeout,
              std::function<void(const std::string &message, void *user_data)>
                  display_message,
-             void *user_data) {
-    if (mqtt_client.connected()) {
-      return true;
-    }
-    // MQTT再接続シーケンス
-    M5_LOGE("MQTT reconnect, state: %s, reason: %s",
-            strMqttState(mqtt_client).c_str(),
-            httpsLastError(https_client).c_str());
-    return connectToAwsIot(timeout, display_message, user_data);
-  }
-  //
+             void *user_data);
   // MQTT送受信
-  //
   bool loop_mqtt();
 
 private:
@@ -276,6 +162,8 @@ private:
   //
   const std::string _subscribe_topic;
   //
+  static void mqtt_callback(char *topic, uint8_t *payload, unsigned int length);
+  //
   static std::string
   iso8601formatUTC(std::chrono::system_clock::time_point utctimept);
   // 送信用メッセージに変換する
@@ -283,5 +171,9 @@ private:
   static std::string to_json_message(const DeviceId &deviceId,
                                      const SensorId &sensorId,
                                      const MessageId &messageId, T in);
+  //
+  static std::string httpsLastError(WiFiClientSecure &client);
+  //
+  static std::string strMqttState(PubSubClient &client);
 };
 } // namespace Telemetry
