@@ -3,6 +3,8 @@
 // See LICENSE file in the project root for full license information.
 //
 #include "Bp35a1.hpp"
+#include <future>
+#include <numeric>
 
 using namespace std::chrono;
 using namespace std::chrono_literals;
