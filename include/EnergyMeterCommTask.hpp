@@ -24,9 +24,9 @@ public:
   //
   bool begin(std::ostream &os, std::chrono::seconds timeout);
   //
-  void adjust_timing(std::chrono::system_clock::time_point nowtp);
+  void adjust_timing(std::chrono::system_clock::time_point now_tp);
   //
-  void task_handler(std::chrono::system_clock::time_point nowtp);
+  void task_handler();
 
 private:
   //

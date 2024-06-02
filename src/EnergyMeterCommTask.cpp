@@ -32,27 +32,27 @@ bool EnergyMeterCommTask::begin(std::ostream &os,
 
 //
 void EnergyMeterCommTask::adjust_timing(
-    std::chrono::system_clock::time_point nowtp) {
+    std::chrono::system_clock::time_point now_tp) {
   auto extra_sec =
-      std::chrono::duration_cast<seconds>(nowtp.time_since_epoch()) % 60s;
+      std::chrono::duration_cast<seconds>(now_tp.time_since_epoch()) % 60s;
   //
-  _next_send_request_in_tp = nowtp + 1min - extra_sec;
+  _next_send_request_in_tp = now_tp + 1min - extra_sec;
 }
 
 // 測定関数
-void EnergyMeterCommTask::task_handler(
-    std::chrono::system_clock::time_point nowtp) {
+void EnergyMeterCommTask::task_handler() {
   if (!_pana_session_established) {
     // 再接続
     StringBufWithDialogue buf{"Reconnect meter"};
     std::ostream ostream(&buf);
     connect(ostream, RECONNECT_TIMEOUT);
   } else {
-    if (nowtp >= _next_send_request_in_tp) {
-      adjust_timing(nowtp);
+    auto now_tp = system_clock::now();
+    if (now_tp >= _next_send_request_in_tp) {
+      adjust_timing(now_tp);
       send_periodical_request(); // 送信
     } else {
-      receive_from_port(nowtp); // 受信
+      receive_from_port(now_tp); // 受信
     }
   }
 }

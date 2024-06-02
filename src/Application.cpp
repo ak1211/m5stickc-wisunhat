@@ -33,9 +33,8 @@ void Application::task_handler() {
     start_wifi(ostream);
   } else {
     //
-    auto now_tp = system_clock::now();
     if (_energy_meter_comm_task) {
-      _energy_meter_comm_task->task_handler(now_tp);
+      _energy_meter_comm_task->task_handler();
     }
     //
     if (_telemetry) {
