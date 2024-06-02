@@ -23,6 +23,8 @@ bool EnergyMeterCommTask::begin(std::ostream &os,
   ok = ok ? find_energy_meter(os, timeout) : false;
   ok = ok ? connect(os, timeout) : false;
   //
+  send_first_request();
+  //
   adjust_timing(system_clock::now());
   //
   return ok;
@@ -48,8 +50,7 @@ void EnergyMeterCommTask::task_handler(
   } else {
     if (nowtp >= _next_send_request_in_tp) {
       adjust_timing(nowtp);
-      //
-      send_request_to_port(nowtp); // 送信
+      send_periodical_request(); // 送信
     } else {
       receive_from_port(nowtp); // 受信
     }
@@ -64,8 +65,8 @@ bool EnergyMeterCommTask::find_energy_meter(std::ostream &os,
   ss << "Find a smart energy meter";
   os << ss.str() << std::endl;
   M5_LOGD("%s", ss.str().c_str());
-  auto identifier = Bp35a1::startup_and_find_meter2(os, _comm_port, _route_b_id,
-                                                    _route_b_password, timeout);
+  auto identifier = Bp35a1::startup_and_find_meter(os, _comm_port, _route_b_id,
+                                                   _route_b_password, timeout);
   if (identifier) {
     _smart_meter_identifier = identifier;
     return true;
@@ -87,7 +88,7 @@ bool EnergyMeterCommTask::connect(std::ostream &os,
     return false;
   }
   // スマートメーターに接続要求を送る
-  auto ok = Bp35a1::connect2(os, timeout, _comm_port, *_smart_meter_identifier);
+  auto ok = Bp35a1::connect(os, timeout, _comm_port, *_smart_meter_identifier);
   if (ok) {
     // 接続成功
     _pana_session_established = true;
@@ -129,16 +130,6 @@ void EnergyMeterCommTask::receive_from_port(system_clock::time_point nowtp) {
     }
     // 処理したメッセージをFIFOから消す
     _received_message_fifo.pop();
-  }
-}
-
-// スマートメーターに要求を送る
-void EnergyMeterCommTask::send_request_to_port(system_clock::time_point nowtp) {
-  if (Application::getElectricPowerData().whm_unit.has_value()) {
-    send_periodical_request();
-  } else {
-    // 積算電力量単位が初期値の場合にスマートメーターに最初の要求を出す
-    send_first_request();
   }
 }
 

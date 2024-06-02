@@ -117,7 +117,7 @@ public:
 class Gui {
   constexpr static auto PERIODIC_TIMER_INTERVAL =
       std::chrono::milliseconds{250};
-  constexpr static auto UPDATE_TIMER_INTERVAL = std::chrono::milliseconds{125};
+  constexpr static auto UPDATE_TIMER_INTERVAL = std::chrono::milliseconds{100};
 
 public:
   //
@@ -149,8 +149,8 @@ public:
 private:
   M5GFX &_gfx;
   // LVGL timer
-  lv_timer_t *_periodic_timer{nullptr};
-  lv_timer_t *_update_timer{nullptr};
+  std::shared_ptr<lv_timer_t> _periodic_timer;
+  std::shared_ptr<lv_timer_t> _update_timer;
   // LVGL tileview object
   lv_style_t _tileview_style{};
   std::shared_ptr<lv_obj_t> _tileview_obj;
@@ -158,6 +158,10 @@ private:
   using TileVector = std::vector<std::unique_ptr<Widget::TileBase>>;
   TileVector _tiles{};
   TileVector::iterator _active_tile_itr;
+  //
+  static void periodic_timer_callback(lv_timer_t *arg);
+  //
+  static void update_timer_callback(lv_timer_t *arg);
 
 private:
   constexpr static auto LVGL_BUFFER_ONE_SIZE_OF_BYTES = size_t{2048};

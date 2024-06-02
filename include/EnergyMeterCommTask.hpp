@@ -52,8 +52,6 @@ private:
   bool connect(std::ostream &os, std::chrono::seconds timeout);
   //
   void receive_from_port(std::chrono::system_clock::time_point nowtp);
-  // スマートメーターに要求を送る
-  void send_request_to_port(std::chrono::system_clock::time_point nowtp);
   // スマートメーターに最初の要求を出す
   void send_first_request();
   // スマートメーターに定期的な要求を出す

@@ -34,6 +34,41 @@ void Gui::lvgl_use_display_flush_callback(lv_disp_drv_t *disp_drv,
 }
 
 //
+void Gui::periodic_timer_callback(lv_timer_t *arg) {
+  auto gui = static_cast<Gui *>(arg->user_data);
+  assert(gui);
+  //
+  static int8_t gravity_dir_counter = 0;
+  // Display rotation
+  if (float ax, ay, az; M5.Imu.getAccelData(&ax, &ay, &az)) {
+    if (ax <= 0.0) {
+      gravity_dir_counter--;
+    } else if (ax >= 0.0) {
+      gravity_dir_counter++;
+    }
+  }
+  if (std::abs(gravity_dir_counter) >= 10) {
+    auto current = gui->_gfx.getRotation();
+    auto next = gravity_dir_counter < 0 ? 3 : 1;
+    if (current != next) {
+      gui->_gfx.setRotation(next);
+      // force redraw
+      lv_obj_invalidate(lv_scr_act());
+    }
+    gravity_dir_counter = 0;
+  }
+}
+
+//
+void Gui::update_timer_callback(lv_timer_t *arg) {
+  assert(arg);
+  auto gui = static_cast<Gui *>(arg->user_data);
+  if (gui && gui->_active_tile_itr->get()) {
+    gui->_active_tile_itr->get()->update();
+  }
+}
+
+//
 bool Gui::begin() {
   // Display init
   _gfx.setColorDepth(LV_COLOR_DEPTH);
@@ -56,35 +91,13 @@ bool Gui::begin() {
   lv_disp_drv_register(&_lvgl_use.disp_drv);
 
   // set timer callback
-  _periodic_timer = lv_timer_create(
-      [](lv_timer_t *arg) -> void {
-        auto gui = static_cast<Gui *>(arg->user_data);
-        assert(gui);
-        //
-        static int8_t gravity_dir_counter = 0;
-        // Display rotation
-        if (float ax, ay, az; M5.Imu.getAccelData(&ax, &ay, &az)) {
-          if (ax <= 0.0) {
-            gravity_dir_counter--;
-          } else if (ax >= 0.0) {
-            gravity_dir_counter++;
-          }
-        }
-        if (std::abs(gravity_dir_counter) >= 10) {
-          auto current = gui->_gfx.getRotation();
-          auto next = gravity_dir_counter < 0 ? 3 : 1;
-          if (current != next) {
-            gui->_gfx.setRotation(next);
-            // force redraw
-            lv_obj_invalidate(lv_scr_act());
-          }
-          gravity_dir_counter = 0;
-        }
-      },
-      std::chrono::duration_cast<std::chrono::milliseconds>(
-          PERIODIC_TIMER_INTERVAL)
-          .count(),
-      this);
+  _periodic_timer.reset(
+      lv_timer_create(periodic_timer_callback,
+                      std::chrono::duration_cast<std::chrono::milliseconds>(
+                          PERIODIC_TIMER_INTERVAL)
+                          .count(),
+                      this),
+      lv_timer_del);
 
   return true;
 }
@@ -110,18 +123,13 @@ void Gui::startUi() {
     _active_tile_itr = _tiles.begin();
     lv_scr_load(_tileview_obj.get());
     // set update timer callback
-    _update_timer = lv_timer_create(
-        [](lv_timer_t *arg) -> void {
-          assert(arg);
-          auto gui = static_cast<Gui *>(arg->user_data);
-          if (gui && gui->_active_tile_itr->get()) {
-            gui->_active_tile_itr->get()->update();
-          }
-        },
-        std::chrono::duration_cast<std::chrono::milliseconds>(
-            UPDATE_TIMER_INTERVAL)
-            .count(),
-        this);
+    _update_timer.reset(
+        lv_timer_create(update_timer_callback,
+                        std::chrono::duration_cast<std::chrono::milliseconds>(
+                            UPDATE_TIMER_INTERVAL)
+                            .count(),
+                        this),
+        lv_timer_del);
   }
 
   home();

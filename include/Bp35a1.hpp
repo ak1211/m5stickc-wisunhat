@@ -234,31 +234,16 @@ send_request(Stream &commport, const SmartMeterIdentifier &smart_meter_ident,
              const std::vector<SmartElectricEnergyMeter::EchonetLiteEPC> epcs);
 
 // 接続(PANA認証)要求を送る
-extern bool connect(Stream &commport,
-                    const SmartMeterIdentifier &smart_meter_ident,
-                    DisplayMessageT message, void *user_data);
-
-// 接続(PANA認証)要求を送る
-extern bool connect2(std::ostream &os, std::chrono::seconds timeout,
-                     Stream &commport, SmartMeterIdentifier smart_meter_ident);
+extern bool connect(std::ostream &os, std::chrono::seconds timeout,
+                    Stream &commport, SmartMeterIdentifier smart_meter_ident);
 
 // アクティブスキャンを実行する
-extern std::optional<ResEpandesc>
-do_active_scan(Stream &commport, DisplayMessageT message, void *user_data);
-
-// アクティブスキャンを実行する
-extern std::optional<ResEpandesc> do_active_scan2(std::ostream &os,
-                                                  Stream &commport,
-                                                  std::chrono::seconds timeout);
+extern std::optional<ResEpandesc> do_active_scan(std::ostream &os,
+                                                 Stream &commport,
+                                                 std::chrono::seconds timeout);
 
 // BP35A1を起動してアクティブスキャンを開始する
 extern std::optional<SmartMeterIdentifier> startup_and_find_meter(
-    Stream &commport,
-    std::pair<std::string_view, std::string_view> b_route_id_password,
-    DisplayMessageT display_message, void *user_data);
-
-// BP35A1を起動してアクティブスキャンを開始する
-extern std::optional<SmartMeterIdentifier> startup_and_find_meter2(
     std::ostream &os, Stream &commport, const std::string &route_b_id,
     const std::string &route_b_password, std::chrono::seconds timeout);
 } // namespace Bp35a1
