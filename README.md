@@ -28,7 +28,8 @@ WiFiとスマートメータールートＢとAWS IoT Coreの接続情報をjson
     }
 }
 ```
-DeviceIdはMQTT publish / subscribe 識別用(自由に決めればよい)
+
+DeviceIdはMQTT publish / subscribe 識別用(自由に決めればよい)  
 SensorIdはDynamo DBのパーティションキー(自由に決めればよい)
 
 AWS IoTからダウンロードした証明書ファイル
