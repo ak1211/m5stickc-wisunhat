@@ -15,9 +15,9 @@
 class EnergyMeterCommTask final {
 public:
   constexpr static auto RECONNECT_TIMEOUT = std::chrono::seconds{30};
-  EnergyMeterCommTask(Stream &port, std::string route_b_id,
+  EnergyMeterCommTask(Stream &comm_port, std::string route_b_id,
                       std::string route_b_password)
-      : _comm_port{port},
+      : _bp35a1{comm_port},
         _route_b_id{route_b_id},
         _route_b_password{route_b_password},
         _pana_session_established{false} {}
@@ -31,8 +31,8 @@ public:
 private:
   //
   std::chrono::system_clock::time_point _next_send_request_in_tp{};
-  // BP35A1と会話できるポート
-  Stream &_comm_port;
+  //
+  Bp35a1Class _bp35a1;
   //
   const std::string _route_b_id;
   //
@@ -40,7 +40,8 @@ private:
   // スマート電力量計のＢルート識別子
   std::optional<Bp35a1::SmartMeterIdentifier> _smart_meter_identifier;
   // メッセージ受信バッファ
-  std::queue<std::pair<std::chrono::system_clock::time_point, Bp35a1::Response>>
+  std::queue<
+      std::pair<std::chrono::system_clock::time_point, Bp35a1Class::Response>>
       _received_message_fifo{};
   // Echonet Lite PANA session
   bool _pana_session_established{false};

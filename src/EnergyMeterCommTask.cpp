@@ -42,7 +42,7 @@ void EnergyMeterCommTask::adjust_timing(
 // 測定関数
 void EnergyMeterCommTask::task_handler(
     std::chrono::system_clock::time_point nowtp) {
-  if (!_smart_meter_identifier) {
+  if (!_pana_session_established) {
     // 再接続
     StringBufWithDialogue buf{"Reconnect meter"};
     std::ostream ostream(&buf);
@@ -60,12 +60,14 @@ void EnergyMeterCommTask::task_handler(
 // 接続対象のスマートメーターを探す
 bool EnergyMeterCommTask::find_energy_meter(std::ostream &os,
                                             std::chrono::seconds timeout) {
-  // 接続対象のスマートメーターの情報が無い場合は探す。
-  std::ostringstream ss;
-  ss << "Find a smart energy meter";
-  os << ss.str() << std::endl;
-  M5_LOGD("%s", ss.str().c_str());
-  auto identifier = Bp35a1::startup_and_find_meter(os, _comm_port, _route_b_id,
+  {
+    std::ostringstream ss;
+    ss << "Find a smart energy meter";
+    os << ss.str() << std::endl;
+    M5_LOGD("%s", ss.str().c_str());
+  }
+  _pana_session_established = false; // この後接続が切れるので
+  auto identifier = _bp35a1.startup_and_find_meter(os, _route_b_id,
                                                    _route_b_password, timeout);
   if (identifier) {
     _smart_meter_identifier = identifier;
@@ -85,30 +87,32 @@ bool EnergyMeterCommTask::find_energy_meter(std::ostream &os,
 bool EnergyMeterCommTask::connect(std::ostream &os,
                                   std::chrono::seconds timeout) {
   if (!_smart_meter_identifier) {
-    return false;
+    // 接続対象のスマートメーターを探す
+    find_energy_meter(os, timeout);
   }
-  // スマートメーターに接続要求を送る
-  auto ok = Bp35a1::connect(os, timeout, _comm_port, *_smart_meter_identifier);
-  if (ok) {
-    // 接続成功
-    _pana_session_established = true;
-  } else {
-    // 接続失敗
-    _pana_session_established = false;
-    std::ostringstream ss;
-    ss << "smart meter connection error.";
-    os << ss.str() << std::endl;
-    M5_LOGE("%s", ss.str().c_str());
+  if (_smart_meter_identifier) {
+    // スマートメーターに接続要求を送る
+    auto ok = _bp35a1.connect(os, *_smart_meter_identifier, timeout);
+    if (ok) {
+      // 接続成功
+      _pana_session_established = true;
+    } else {
+      // 接続失敗
+      _pana_session_established = false;
+      std::ostringstream ss;
+      ss << "smart meter connection error.";
+      os << ss.str() << std::endl;
+      M5_LOGE("%s", ss.str().c_str());
+    }
   }
-
-  return true;
+  return _pana_session_established;
 }
 
 // 受信
 void EnergyMeterCommTask::receive_from_port(system_clock::time_point nowtp) {
   // (あれば)連続でスマートメーターからのメッセージを受信する
   for (auto count = 0; count < 25; ++count) {
-    if (auto resp = Bp35a1::receive_response(_comm_port)) {
+    if (auto resp = _bp35a1.receive_response()) {
       _received_message_fifo.push({nowtp, resp.value()});
     }
     std::this_thread::yield();
@@ -200,9 +204,7 @@ void EnergyMeterCommTask::process_event(const Bp35a1::ResEvent &ev) {
   }
 }
 
-//
 // ノードプロファイルクラスのEchonetLiteフレームを処理する
-//
 void EnergyMeterCommTask::process_node_profile_class_frame(
     const EchonetLiteFrame &frame) {
   for (const EchonetLiteProp &prop : frame.edata.props) {
@@ -230,9 +232,7 @@ void EnergyMeterCommTask::process_node_profile_class_frame(
   }
 }
 
-//
 // BP35A1から受信したERXUDPイベントを処理する
-//
 void EnergyMeterCommTask::process_erxudp(
     std::chrono::system_clock::time_point at, const Bp35a1::ResErxudp &ev) {
   // EchonetLiteFrameに変換
@@ -286,9 +286,7 @@ void EnergyMeterCommTask::process_erxudp(
   }
 }
 
-//
 // スマートメーターに最初の要求を出す
-//
 void EnergyMeterCommTask::send_first_request() {
   using E = SmartElectricEnergyMeter::EchonetLiteEPC;
   std::vector<E> epcs = {
@@ -309,15 +307,13 @@ void EnergyMeterCommTask::send_first_request() {
   const auto tid = EchonetLiteTransactionId({12, 34});
 
   if (_pana_session_established && _smart_meter_identifier) {
-    Bp35a1::send_request(_comm_port, *_smart_meter_identifier, tid, epcs);
+    _bp35a1.send_request(*_smart_meter_identifier, tid, epcs);
   } else {
     M5_LOGD("No connection to smart meter.");
   }
 }
 
-//
 // スマートメーターに定期的な要求を出す
-//
 void EnergyMeterCommTask::send_periodical_request() {
   using E = SmartElectricEnergyMeter::EchonetLiteEPC;
   std::vector<E> epcs = {
@@ -354,98 +350,8 @@ void EnergyMeterCommTask::send_periodical_request() {
   // スマートメーターに要求を出す
   if (_pana_session_established && _smart_meter_identifier) {
     const auto tid = EchonetLiteTransactionId({12, 34});
-    Bp35a1::send_request(_comm_port, *_smart_meter_identifier, tid, epcs);
+    _bp35a1.send_request(*_smart_meter_identifier, tid, epcs);
   } else {
     M5_LOGD("No connection to smart meter.");
   }
 }
-
-#if 0
-
-//
-// 低速度loop()関数
-//
-inline void low_speed_loop(std::chrono::system_clock::time_point nowtp) {
-  if (M5.Power.getBatteryLevel() < 100 &&
-      M5.Power.isCharging() == m5::Power_Class::is_discharging) {
-    // バッテリー駆動時は明るさを下げる
-    if (M5.Display.getBrightness() != 75) {
-      M5.Display.setBrightness(75);
-    }
-  } else {
-    // 通常の明るさ
-    if (M5.Display.getBrightness() != 150) {
-      M5.Display.setBrightness(150);
-    }
-  }
-  //
-  using namespace std::chrono;
-  //
-  auto display_message = [](const std::string &str, void *user_data) -> void {
-    M5_LOGD("%s", str.c_str());
-    if (user_data) {
-      static_cast<Widget::Dialogue *>(user_data)->setMessage(str);
-    }
-  };
-  //
-  if (!smart_watt_hour_meter) {
-    // 接続対象のスマートメーターの情報が無い場合は探す。
-    M5_LOGD("Find a smart energy meter");
-    Widget::Dialogue dialogue{"Find a meter."};
-    display_message("seeking...", &dialogue);
-    auto identifier = Bp35a1::startup_and_find_meter(
-        Serial2, {BID, BPASSWORD}, display_message, &dialogue);
-    if (identifier) {
-      // 見つかったスマートメーターをグローバル変数に設定する
-      smart_watt_hour_meter =
-          std::make_unique<SmartWhm>(SmartWhm(Serial2, identifier.value()));
-    } else {
-      // スマートメーターが見つからなかった
-      M5_LOGE("ERROR: meter not found.");
-      dialogue.error("ERROR: meter not found.");
-      delay(1000);
-    }
-  } else if (!smart_watt_hour_meter->isPanaSessionEstablished) {
-    // スマートメーターとのセッションを開始する。
-    M5_LOGD("Connect to a meter.");
-    Widget::Dialogue dialogue{"Connect to a meter."};
-    display_message("Send request to a meter.", &dialogue);
-    // スマートメーターに接続要求を送る
-    if (auto ok = connect(smart_watt_hour_meter->commport,
-                          smart_watt_hour_meter->identifier, display_message,
-                          &dialogue);
-        ok) {
-      // 接続成功
-      smart_watt_hour_meter->isPanaSessionEstablished = true;
-    } else {
-      // 接続失敗
-      smart_watt_hour_meter->isPanaSessionEstablished = false;
-      M5_LOGE("smart meter connection error.");
-      dialogue.error("smart meter connection error.");
-      delay(1000);
-    }
-  } else if (WiFi.status() != WL_CONNECTED) {
-    // WiFiが接続されていない場合は接続する。
-    Widget::Dialogue dialogue{"Connect to WiFi."};
-    if (auto ok = waitingForWiFiConnection(dialogue); !ok) {
-      dialogue.error("ERROR: WiFi");
-      delay(1000);
-    }
-  } else if (bool connected = telemetry.connected(); !connected) {
-    // AWS IoTと接続されていない場合は接続する。
-    Widget::Dialogue dialogue{"Connect to AWS IoT."};
-    if (auto ok = telemetry.connectToAwsIot(std::chrono::seconds{60},
-                                            display_message, &dialogue);
-        !ok) {
-      dialogue.error("ERROR");
-      delay(1000);
-    }
-  }
-
-  // MQTT送受信
-  telemetry.loop_mqtt();
-
-  // スマートメーターに要求を送る
-  send_request_to_smart_meter();
-}
-#endif
