@@ -35,7 +35,4 @@ struct ElectricPowerData {
   // 定時積算電力量
   std::optional<CumlativeWattHour> cumlative_watt_hour{};
 };
-
-extern ElectricPowerData electric_power_data;
-
 } // namespace Repository

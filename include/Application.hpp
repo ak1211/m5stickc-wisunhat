@@ -3,24 +3,119 @@
 // See LICENSE file in the project root for full license information.
 //
 #pragma once
-#include <string>
+#include "EchonetLite.hpp"
+#include "EnergyMeterCommTask.hpp"
+#include "Gui.hpp"
+#include "Repository.hpp"
+#include "Telemetry.hpp"
+#include <ArduinoJson.h>
+#include <chrono>
+#include <lvgl.h>
+#include <memory>
+#include <optional>
+#include <tuple>
 
-// Wifi
-extern std::string_view WIFI_SSID;
-extern std::string_view WIFI_PASSWORD;
-// AWS IoT
-extern std::string_view AWS_IOT_DEVICE_ID;
-extern std::string_view AWS_IOT_ROOT_CA;
-extern std::string_view AWS_IOT_CERTIFICATE;
-extern std::string_view AWS_IOT_PRIVATE_KEY;
-extern std::string_view AWS_IOT_ENDPOINT;
-extern const uint8_t AWS_IOT_QOS;
+//
+//
+//
+class Application final {
+public:
+  // BP35A1と会話できるポート番号
+  constexpr static auto CommPortRx{26};
+  constexpr static auto CommPortTx{0};
+  //
+  constexpr static auto LVGL_TASK_STACK_SIZE = size_t{8192};
+  //
+  constexpr static auto APPLICATION_TASK_STACK_SIZE = size_t{8192};
+  //
+  constexpr static auto TIMEOUT = std::chrono::seconds{30};
+  // time zone = Asia_Tokyo(UTC+9)
+  constexpr static auto TZ_TIME_ZONE = std::string_view{"JST-9"};
+  //
+  constexpr static std::string_view SETTINGS_FILE_PATH{"/settings.json"};
 
-// データーベースのパーティションキーであるセンサーＩＤ
-const std::string_view SENSOR_ID{"smartmeter"};
+public:
+  Application(const Application &) = delete;
+  Application &operator=(const Application &) = delete;
+  Application(Application &&) = delete;
+  Application &operator=(Application &&) = delete;
+  Application(M5GFX &gfx) : _gui{gfx} {
+    if (_instance) {
+      esp_system_abort("multiple Application started.");
+    }
+    _instance = this;
+  }
+  //
+  void task_handler();
+  // 起動
+  bool startup();
+  //
+  static Repository::ElectricPowerData &getElectricPowerData() {
+    return getInstance()->_electric_power_data;
+  }
+  //
+  static std::shared_ptr<Telemetry> getTelemetry() {
+    return getInstance()->_telemetry;
+  }
+  //
+  static std::shared_ptr<EnergyMeterCommTask> getEnergyMeterCommTask() {
+    return getInstance()->_energy_meter_comm_task;
+  }
+  //
+  static Gui &getGui() { return getInstance()->_gui; }
+  //
+  static Application *getInstance() {
+    if (_instance == nullptr) {
+      esp_system_abort("Application is not started.");
+    }
+    return _instance;
+  }
 
-// ログ出し用
-const char MAIN[] = "MAIN";
-const char SEND[] = "SEND";
-const char RECEIVE[] = "RECEIVE";
-const char TELEMETRY[] = "TELEMETRY";
+private:
+  static Application *_instance;
+  // インターネット時間サーバーに同期しているか
+  bool _time_is_synced{false};
+  //
+  Repository::ElectricPowerData _electric_power_data;
+  // JSON形式設定ファイル
+  JsonDocument _settings_json;
+  // AWS設定
+  std::optional<Telemetry::AwsIotRootCa> _aws_iot_root_ca;
+  std::optional<Telemetry::AwsIotCertificate> _aws_iot_certificate;
+  std::optional<Telemetry::AwsIotPrivateKey> _aws_iot_private_key;
+  //
+  std::optional<std::string> getSettings_wifi_SSID();
+  std::optional<std::string> getSettings_wifi_password();
+  std::optional<std::string> getSettings_RouteB_id();
+  std::optional<std::string> getSettings_RouteB_password();
+  std::optional<Telemetry::SensorId> getSettings_SensorId();
+  std::optional<Telemetry::DeviceId> getSettings_DeviceId();
+  std::optional<Telemetry::AwsIotEndpoint> getSettings_AwsIoT_Endpoint();
+  std::optional<std::string> getSettings_AwsIoT_root_ca_file();
+  std::optional<std::string> getSettings_AwsIoT_certificate_file();
+  std::optional<std::string> getSettings_AwsIoT_private_key_file();
+  //
+  Gui _gui;
+  //
+  std::shared_ptr<Telemetry> _telemetry;
+  //
+  std::shared_ptr<EnergyMeterCommTask> _energy_meter_comm_task;
+  //
+  TaskHandle_t _rtos_lvgl_task_handle{};
+  //
+  TaskHandle_t _rtos_application_task_handle{};
+  //
+  bool read_settings_json(std::ostream &os);
+  //
+  bool start_wifi(std::ostream &os);
+  // インターネット時間サーバと同期する
+  bool synchronize_ntp(std::ostream &os);
+  //
+  bool start_telemetry(std::ostream &os);
+  //
+  bool start_energy_meter_communication(std::ostream &os);
+  //
+  static void time_sync_notification_callback(struct timeval *time_val);
+  //
+  static void wifi_event_callback(WiFiEvent_t event);
+};
