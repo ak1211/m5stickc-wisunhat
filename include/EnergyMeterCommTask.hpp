@@ -14,6 +14,7 @@
 //
 class EnergyMeterCommTask final {
 public:
+  constexpr static auto RECONNECT_TIMEOUT = std::chrono::seconds{30};
   EnergyMeterCommTask(Stream &port, std::string route_b_id,
                       std::string route_b_password)
       : _comm_port{port},
@@ -22,8 +23,6 @@ public:
         _pana_session_established{false} {}
   //
   bool begin(std::ostream &os, std::chrono::seconds timeout);
-  //
-  bool connect(std::ostream &os, std::chrono::seconds timeout);
   //
   void adjust_timing(std::chrono::system_clock::time_point nowtp);
   //
@@ -45,6 +44,12 @@ private:
       _received_message_fifo{};
   // Echonet Lite PANA session
   bool _pana_session_established{false};
+
+private:
+  //
+  bool find_energy_meter(std::ostream &os, std::chrono::seconds timeout);
+  //
+  bool connect(std::ostream &os, std::chrono::seconds timeout);
   //
   void receive_from_port(std::chrono::system_clock::time_point nowtp);
   // スマートメーターに要求を送る

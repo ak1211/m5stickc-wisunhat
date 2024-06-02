@@ -3,6 +3,7 @@
 // See LICENSE file in the project root for full license information.
 //
 #include "Application.hpp"
+#include "StringBufWithDialogue.hpp"
 #include <ArduinoJson.h>
 #include <LittleFS.h>
 #include <WiFi.h>
@@ -13,17 +14,48 @@
 
 #include <M5Unified.h>
 
-extern std::string_view WIFI_SSID;
-extern std::string_view WIFI_PASSWORD;
-
-// BP35A1と会話できるポート番号
-constexpr int CommPortRx{26};
-constexpr int CommPortTx{0};
-
 using namespace std::chrono;
 using namespace std::chrono_literals;
 
 Application *Application::_instance{nullptr};
+
+//
+void Application::task_handler() {
+  M5.update();
+  if (M5.BtnA.wasPressed()) {
+    _gui.moveNext();
+  }
+  //
+  if (WiFi.status() != WL_CONNECTED) {
+    // WiFiが接続されていない場合は接続する。
+    StringBufWithDialogue buf{"Connect to WiFi."};
+    std::ostream ostream{&buf};
+    start_wifi(ostream);
+  } else {
+    //
+    auto now_tp = system_clock::now();
+    if (_energy_meter_comm_task) {
+      _energy_meter_comm_task->task_handler(now_tp);
+    }
+    //
+    if (_telemetry) {
+      _telemetry->loop_mqtt();
+    }
+    //
+    if (M5.Power.getBatteryLevel() < 100 &&
+        M5.Power.isCharging() == m5::Power_Class::is_discharging) {
+      // バッテリー駆動時は明るさを下げる
+      if (M5.Display.getBrightness() != 75) {
+        M5.Display.setBrightness(75);
+      }
+    } else {
+      // 通常の明るさ
+      if (M5.Display.getBrightness() != 150) {
+        M5.Display.setBrightness(150);
+      }
+    }
+  }
+}
 
 //
 std::optional<std::string> Application::getSettings_wifi_SSID() {
@@ -117,97 +149,6 @@ std::optional<std::string> Application::getSettings_AwsIoT_private_key_file() {
   return std::nullopt;
 }
 
-#if 0
-static void gotWiFiEvent(WiFiEvent_t event) {
-  switch (event) {
-  case SYSTEM_EVENT_AP_START:
-    M5_LOGI("AP Started");
-    break;
-  case SYSTEM_EVENT_AP_STOP:
-    M5_LOGI("AP Stopped");
-    break;
-  case SYSTEM_EVENT_STA_START:
-    M5_LOGI("STA Started");
-    break;
-  case SYSTEM_EVENT_STA_CONNECTED:
-    M5_LOGI("STA Connected");
-    break;
-  case SYSTEM_EVENT_AP_STA_GOT_IP6: {
-    auto localipv6 = WiFi.localIPv6();
-    M5_LOGI("STA IPv6: %s", localipv6.toString());
-  } break;
-  case SYSTEM_EVENT_STA_GOT_IP: {
-    auto localip = WiFi.localIP();
-    M5_LOGI("STA IPv4: %s", localip.toString());
-  } break;
-  case SYSTEM_EVENT_STA_DISCONNECTED:
-    M5_LOGI("STA Disconnected");
-    //    WiFi.begin();
-    break;
-  case SYSTEM_EVENT_STA_STOP:
-    M5_LOGI("STA Stopped");
-    break;
-  default:
-    break;
-  }
-}
-
-//
-// WiFi APとの接続待ち
-//
-static bool waitingForWiFiConnection(Widget::Dialogue &dialogue,
-                                     uint16_t max_retries = 100U) {
-  auto status = WiFi.status();
-  //
-  for (auto nth_tries = 1; status != WL_CONNECTED && nth_tries <= max_retries;
-       ++nth_tries) {
-    // wait for connection.
-    dialogue.setMessage("Waiting : "s + std::to_string(nth_tries) + " / "s +
-                        std::to_string(max_retries));
-    delay(1000);
-    //
-    status = WiFi.status();
-  }
-  if (status == WL_CONNECTED) {
-    dialogue.setMessage("WiFi connected");
-    return true;
-  } else {
-    dialogue.error("ERROR");
-    return false;
-  }
-}
-
-//
-// NTPと同期する
-//
-static bool initializeTime(Widget::Dialogue &dialogue,
-                           uint16_t max_retries = 300U) {
-  sntp_sync_status_t status = sntp_get_sync_status();
-  //
-  dialogue.setMessage("Setting time using SNTP");
-  configTzTime(TZ_TIME_ZONE, "ntp.jst.mfeed.ad.jp", "time.cloudflare.com",
-               "ntp.nict.jp");
-  //
-  for (auto nth_tries = 1;
-       status != SNTP_SYNC_STATUS_COMPLETED && nth_tries <= max_retries;
-       ++nth_tries) {
-    // wait for time sync.
-    dialogue.setMessage("Waiting : "s + std::to_string(nth_tries) + " / "s +
-                        std::to_string(max_retries));
-    delay(1000);
-    //
-    status = sntp_get_sync_status();
-  }
-  if (status == SNTP_SYNC_STATUS_COMPLETED) {
-    dialogue.setMessage("Time synced.");
-    return true;
-  } else {
-    dialogue.error("ERROR");
-    return false;
-  }
-}
-#endif
-
 // 起動
 bool Application::startup() {
   // 起動シーケンス
@@ -264,27 +205,7 @@ bool Application::startup() {
       ARDUINO_RUNNING_CORE);
 
   //
-  class BufWithLogging : public std::stringbuf {
-    Widget::Dialogue &_dialogue;
-
-  public:
-    BufWithLogging(Widget::Dialogue &dialogue) : _dialogue{dialogue} {}
-    //
-    virtual int sync() {
-      std::istringstream iss{this->str()};
-      std::string work;
-      std::string tail;
-      while (std::getline(iss, work)) {
-        tail = work;
-      }
-      _dialogue.setMessage(tail);
-      return std::stringbuf::sync();
-    }
-  };
-
-  //
-  Widget::Dialogue dialogue{"HELLO"};
-  BufWithLogging buf{dialogue};
+  StringBufWithDialogue buf{"HELLO"};
   std::ostream ostream(&buf);
 
   // 起動
@@ -301,6 +222,19 @@ bool Application::startup() {
   }
   //
   _gui.startUi();
+
+  // create RTOS task for this Application
+  xTaskCreatePinnedToCore(
+      [](void *user_context) -> void {
+        assert(user_context);
+        while (true) {
+          Application *app = static_cast<Application *>(user_context);
+          assert(app);
+          app->task_handler();
+        }
+      },
+      "Task:Application", APPLICATION_TASK_STACK_SIZE, this, 1,
+      &_rtos_application_task_handle, ARDUINO_RUNNING_CORE);
 
   return true;
 }

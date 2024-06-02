@@ -20,6 +20,9 @@
 //
 class Application final {
 public:
+  // BP35A1と会話できるポート番号
+  constexpr static auto CommPortRx{26};
+  constexpr static auto CommPortTx{0};
   //
   constexpr static auto LVGL_TASK_STACK_SIZE = size_t{8192};
   //
@@ -43,7 +46,7 @@ public:
     _instance = this;
   }
   //
-  bool task_handler();
+  void task_handler();
   // 起動
   bool startup();
   //
@@ -101,8 +104,6 @@ private:
   TaskHandle_t _rtos_lvgl_task_handle{};
   //
   TaskHandle_t _rtos_application_task_handle{};
-  //
-  void idle_task_handler();
   //
   bool read_settings_json(std::ostream &os);
   //

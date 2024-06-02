@@ -3,6 +3,8 @@
 // See LICENSE file in the project root for full license information.
 //
 #include "Telemetry.hpp"
+#include "Gui.hpp"
+#include "StringBufWithDialogue.hpp"
 #include <ArduinoJson.h>
 #include <chrono>
 #include <future>
@@ -142,6 +144,18 @@ bool Telemetry::begin(std::ostream &os, std::chrono::seconds timeout) {
   }
 }
 
+// 送信用キューに積む
+void Telemetry::enqueue(const Payload &&in) {
+  if (_sending_fifo_queue.size() >= MAXIMUM_QUEUE_SIZE) {
+    M5_LOGI("MAXIMUM_QUEUE_SIZE reached.");
+    do {
+      // 溢れた測定値をFIFOから消す
+      _sending_fifo_queue.pop();
+    } while (_sending_fifo_queue.size() >= MAXIMUM_QUEUE_SIZE);
+  }
+  _sending_fifo_queue.push(in);
+}
+
 // MQTT接続検査
 bool Telemetry::check_mqtt(std::ostream &os, std::chrono::seconds timeout) {
   if (isConnected()) {
@@ -157,74 +171,14 @@ bool Telemetry::check_mqtt(std::ostream &os, std::chrono::seconds timeout) {
     return begin(os, timeout);
   }
 }
-#if 0
-    // AWS IoTへ接続確立を試みる
-    bool
-    Telemetry::connectToAwsIot(
-        std::chrono::seconds timeout,
-        std::function<void(const std::string &message, void *user_data)>
-            display_message,
-        void *user_data) {
-
-  const time_point tp = system_clock::now() + timeout;
-  //
-  display_message("protocol MQTT", user_data);
-  //
-  _https_client.setCACert(_root_ca.get().c_str());
-  _https_client.setCertificate(_certificate.get().c_str());
-  _https_client.setPrivateKey(_private_key.get().c_str());
-  _https_client.setTimeout(duration_cast<seconds>(SOCKET_TIMEOUT).count());
-  //
-  _mqtt_client.setServer(_endpoint.get().c_str(), MQTT_PORT);
-  _mqtt_client.setSocketTimeout(duration_cast<seconds>(SOCKET_TIMEOUT).count());
-  _mqtt_client.setKeepAlive(duration_cast<seconds>(KEEP_ALIVE).count());
-  _mqtt_client.setCallback(mqtt_callback);
-  //
-  bool success{false};
-  do {
-    success = _mqtt_client.connect(_deviceId.get().c_str(), nullptr,
-                                   QUARITY_OF_SERVICE, false, "");
-    std::this_thread::yield();
-  } while (!success && system_clock::now() < tp);
-
-  if (success) {
-    display_message("connected.", user_data);
-  } else {
-    display_message(
-        "connect fail to AWS IoT, state: " + strMqttState(_mqtt_client) +
-            ", reason: " + httpsLastError(_https_client),
-        user_data);
-    return false;
-  }
-
-  success =
-      _mqtt_client.subscribe(_subscribe_topic.c_str(), QUARITY_OF_SERVICE);
-  if (success) {
-    display_message("topic:" + _subscribe_topic + " subscribed.", user_data);
-  } else {
-    display_message("topic:" + _subscribe_topic + " failed.", user_data);
-    return false;
-  }
-  return true;
-}
-#endif
-
-// 送信用キューに積む
-void Telemetry::enqueue(const Payload &&in) {
-  if (_sending_fifo_queue.size() >= MAXIMUM_QUEUE_SIZE) {
-    M5_LOGI("MAXIMUM_QUEUE_SIZE reached.");
-    do {
-      // 溢れた測定値をFIFOから消す
-      _sending_fifo_queue.pop();
-    } while (_sending_fifo_queue.size() >= MAXIMUM_QUEUE_SIZE);
-  }
-  _sending_fifo_queue.push(in);
-}
 
 // MQTT送受信
 bool Telemetry::loop_mqtt() {
-  if (!_mqtt_client) {
-    return false;
+  if (!_mqtt_client || !_mqtt_client->connected()) {
+    // 再接続
+    StringBufWithDialogue buf{"Reconnect MQTT"};
+    std::ostream ostream(&buf);
+    return begin(ostream, RECONNECT_TIMEOUT);
   }
   // MQTT受信
   if (!_mqtt_client->loop()) {

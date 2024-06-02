@@ -6,8 +6,11 @@
 #include "Application.hpp"
 #include "Bp35a1.hpp"
 #include "EchonetLite.hpp"
+#include "Gui.hpp"
+#include "StringBufWithDialogue.hpp"
 #include <chrono>
 #include <future>
+#include <sstream>
 #include <string>
 
 using namespace std::chrono;
@@ -16,31 +19,65 @@ using namespace std::chrono_literals;
 // スマートメーターとのセッションを開始する。
 bool EnergyMeterCommTask::begin(std::ostream &os,
                                 std::chrono::seconds timeout) {
-  if (!_smart_meter_identifier) {
-    // 接続対象のスマートメーターの情報が無い場合は探す。
-    std::ostringstream ss;
-    ss << "Find a smart energy meter";
-    os << ss.str() << std::endl;
-    M5_LOGD("%s", ss.str().c_str());
-    auto identifier = Bp35a1::startup_and_find_meter2(
-        os, _comm_port, _route_b_id, _route_b_password, timeout);
-    if (identifier) {
-      _smart_meter_identifier = identifier;
-    } else {
-      // スマートメーターが見つからなかった
-      std::ostringstream ss;
-      ss << "ERROR: meter not found.";
-      os << ss.str() << std::endl;
-      M5_LOGE("%s", ss.str().c_str());
-      return false;
-    }
-  }
-  // スマートメーターに接続要求を送る
-  auto ok = connect(os, timeout);
+  bool ok{true};
+  ok = ok ? find_energy_meter(os, timeout) : false;
+  ok = ok ? connect(os, timeout) : false;
   //
   adjust_timing(system_clock::now());
   //
   return ok;
+}
+
+//
+void EnergyMeterCommTask::adjust_timing(
+    std::chrono::system_clock::time_point nowtp) {
+  auto extra_sec =
+      std::chrono::duration_cast<seconds>(nowtp.time_since_epoch()) % 60s;
+  //
+  _next_send_request_in_tp = nowtp + 1min - extra_sec;
+}
+
+// 測定関数
+void EnergyMeterCommTask::task_handler(
+    std::chrono::system_clock::time_point nowtp) {
+  if (!_smart_meter_identifier) {
+    // 再接続
+    StringBufWithDialogue buf{"Reconnect meter"};
+    std::ostream ostream(&buf);
+    connect(ostream, RECONNECT_TIMEOUT);
+  } else {
+    if (nowtp >= _next_send_request_in_tp) {
+      adjust_timing(nowtp);
+      //
+      send_request_to_port(nowtp); // 送信
+    } else {
+      receive_from_port(nowtp); // 受信
+    }
+  }
+}
+
+// 接続対象のスマートメーターを探す
+bool EnergyMeterCommTask::find_energy_meter(std::ostream &os,
+                                            std::chrono::seconds timeout) {
+  // 接続対象のスマートメーターの情報が無い場合は探す。
+  std::ostringstream ss;
+  ss << "Find a smart energy meter";
+  os << ss.str() << std::endl;
+  M5_LOGD("%s", ss.str().c_str());
+  auto identifier = Bp35a1::startup_and_find_meter2(os, _comm_port, _route_b_id,
+                                                    _route_b_password, timeout);
+  if (identifier) {
+    _smart_meter_identifier = identifier;
+    return true;
+  } else {
+    _smart_meter_identifier = std::nullopt;
+    // スマートメーターが見つからなかった
+    std::ostringstream ss;
+    ss << "ERROR: meter not found.";
+    os << ss.str() << std::endl;
+    M5_LOGE("%s", ss.str().c_str());
+    return false;
+  }
 }
 
 // スマートメーターとのセッションを開始する。
@@ -49,7 +86,6 @@ bool EnergyMeterCommTask::connect(std::ostream &os,
   if (!_smart_meter_identifier) {
     return false;
   }
-
   // スマートメーターに接続要求を送る
   auto ok = Bp35a1::connect2(os, timeout, _comm_port, *_smart_meter_identifier);
   if (ok) {
@@ -65,27 +101,6 @@ bool EnergyMeterCommTask::connect(std::ostream &os,
   }
 
   return true;
-}
-
-//
-void EnergyMeterCommTask::adjust_timing(
-    std::chrono::system_clock::time_point nowtp) {
-  auto extra_sec =
-      std::chrono::duration_cast<seconds>(nowtp.time_since_epoch()) % 60s;
-  //
-  _next_send_request_in_tp = nowtp + 1min - extra_sec;
-}
-
-// 測定関数
-void EnergyMeterCommTask::task_handler(
-    std::chrono::system_clock::time_point nowtp) {
-  if (nowtp >= _next_send_request_in_tp) {
-    EnergyMeterCommTask::adjust_timing(nowtp);
-    //
-    send_request_to_port(nowtp); // 送信
-  } else {
-    receive_from_port(nowtp); // 受信
-  }
 }
 
 // 受信
@@ -293,10 +308,12 @@ void EnergyMeterCommTask::send_first_request() {
       E::Coefficient,                 // 係数
       E::Unit_for_cumulative_amounts, // 積算電力量単位
       E::Number_of_effective_digits,  // 積算電力量有効桁数
+      E::Cumulative_amounts_of_electric_energy_measured_at_fixed_time, // 定時積算電力量計測値(正方向計測値)
+
   };
   M5_LOGD("request status / location / fault / manufacturer / coefficient / "
           "unit for whm / request number of "
-          "effective digits");
+          "effective digits / amounts of electric power");
   // スマートメーターに要求を出す
   const auto tid = EchonetLiteTransactionId({12, 34});
 
@@ -319,7 +336,7 @@ void EnergyMeterCommTask::send_periodical_request() {
   M5_LOGD("request inst-epower and inst-current");
   //
   std::time_t displayed_jst = []() -> std::time_t {
-    if (Application::getElectricPowerData().cumlative_watt_hour.has_value()) {
+    if (Application::getElectricPowerData().cumlative_watt_hour) {
       auto [cwh, unuse, unused] =
           Application::getElectricPowerData().cumlative_watt_hour.value();
       return cwh.get_time_t().value_or(0);
@@ -327,24 +344,22 @@ void EnergyMeterCommTask::send_periodical_request() {
       return 0;
     }
   }();
-#if 0
-  auto measured_at = std::chrono::system_clock::from_time_t(displayed_jst);
-  if (auto elapsed = current_time - measured_at;
+  auto measured_at = system_clock::from_time_t(displayed_jst);
+  if (auto elapsed = system_clock::now() - measured_at;
       elapsed >= std::chrono::minutes{36}) {
-    // 表示中の定時積算電力量計測値が36分より古い場合は
-    // 定時積算電力量計測値(30分値)をつかみそこねたと判断して
-    // 定時積算電力量要求を出す
+    // 表示中の定時積算電力量計測値が36分より古い場合は定時積算電力量要求を出す
     epcs.push_back(
         E::Cumulative_amounts_of_electric_energy_measured_at_fixed_time);
     // 定時積算電力量計測値(正方向計測値)
     M5_LOGD("request amounts of electric power");
   }
-// 積算履歴収集日
-  if (!whm.day_for_which_the_historcal.has_value()) {
-    epcs.push_back(E::Day_for_which_the_historcal_data_1);
-    ESP_LOGD(MAIN, "request day for historical data 1");
+  if constexpr (false) {
+    // 積算履歴収集日
+    if (!Application::getElectricPowerData().day_for_which_the_historcal) {
+      epcs.push_back(E::Day_for_which_the_historcal_data_1);
+      M5_LOGD("request day for historical data 1");
+    }
   }
-#endif
   // スマートメーターに要求を出す
   if (_pana_session_established && _smart_meter_identifier) {
     const auto tid = EchonetLiteTransactionId({12, 34});

@@ -86,6 +86,7 @@ public:
                                PayloadCumlativeWattHour>;
 
 public:
+  constexpr static auto RECONNECT_TIMEOUT = std::chrono::seconds{30};
   constexpr static auto MAXIMUM_QUEUE_SIZE = size_t{100};
   constexpr static auto MQTT_PORT = uint16_t{8883};
   constexpr static auto SOCKET_TIMEOUT = std::chrono::seconds{90};
@@ -115,14 +116,6 @@ public:
   }
   // MQTT接続検査
   bool check_mqtt(std::ostream &os, std::chrono::seconds timeout);
-#if 0
-  // AWS IoTへ接続確立を試みる
-  bool connectToAwsIot(
-      std::chrono::seconds timeout,
-      std::function<void(const std::string &message, void *user_data)>
-          display_message,
-      void *user_data);
-#endif
   // 送信用キューに積む
   void enqueue(const Payload &&in);
   // MQTT送受信
