@@ -13,22 +13,74 @@
 using namespace std::chrono;
 using namespace std::chrono_literals;
 
+// スマートメーターとのセッションを開始する。
+bool EnergyMeterCommTask::begin(std::ostream &os,
+                                std::chrono::seconds timeout) {
+  if (!_smart_meter_identifier) {
+    // 接続対象のスマートメーターの情報が無い場合は探す。
+    std::ostringstream ss;
+    ss << "Find a smart energy meter";
+    os << ss.str() << std::endl;
+    M5_LOGD("%s", ss.str().c_str());
+    auto identifier = Bp35a1::startup_and_find_meter2(
+        os, _comm_port, _route_b_id, _route_b_password, timeout);
+    if (identifier) {
+      _smart_meter_identifier = identifier;
+    } else {
+      // スマートメーターが見つからなかった
+      std::ostringstream ss;
+      ss << "ERROR: meter not found.";
+      os << ss.str() << std::endl;
+      M5_LOGE("%s", ss.str().c_str());
+      return false;
+    }
+  }
+  // スマートメーターに接続要求を送る
+  auto ok = connect(os, timeout);
+  //
+  adjust_timing(system_clock::now());
+  //
+  return ok;
+}
+
+// スマートメーターとのセッションを開始する。
+bool EnergyMeterCommTask::connect(std::ostream &os,
+                                  std::chrono::seconds timeout) {
+  if (!_smart_meter_identifier) {
+    return false;
+  }
+
+  // スマートメーターに接続要求を送る
+  auto ok = Bp35a1::connect2(os, timeout, _comm_port, *_smart_meter_identifier);
+  if (ok) {
+    // 接続成功
+    _pana_session_established = true;
+  } else {
+    // 接続失敗
+    _pana_session_established = false;
+    std::ostringstream ss;
+    ss << "smart meter connection error.";
+    os << ss.str() << std::endl;
+    M5_LOGE("%s", ss.str().c_str());
+  }
+
+  return true;
+}
+
 //
-bool EnergyMeterCommTask::begin(std::chrono::system_clock::time_point nowtp) {
+void EnergyMeterCommTask::adjust_timing(
+    std::chrono::system_clock::time_point nowtp) {
   auto extra_sec =
       std::chrono::duration_cast<seconds>(nowtp.time_since_epoch()) % 60s;
   //
   _next_send_request_in_tp = nowtp + 1min - extra_sec;
-  return true;
 }
 
 // 測定関数
 void EnergyMeterCommTask::task_handler(
     std::chrono::system_clock::time_point nowtp) {
   if (nowtp >= _next_send_request_in_tp) {
-    auto extra_sec =
-        std::chrono::duration_cast<seconds>(nowtp.time_since_epoch()) % 60s;
-    _next_send_request_in_tp = nowtp + 1min - extra_sec;
+    EnergyMeterCommTask::adjust_timing(nowtp);
     //
     send_request_to_port(nowtp); // 送信
   } else {
@@ -200,12 +252,16 @@ void EnergyMeterCommTask::process_erxudp(
           Application::getElectricPowerData().instant_ampere =
               std::make_pair(at, *p);
           // 送信バッファへ追加する
-          Application::getTelemetry().enqueue(std::make_pair(at, *p));
+          if (auto tele = Application::getTelemetry(); tele) {
+            tele->enqueue(std::make_pair(at, *p));
+          }
         } else if (auto *p = std::get_if<M::InstantWatt>(&rx)) {
           Application::getElectricPowerData().instant_watt =
               std::make_pair(at, *p);
           // 送信バッファへ追加する
-          Application::getTelemetry().enqueue(std::make_pair(at, *p));
+          if (auto tele = Application::getTelemetry(); tele) {
+            tele->enqueue(std::make_pair(at, *p));
+          }
         } else if (auto *p = std::get_if<M::CumulativeWattHour>(&rx)) {
           if (auto unit = Application::getElectricPowerData().whm_unit) {
             auto coeff =
@@ -214,8 +270,9 @@ void EnergyMeterCommTask::process_erxudp(
             Application::getElectricPowerData().cumlative_watt_hour =
                 std::make_tuple(*p, coeff, *unit);
             // 送信バッファへ追加する
-            Application::getTelemetry().enqueue(
-                std::make_tuple(*p, coeff, *unit));
+            if (auto tele = Application::getTelemetry(); tele) {
+              tele->enqueue(std::make_tuple(*p, coeff, *unit));
+            }
           }
         }
       }
@@ -243,8 +300,8 @@ void EnergyMeterCommTask::send_first_request() {
   // スマートメーターに要求を出す
   const auto tid = EchonetLiteTransactionId({12, 34});
 
-  if (_pana_session_established) {
-    Bp35a1::send_request(_comm_port, _identifier, tid, epcs);
+  if (_pana_session_established && _smart_meter_identifier) {
+    Bp35a1::send_request(_comm_port, *_smart_meter_identifier, tid, epcs);
   } else {
     M5_LOGD("No connection to smart meter.");
   }
@@ -289,9 +346,9 @@ void EnergyMeterCommTask::send_periodical_request() {
   }
 #endif
   // スマートメーターに要求を出す
-  if (_pana_session_established) {
+  if (_pana_session_established && _smart_meter_identifier) {
     const auto tid = EchonetLiteTransactionId({12, 34});
-    Bp35a1::send_request(_comm_port, _identifier, tid, epcs);
+    Bp35a1::send_request(_comm_port, *_smart_meter_identifier, tid, epcs);
   } else {
     M5_LOGD("No connection to smart meter.");
   }

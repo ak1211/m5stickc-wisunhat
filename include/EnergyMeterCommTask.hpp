@@ -6,6 +6,7 @@
 #include "Bp35a1.hpp"
 #include <chrono>
 #include <queue>
+#include <string>
 #include <tuple>
 
 //
@@ -13,25 +14,35 @@
 //
 class EnergyMeterCommTask final {
 public:
-  EnergyMeterCommTask(Stream &port, Bp35a1::SmartMeterIdentifier identifier)
+  EnergyMeterCommTask(Stream &port, std::string route_b_id,
+                      std::string route_b_password)
       : _comm_port{port},
-        _identifier{identifier},
+        _route_b_id{route_b_id},
+        _route_b_password{route_b_password},
         _pana_session_established{false} {}
   //
-  bool begin(std::chrono::system_clock::time_point nowtp);
+  bool begin(std::ostream &os, std::chrono::seconds timeout);
+  //
+  bool connect(std::ostream &os, std::chrono::seconds timeout);
+  //
+  void adjust_timing(std::chrono::system_clock::time_point nowtp);
   //
   void task_handler(std::chrono::system_clock::time_point nowtp);
 
 private:
   //
   std::chrono::system_clock::time_point _next_send_request_in_tp{};
+  // BP35A1と会話できるポート
+  Stream &_comm_port;
+  //
+  const std::string _route_b_id;
+  //
+  const std::string _route_b_password;
+  // スマート電力量計のＢルート識別子
+  std::optional<Bp35a1::SmartMeterIdentifier> _smart_meter_identifier;
   // メッセージ受信バッファ
   std::queue<std::pair<std::chrono::system_clock::time_point, Bp35a1::Response>>
       _received_message_fifo{};
-  // BP35A1と会話できるポート
-  Stream &_comm_port;
-  // スマート電力量計のＢルート識別子
-  Bp35a1::SmartMeterIdentifier _identifier;
   // Echonet Lite PANA session
   bool _pana_session_established{false};
   //

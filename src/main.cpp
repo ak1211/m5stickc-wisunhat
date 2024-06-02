@@ -161,67 +161,16 @@ static bool initializeTime(Widget::Dialogue &dialogue,
   }
 }
 
-//
 // Arduinoのsetup()関数
-//
 void setup() {
-  // initializing M5Stickc with M5Unified
-  auto cfg = M5.config();
-  M5.begin(cfg);
-  M5.Log.setLogLevel(m5::log_target_serial, ESP_LOG_DEBUG);
-  M5.Log.setEnableColor(m5::log_target_serial, false);
-
-  // init WiFi with Station mode
-  WiFi.onEvent(gotWiFiEvent);
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID.data(), WIFI_PASSWORD.data());
-
-  // BP35A1用シリアルポート
-  Serial2.begin(115200, SERIAL_8N1, CommPortRx, CommPortTx);
-
-  // initialize Gui
-  if (auto gui = new Gui(M5.Display); gui) {
-    if (gui->begin()) {
-      gui->startUi();
-    } else {
-      goto fatal_error;
-    }
+  if (new Application(M5.Display)) {
+    Application::getInstance()->startup();
   } else {
-    goto fatal_error;
+    M5_LOGE("out of memory");
+    M5.Display.print("out of memory.");
+    std::this_thread::sleep_for(10min);
+    esp_system_abort("out of memory.");
   }
-
-  // create RTOS task
-  static TaskHandle_t rtos_task_handle{};
-  xTaskCreatePinnedToCore(
-      [](void *arg) -> void {
-        while (true) {
-          lv_timer_handler();
-          std::this_thread::sleep_for(16ms);
-        }
-      },
-      "Task:LVGL", 8192, nullptr, 10, &rtos_task_handle, ARDUINO_RUNNING_CORE);
-
-  // WiFiに接続する。
-  M5_LOGD("Connect to WiFi");
-  if (Widget::Dialogue dialogue{"Connect to WiFi"};
-      !waitingForWiFiConnection(dialogue)) {
-    goto fatal_error;
-  }
-
-  // タイムサーバーと同期する。
-  M5_LOGD("Sync to time server");
-  if (Widget::Dialogue dialogue{"Sync to time server"};
-      !initializeTime(dialogue)) {
-    goto fatal_error;
-  }
-
-  return; // Successfully exit.
-  //
-fatal_error:
-  M5.Display.clear();
-  M5.Display.print("fatal error.");
-  delay(300 * 1000);
-  esp_system_abort("fatal");
 }
 
 //
@@ -517,7 +466,7 @@ static void send_request_to_smart_meter() {
 inline void high_speed_loop(std::chrono::system_clock::time_point nowtp) {
   M5.update();
   if (M5.BtnA.wasPressed()) {
-    Gui::getInstance()->moveNext();
+    Application::getGui().moveNext();
   }
   //
   // メッセージ受信バッファ
@@ -626,8 +575,9 @@ inline void low_speed_loop(std::chrono::system_clock::time_point nowtp) {
       dialogue.error("ERROR: WiFi");
       delay(1000);
     }
-  } else if (bool connected = telemetry.connected(); !connected) {
-    // AWS IoTと接続されていない場合は接続する。
+  } else if (bool connected = telemetry.isConnected(); !connected) {
+// AWS IoTと接続されていない場合は接続する。
+#if 0
     Widget::Dialogue dialogue{"Connect to AWS IoT."};
     if (auto ok = telemetry.connectToAwsIot(std::chrono::seconds{60},
                                             display_message, &dialogue);
@@ -635,6 +585,7 @@ inline void low_speed_loop(std::chrono::system_clock::time_point nowtp) {
       dialogue.error("ERROR");
       delay(1000);
     }
+#endif
   }
 
   // MQTT送受信

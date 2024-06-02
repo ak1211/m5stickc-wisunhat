@@ -3,7 +3,7 @@
 // See LICENSE file in the project root for full license information.
 //
 #pragma once
-#include "Application.hpp"
+#include "Repository.hpp"
 #include <algorithm>
 #include <chrono>
 #include <lvgl.h>
@@ -31,9 +31,11 @@ private:
   std::shared_ptr<lv_obj_t> _dialogue_obj;
   //
   lv_style_t _title_label_style{};
+  const lv_font_t &_title_label_font;
   std::shared_ptr<lv_obj_t> _title_label_obj;
   //
   lv_style_t _message_label_style{};
+  const lv_font_t &_message_label_font;
   std::shared_ptr<lv_obj_t> _message_label_obj;
 };
 
@@ -113,19 +115,13 @@ public:
 //
 //
 class Gui {
-  inline static Gui *_instance{nullptr};
-  constexpr static uint16_t MILLISECONDS_OF_PERIODIC_TIMER = 125;
+  constexpr static auto PERIODIC_TIMER_INTERVAL =
+      std::chrono::milliseconds{250};
+  constexpr static auto UPDATE_TIMER_INTERVAL = std::chrono::milliseconds{125};
 
 public:
   //
-  Gui(M5GFX &gfx) : _gfx{gfx}, _active_tile_itr{_tiles.begin()} {
-    if (_instance) {
-      delete _instance;
-    }
-    _instance = this;
-  }
-  //
-  static Gui *getInstance() { return _instance; }
+  Gui(M5GFX &gfx) : _gfx{gfx}, _active_tile_itr{_tiles.begin()} {}
   //
   bool begin();
   //
@@ -153,14 +149,15 @@ public:
 private:
   M5GFX &_gfx;
   // LVGL timer
-  lv_timer_t *periodic_timer{nullptr};
+  lv_timer_t *_periodic_timer{nullptr};
+  lv_timer_t *_update_timer{nullptr};
   // LVGL tileview object
   lv_style_t _tileview_style{};
-  std::shared_ptr<lv_obj_t> _tileview;
+  std::shared_ptr<lv_obj_t> _tileview_obj;
   // tile widget
   using TileVector = std::vector<std::unique_ptr<Widget::TileBase>>;
   TileVector _tiles{};
-  TileVector::iterator _active_tile_itr{};
+  TileVector::iterator _active_tile_itr;
 
 private:
   constexpr static auto LVGL_BUFFER_ONE_SIZE_OF_BYTES = size_t{2048};

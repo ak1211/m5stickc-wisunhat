@@ -7,6 +7,8 @@
 #include <PubSubClient.h>
 #include <WiFiClientSecure.h>
 #include <chrono>
+#include <memory>
+#include <ostream>
 #include <queue>
 #include <string>
 #include <tuple>
@@ -93,9 +95,7 @@ public:
   Telemetry(DeviceId deviceId, SensorId sensorId, AwsIotEndpoint endpoint,
             AwsIotRootCa root_ca, AwsIotCertificate certificate,
             AwsIotPrivateKey private_key)
-      : https_client{},
-        mqtt_client{https_client},
-        _deviceId{deviceId},
+      : _deviceId{deviceId},
         _sensorId{sensorId},
         _endpoint{endpoint},
         _root_ca{root_ca},
@@ -105,33 +105,35 @@ public:
                        std::string{"/data"}},
         _subscribe_topic{std::string{"device/"} + _deviceId.get() +
                          std::string{"/cmd"}},
-        sending_fifo_queue{},
+        _sending_fifo_queue{},
         _message_id_counter{0} {}
   //
-  bool connected() { return mqtt_client.connected(); }
+  bool begin(std::ostream &os, std::chrono::seconds timeout);
+  //
+  bool isConnected() {
+    return _mqtt_client ? _mqtt_client->connected() : false;
+  }
+  // MQTT接続検査
+  bool check_mqtt(std::ostream &os, std::chrono::seconds timeout);
+#if 0
   // AWS IoTへ接続確立を試みる
   bool connectToAwsIot(
       std::chrono::seconds timeout,
       std::function<void(const std::string &message, void *user_data)>
           display_message,
       void *user_data);
+#endif
   // 送信用キューに積む
   void enqueue(const Payload &&in);
-  // MQTT接続検査
-  bool
-  check_mqtt(std::chrono::seconds timeout,
-             std::function<void(const std::string &message, void *user_data)>
-                 display_message,
-             void *user_data);
   // MQTT送受信
   bool loop_mqtt();
 
 private:
   //
-  WiFiClientSecure https_client;
-  PubSubClient mqtt_client;
+  std::unique_ptr<WiFiClientSecure> _https_client;
+  std::unique_ptr<PubSubClient> _mqtt_client;
   // IoT Core送信用バッファ
-  std::queue<Payload> sending_fifo_queue;
+  std::queue<Payload> _sending_fifo_queue;
   // メッセージIDカウンタ(IoT Core用)
   MessageId _message_id_counter;
   //
@@ -151,7 +153,8 @@ private:
   //
   const std::string _subscribe_topic;
   //
-  static void mqtt_callback(char *topic, uint8_t *payload, unsigned int length);
+  static void message_arrival_callback(char *topic, uint8_t *payload,
+                                       unsigned int length);
   //
   static std::string
   iso8601formatUTC(std::chrono::system_clock::time_point utctimept);
