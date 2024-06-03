@@ -297,6 +297,7 @@ bool Application::read_settings_json(std::ostream &os) {
     CHECK("RouteB id", getSettings_RouteB_id());
     CHECK("RouteB password", getSettings_RouteB_password());
     CHECK("DeviceId", getSettings_DeviceId());
+    CHECK("SensorId", getSettings_SensorId());
     CHECK("AwsIoT Endpoint", getSettings_AwsIoT_Endpoint());
     CHECK("AwsIoT root_ca_file", getSettings_AwsIoT_root_ca_file());
     CHECK("AwsIoT certificate_file", getSettings_AwsIoT_certificate_file());
