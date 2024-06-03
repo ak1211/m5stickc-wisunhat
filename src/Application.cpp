@@ -11,11 +11,13 @@
 #include <esp_sntp.h>
 #include <functional>
 #include <future>
+#include <string>
 
 #include <M5Unified.h>
 
 using namespace std::chrono;
 using namespace std::chrono_literals;
+using namespace std::string_literals;
 
 Application *Application::_instance{nullptr};
 

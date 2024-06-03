@@ -21,9 +21,6 @@
 #include <variant>
 #include <vector>
 
-using namespace std::literals::string_literals;
-using namespace std::literals::string_view_literals;
-
 // ECHONET Lite の UDP ポート番号
 constexpr auto EchonetLiteUdpPort = HexedU16{0x0E1A};
 
@@ -206,6 +203,7 @@ struct EchonetLiteFrame final {
 
 //
 inline std::string to_string(const EchonetLiteFrame &frame) {
+  using namespace std::literals::string_literals;
   std::ostringstream oss;
   oss << "EHD:"s << frame.ehd                   //
       << ",TID:"s << frame.tid                  //
@@ -317,6 +315,7 @@ struct Unit final {
   explicit Unit(uint8_t init) : unit{init} {}
   //
   std::optional<Value> find() const {
+    using namespace std::literals::string_view_literals;
     switch (unit) {
     // 0x00 : 1kWh      = 10^0
     // 0x01 : 0.1kWh    = 10^-1
@@ -387,6 +386,7 @@ struct InstantWatt final {
   bool operator!=(const InstantWatt &rhs) { return !(*this == rhs); }
 };
 inline std::string to_string(const SmartElectricEnergyMeter::InstantWatt &x) {
+  using namespace std::literals::string_literals;
   return std::to_string(x.watt.count()) + " W"s;
 }
 
@@ -412,6 +412,7 @@ struct InstantAmpere final {
   bool operator!=(const InstantAmpere &rhs) { return !(*this == rhs); }
 };
 inline std::string to_string(const SmartElectricEnergyMeter::InstantAmpere &x) {
+  using namespace std::literals::string_view_literals;
   using namespace SmartElectricEnergyMeter;
   auto R = std::chrono::duration_cast<Ampere>(x.ampereR);
   auto T = std::chrono::duration_cast<Ampere>(x.ampereT);
@@ -498,6 +499,7 @@ struct CumulativeWattHour final {
 
 inline std::string
 to_string(const SmartElectricEnergyMeter::CumulativeWattHour &x) {
+  using namespace std::literals::string_view_literals;
   std::ostringstream oss;
   oss << std::setw(4) << +(x.year()) << "/"sv;
   oss << std::setw(2) << +(x.month()) << "/"sv;
