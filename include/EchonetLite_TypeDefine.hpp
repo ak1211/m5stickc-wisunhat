@@ -506,11 +506,4 @@ to_string(const SmartElectricEnergyMeter::CumulativeWattHour &x) {
   return oss.str();
 }
 
-//
-// スマートメーターから受信した値
-//
-using ReceivedMessage =
-    std::variant<Coefficient, EffectiveDigits, Unit, InstantWatt, InstantAmpere,
-                 CumulativeWattHour>;
-
 } // namespace SmartElectricEnergyMeter

@@ -27,9 +27,19 @@ public:
     DeserializeError(std::string in) : reason{in} {}
   };
   // ペイロードからECHONET Lite フレームを取り出す
-  static std::variant<DeserializeOk, DeserializeError> deserializeToEchonetLiteFrame(EchonetLiteFrame &destination, const std::vector<uint8_t> &data);
+  static std::variant<DeserializeOk, DeserializeError>
+  deserializeToEchonetLiteFrame(EchonetLiteFrame &destination,
+                                const std::vector<uint8_t> &data);
+  // スマートメーターから受信した値
+  using ReceivedMessage =
+      std::variant<SmartElectricEnergyMeter::Coefficient,
+                   SmartElectricEnergyMeter::EffectiveDigits,
+                   SmartElectricEnergyMeter::Unit,
+                   SmartElectricEnergyMeter::InstantWatt,
+                   SmartElectricEnergyMeter::InstantAmpere,
+                   SmartElectricEnergyMeter::CumulativeWattHour>;
   // 低圧スマート電力量計クラスのイベントを処理する
-  static std::vector<SmartElectricEnergyMeter::ReceivedMessage>
+  static std::vector<ReceivedMessage>
   process_echonet_lite_frame(const EchonetLiteFrame &frame);
   // 積算電力量
   static SmartElectricEnergyMeter::KiloWattHour cumlative_kilo_watt_hour(

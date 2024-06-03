@@ -162,9 +162,9 @@ insufficient_inputs:
 //
 // 低圧スマート電力量計クラスのイベントを処理する
 //
-std::vector<SmartElectricEnergyMeter::ReceivedMessage>
+std::vector<EchonetLite::ReceivedMessage>
 EchonetLite::process_echonet_lite_frame(const EchonetLiteFrame &frame) {
-  std::vector<SmartElectricEnergyMeter::ReceivedMessage> result{};
+  std::vector<ReceivedMessage> result{};
   // EDATAは複数送られてくる
   for (const EchonetLiteProp &prop : frame.edata.props) {
     // EchonetLiteプロパティ
