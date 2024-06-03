@@ -11,21 +11,20 @@
 
 namespace Repository {
 using InstantAmpere = std::pair<std::chrono::system_clock::time_point,
-                                SmartElectricEnergyMeter::InstantAmpere>;
+                                ElectricityMeter::InstantAmpere>;
 //
 using InstantWatt = std::pair<std::chrono::system_clock::time_point,
-                              SmartElectricEnergyMeter::InstantWatt>;
+                              ElectricityMeter::InstantWatt>;
 //
 using CumlativeWattHour =
-    std::tuple<SmartElectricEnergyMeter::CumulativeWattHour,
-               SmartElectricEnergyMeter::Coefficient,
-               SmartElectricEnergyMeter::Unit>;
+    std::tuple<ElectricityMeter::CumulativeWattHour,
+               ElectricityMeter::Coefficient, ElectricityMeter::Unit>;
 //
 struct ElectricPowerData {
   // 乗数(無い場合の乗数は1)
-  std::optional<SmartElectricEnergyMeter::Coefficient> whm_coefficient{};
+  std::optional<ElectricityMeter::Coefficient> whm_coefficient{};
   // 単位
-  std::optional<SmartElectricEnergyMeter::Unit> whm_unit{};
+  std::optional<ElectricityMeter::Unit> whm_unit{};
   // 積算履歴収集日
   std::optional<uint8_t> day_for_which_the_historcal{};
   // 瞬時電力

@@ -234,20 +234,20 @@ EchonetLite::process_echonet_lite_frame(const EchonetLiteFrame &frame) {
       }
     } break;
     case 0xD3: { // 係数
-      auto coeff = SmartElectricEnergyMeter::Coefficient{};
+      auto coeff = ElectricityMeter::Coefficient{};
       if (prop.edt.size() == 4) { // 4バイト
-        coeff = SmartElectricEnergyMeter::Coefficient(
+        coeff = ElectricityMeter::Coefficient(
             {prop.edt[0], prop.edt[1], prop.edt[2], prop.edt[3]});
       } else {
         // 係数が無い場合は1倍となる
-        coeff = SmartElectricEnergyMeter::Coefficient{};
+        coeff = ElectricityMeter::Coefficient{};
       }
       M5_LOGD("coefficient the %d", +coeff.coefficient);
       result.push_back(coeff);
     } break;
     case 0xD7: {                  // 積算電力量有効桁数
       if (prop.edt.size() == 1) { // 1バイト
-        auto digits = SmartElectricEnergyMeter::EffectiveDigits(prop.edt[0]);
+        auto digits = ElectricityMeter::EffectiveDigits(prop.edt[0]);
         M5_LOGD("%d effective digits.", +digits.digits);
         result.push_back(digits);
       } else {
@@ -258,7 +258,7 @@ EchonetLite::process_echonet_lite_frame(const EchonetLiteFrame &frame) {
     } break;
     case 0xE1: { // 積算電力量単位 (正方向、逆方向計測値)
       if (prop.edt.size() == 1) { // 1バイト
-        auto unit = SmartElectricEnergyMeter::Unit(prop.edt[0]);
+        auto unit = ElectricityMeter::Unit(prop.edt[0]);
         if (auto desc = unit.get_description()) {
           M5_LOGD("value %s", desc->c_str());
         } else {
@@ -283,7 +283,7 @@ EchonetLite::process_echonet_lite_frame(const EchonetLiteFrame &frame) {
     } break;
     case 0xE7: {                  // 瞬時電力値
       if (prop.edt.size() == 4) { // 4バイト
-        auto watt = SmartElectricEnergyMeter::InstantWatt(
+        auto watt = ElectricityMeter::InstantWatt(
             {prop.edt[0], prop.edt[1], prop.edt[2], prop.edt[3]});
         M5_LOGD("%s", to_string(watt).c_str());
         result.push_back(watt);
@@ -295,7 +295,7 @@ EchonetLite::process_echonet_lite_frame(const EchonetLiteFrame &frame) {
     } break;
     case 0xE8: {                  // 瞬時電流値
       if (prop.edt.size() == 4) { // 4バイト
-        auto ampere = SmartElectricEnergyMeter::InstantAmpere(
+        auto ampere = ElectricityMeter::InstantAmpere(
             {prop.edt[0], prop.edt[1], prop.edt[2], prop.edt[3]});
         M5_LOGD("%s", to_string(ampere).c_str());
         result.push_back(ampere);
@@ -310,7 +310,7 @@ EchonetLite::process_echonet_lite_frame(const EchonetLiteFrame &frame) {
         std::array<uint8_t, 11> memory;
         std::copy_n(prop.edt.begin(), memory.size(), memory.begin());
         //
-        auto cwh = SmartElectricEnergyMeter::CumulativeWattHour(memory);
+        auto cwh = ElectricityMeter::CumulativeWattHour(memory);
         M5_LOGD("%s", to_string(cwh).c_str());
         result.push_back(cwh);
       } else {
@@ -346,23 +346,23 @@ EchonetLite::process_echonet_lite_frame(const EchonetLiteFrame &frame) {
 }
 
 // 積算電力量
-SmartElectricEnergyMeter::KiloWattHour EchonetLite::cumlative_kilo_watt_hour(
-    SmartElectricEnergyMeter::CumulativeWattHour cwh,
-    SmartElectricEnergyMeter::Coefficient coeff,
-    SmartElectricEnergyMeter::Unit unit) {
+ElectricityMeter::KiloWattHour
+EchonetLite::cumlative_kilo_watt_hour(ElectricityMeter::CumulativeWattHour cwh,
+                                      ElectricityMeter::Coefficient coeff,
+                                      ElectricityMeter::Unit unit) {
   // 係数
   auto powers_of_10 = unit.get_powers_of_10().value_or(0);
   // KWhへの乗数
   auto multiplier = std::pow(10, powers_of_10);
-  return SmartElectricEnergyMeter::KiloWattHour{
+  return ElectricityMeter::KiloWattHour{
       coeff.coefficient * cwh.raw_cumlative_watt_hour() * multiplier};
 }
 
 // 電力量
 std::string EchonetLite::to_string_cumlative_kilo_watt_hour(
-    SmartElectricEnergyMeter::CumulativeWattHour cwh,
-    std::optional<SmartElectricEnergyMeter::Coefficient> opt_coeff,
-    SmartElectricEnergyMeter::Unit unit) {
+    ElectricityMeter::CumulativeWattHour cwh,
+    std::optional<ElectricityMeter::Coefficient> opt_coeff,
+    ElectricityMeter::Unit unit) {
   // 係数(無い場合の係数は1)
   uint8_t coeff = (opt_coeff.has_value()) ? opt_coeff.value().coefficient : 1;
   //

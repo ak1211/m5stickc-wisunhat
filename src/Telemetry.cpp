@@ -18,7 +18,7 @@ std::string Telemetry::to_json_message(const DeviceId &deviceId,
                                        const SensorId &sensorId,
                                        const MessageId &messageId,
                                        PayloadInstantAmpere in) {
-  using SmartElectricEnergyMeter::Ampere;
+  using ElectricityMeter::Ampere;
   auto &[timept, a] = in;
   JsonDocument doc;
   doc["message_id"] = messageId;
@@ -55,7 +55,7 @@ std::string Telemetry::to_json_message(const DeviceId &deviceId,
                                        const SensorId &sensorId,
                                        const MessageId &messageId,
                                        PayloadCumlativeWattHour in) {
-  namespace M = SmartElectricEnergyMeter;
+  namespace M = ElectricityMeter;
   auto &[cwh, coeff, unit] = in;
   JsonDocument doc;
   doc["message_id"] = messageId;
@@ -67,8 +67,7 @@ std::string Telemetry::to_json_message(const DeviceId &deviceId,
     doc["measured_at"] = opt_iso8601.value();
   }
   // 積算電力量(kwh)
-  M::KiloWattHour kwh =
-      EchonetLite::cumlative_kilo_watt_hour(cwh, coeff, unit);
+  M::KiloWattHour kwh = EchonetLite::cumlative_kilo_watt_hour(cwh, coeff, unit);
   doc["cumlative_kwh"] = kwh.count();
   std::string output;
   serializeJson(doc, output);

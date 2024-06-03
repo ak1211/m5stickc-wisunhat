@@ -12,11 +12,11 @@
 //
 // スマートメーターとの通信
 //
-class EnergyMeterCommTask final {
+class ElectricityMeterCommTask final {
 public:
   constexpr static auto RECONNECT_TIMEOUT = std::chrono::seconds{30};
-  EnergyMeterCommTask(Stream &comm_port, std::string route_b_id,
-                      std::string route_b_password)
+  ElectricityMeterCommTask(Stream &comm_port, std::string route_b_id,
+                           std::string route_b_password)
       : _bp35a1{comm_port},
         _route_b_id{route_b_id},
         _route_b_password{route_b_password},

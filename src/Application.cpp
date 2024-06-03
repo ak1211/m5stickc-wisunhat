@@ -538,7 +538,7 @@ bool Application::start_energy_meter_communication(std::ostream &os) {
 
   //
   _energy_meter_comm_task.reset(
-      new EnergyMeterCommTask{Serial2, rb_id, rb_password});
+      new ElectricityMeterCommTask{Serial2, rb_id, rb_password});
   //
   if (_energy_meter_comm_task) {
     // スマートメーターへ接続確立を試みる

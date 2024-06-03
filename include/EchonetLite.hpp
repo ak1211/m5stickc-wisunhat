@@ -31,24 +31,21 @@ public:
   deserializeToEchonetLiteFrame(EchonetLiteFrame &destination,
                                 const std::vector<uint8_t> &data);
   // スマートメーターから受信した値
-  using ReceivedMessage =
-      std::variant<SmartElectricEnergyMeter::Coefficient,
-                   SmartElectricEnergyMeter::EffectiveDigits,
-                   SmartElectricEnergyMeter::Unit,
-                   SmartElectricEnergyMeter::InstantWatt,
-                   SmartElectricEnergyMeter::InstantAmpere,
-                   SmartElectricEnergyMeter::CumulativeWattHour>;
+  using ReceivedMessage = std::variant<
+      ElectricityMeter::Coefficient, ElectricityMeter::EffectiveDigits,
+      ElectricityMeter::Unit, ElectricityMeter::InstantWatt,
+      ElectricityMeter::InstantAmpere, ElectricityMeter::CumulativeWattHour>;
   // 低圧スマート電力量計クラスのイベントを処理する
   static std::vector<ReceivedMessage>
   process_echonet_lite_frame(const EchonetLiteFrame &frame);
   // 積算電力量
-  static SmartElectricEnergyMeter::KiloWattHour
-  cumlative_kilo_watt_hour(SmartElectricEnergyMeter::CumulativeWattHour cwh,
-                           SmartElectricEnergyMeter::Coefficient coeff,
-                           SmartElectricEnergyMeter::Unit unit);
+  static ElectricityMeter::KiloWattHour
+  cumlative_kilo_watt_hour(ElectricityMeter::CumulativeWattHour cwh,
+                           ElectricityMeter::Coefficient coeff,
+                           ElectricityMeter::Unit unit);
   // 電力量
   static std::string to_string_cumlative_kilo_watt_hour(
-      SmartElectricEnergyMeter::CumulativeWattHour cwh,
-      std::optional<SmartElectricEnergyMeter::Coefficient> opt_coeff,
-      SmartElectricEnergyMeter::Unit unit);
+      ElectricityMeter::CumulativeWattHour cwh,
+      std::optional<ElectricityMeter::Coefficient> opt_coeff,
+      ElectricityMeter::Unit unit);
 };

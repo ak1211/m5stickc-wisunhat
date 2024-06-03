@@ -70,17 +70,15 @@ public:
   //
   using MessageId = uint32_t;
   //
-  using PayloadInstantAmpere =
-      std::pair<std::chrono::system_clock::time_point,
-                SmartElectricEnergyMeter::InstantAmpere>;
+  using PayloadInstantAmpere = std::pair<std::chrono::system_clock::time_point,
+                                         ElectricityMeter::InstantAmpere>;
   //
   using PayloadInstantWatt = std::pair<std::chrono::system_clock::time_point,
-                                       SmartElectricEnergyMeter::InstantWatt>;
+                                       ElectricityMeter::InstantWatt>;
   //
   using PayloadCumlativeWattHour =
-      std::tuple<SmartElectricEnergyMeter::CumulativeWattHour,
-                 SmartElectricEnergyMeter::Coefficient,
-                 SmartElectricEnergyMeter::Unit>;
+      std::tuple<ElectricityMeter::CumulativeWattHour,
+                 ElectricityMeter::Coefficient, ElectricityMeter::Unit>;
   // 送信用
   using Payload = std::variant<PayloadInstantAmpere, PayloadInstantWatt,
                                PayloadCumlativeWattHour>;

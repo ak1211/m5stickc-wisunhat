@@ -275,7 +275,7 @@ std::optional<Bp35a1Class::Response> Bp35a1Class::receive_response() {
 bool Bp35a1Class::send_request(
     const Bp35a1::SmartMeterIdentifier &smart_meter_ident,
     EchonetLiteTransactionId tid,
-    const std::vector<SmartElectricEnergyMeter::EchonetLiteEPC> epcs) {
+    const std::vector<ElectricityMeter::EchonetLiteEPC> epcs) {
   EchonetLiteFrame frame;
   // EHD: ECHONET Lite 電文ヘッダー
   frame.ehd = EchonetLiteEHD;
@@ -284,7 +284,7 @@ bool Bp35a1Class::send_request(
   // SEOJ: メッセージの送り元(sender : 自分自身)
   frame.edata.seoj = EchonetLiteSEOJ(HomeController::EchonetLiteEOJ);
   // DEOJ: メッセージの行き先(destination : スマートメーター)
-  frame.edata.deoj = EchonetLiteDEOJ(SmartElectricEnergyMeter::EchonetLiteEOJ);
+  frame.edata.deoj = EchonetLiteDEOJ(ElectricityMeter::EchonetLiteEOJ);
   // ESV : ECHONET Lite サービスコード
   frame.edata.esv = EchonetLiteESV::Get;
   // OPC: 処理プロパティ数
@@ -292,7 +292,7 @@ bool Bp35a1Class::send_request(
   // ECHONET Liteプロパティ
   std::transform(
       epcs.cbegin(), epcs.cend(), std::back_inserter(frame.edata.props),
-      [](const SmartElectricEnergyMeter::EchonetLiteEPC v) -> EchonetLiteProp {
+      [](const ElectricityMeter::EchonetLiteEPC v) -> EchonetLiteProp {
         EchonetLiteProp result;
         // EPC: ECHONET Liteプロパティ
         result.epc = static_cast<uint8_t>(v);

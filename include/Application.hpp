@@ -4,7 +4,7 @@
 //
 #pragma once
 #include "EchonetLite.hpp"
-#include "EnergyMeterCommTask.hpp"
+#include "ElectricityMeterCommTask.hpp"
 #include "Gui.hpp"
 #include "Repository.hpp"
 #include "Telemetry.hpp"
@@ -58,7 +58,7 @@ public:
     return getInstance()->_telemetry;
   }
   //
-  static std::shared_ptr<EnergyMeterCommTask> getEnergyMeterCommTask() {
+  static std::shared_ptr<ElectricityMeterCommTask> getEnergyMeterCommTask() {
     return getInstance()->_energy_meter_comm_task;
   }
   //
@@ -99,7 +99,7 @@ private:
   //
   std::shared_ptr<Telemetry> _telemetry;
   //
-  std::shared_ptr<EnergyMeterCommTask> _energy_meter_comm_task;
+  std::shared_ptr<ElectricityMeterCommTask> _energy_meter_comm_task;
   //
   TaskHandle_t _rtos_lvgl_task_handle{};
   //

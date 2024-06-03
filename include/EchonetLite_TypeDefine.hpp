@@ -241,7 +241,7 @@ constexpr auto EchonetLiteEOJ(EchonetLiteObjectCode({0x0E, 0xF0, 0x01}));
 //
 // 低圧スマート電力量メータクラス規定
 //
-namespace SmartElectricEnergyMeter {
+namespace ElectricityMeter {
 // クラスグループコード 0x02
 // クラスコード 0x88
 // インスタンスコード 0x01
@@ -380,7 +380,7 @@ struct InstantWatt final {
   bool operator==(const InstantWatt &rhs) { return this->watt == rhs.watt; }
   bool operator!=(const InstantWatt &rhs) { return !(*this == rhs); }
 };
-inline std::string to_string(const SmartElectricEnergyMeter::InstantWatt &x) {
+inline std::string to_string(const ElectricityMeter::InstantWatt &x) {
   using namespace std::literals::string_literals;
   return std::to_string(x.watt.count()) + " W"s;
 }
@@ -406,9 +406,9 @@ struct InstantAmpere final {
   }
   bool operator!=(const InstantAmpere &rhs) { return !(*this == rhs); }
 };
-inline std::string to_string(const SmartElectricEnergyMeter::InstantAmpere &x) {
+inline std::string to_string(const ElectricityMeter::InstantAmpere &x) {
   using namespace std::literals::string_view_literals;
-  using namespace SmartElectricEnergyMeter;
+  using namespace ElectricityMeter;
   auto R = std::chrono::duration_cast<Ampere>(x.ampereR);
   auto T = std::chrono::duration_cast<Ampere>(x.ampereT);
   std::ostringstream oss;
@@ -492,8 +492,7 @@ struct CumulativeWattHour final {
   bool operator!=(const CumulativeWattHour &rhs) { return !(*this == rhs); }
 };
 
-inline std::string
-to_string(const SmartElectricEnergyMeter::CumulativeWattHour &x) {
+inline std::string to_string(const ElectricityMeter::CumulativeWattHour &x) {
   using namespace std::literals::string_view_literals;
   std::ostringstream oss;
   oss << std::setw(4) << +(x.year()) << "/"sv;
@@ -506,4 +505,4 @@ to_string(const SmartElectricEnergyMeter::CumulativeWattHour &x) {
   return oss.str();
 }
 
-} // namespace SmartElectricEnergyMeter
+} // namespace ElectricityMeter

@@ -2,7 +2,7 @@
 // Licensed under the MIT License <https://spdx.org/licenses/MIT.html>
 // See LICENSE file in the project root for full license information.
 //
-#include "EnergyMeterCommTask.hpp"
+#include "ElectricityMeterCommTask.hpp"
 #include "Application.hpp"
 #include "Bp35a1.hpp"
 #include "EchonetLite.hpp"
@@ -17,8 +17,8 @@ using namespace std::chrono;
 using namespace std::chrono_literals;
 
 // スマートメーターとのセッションを開始する。
-bool EnergyMeterCommTask::begin(std::ostream &os,
-                                std::chrono::seconds timeout) {
+bool ElectricityMeterCommTask::begin(std::ostream &os,
+                                     std::chrono::seconds timeout) {
   bool ok{true};
   ok = ok ? find_energy_meter(os, timeout) : false;
   ok = ok ? connect(os, timeout) : false;
@@ -31,7 +31,7 @@ bool EnergyMeterCommTask::begin(std::ostream &os,
 }
 
 //
-void EnergyMeterCommTask::adjust_timing(
+void ElectricityMeterCommTask::adjust_timing(
     std::chrono::system_clock::time_point now_tp) {
   auto extra_sec =
       std::chrono::duration_cast<seconds>(now_tp.time_since_epoch()) % 60s;
@@ -40,7 +40,7 @@ void EnergyMeterCommTask::adjust_timing(
 }
 
 // 測定関数
-void EnergyMeterCommTask::task_handler() {
+void ElectricityMeterCommTask::task_handler() {
   if (!_pana_session_established) {
     // 再接続
     StringBufWithDialogue buf{"Reconnect meter"};
@@ -58,8 +58,8 @@ void EnergyMeterCommTask::task_handler() {
 }
 
 // 接続対象のスマートメーターを探す
-bool EnergyMeterCommTask::find_energy_meter(std::ostream &os,
-                                            std::chrono::seconds timeout) {
+bool ElectricityMeterCommTask::find_energy_meter(std::ostream &os,
+                                                 std::chrono::seconds timeout) {
   {
     std::ostringstream ss;
     ss << "Find a smart energy meter";
@@ -84,8 +84,8 @@ bool EnergyMeterCommTask::find_energy_meter(std::ostream &os,
 }
 
 // スマートメーターとのセッションを開始する。
-bool EnergyMeterCommTask::connect(std::ostream &os,
-                                  std::chrono::seconds timeout) {
+bool ElectricityMeterCommTask::connect(std::ostream &os,
+                                       std::chrono::seconds timeout) {
   if (!_smart_meter_identifier) {
     // 接続対象のスマートメーターを探す
     find_energy_meter(os, timeout);
@@ -109,7 +109,8 @@ bool EnergyMeterCommTask::connect(std::ostream &os,
 }
 
 // 受信
-void EnergyMeterCommTask::receive_from_port(system_clock::time_point nowtp) {
+void ElectricityMeterCommTask::receive_from_port(
+    system_clock::time_point nowtp) {
   // (あれば)連続でスマートメーターからのメッセージを受信する
   for (auto count = 0; count < 25; ++count) {
     if (auto resp = _bp35a1.receive_response()) {
@@ -138,7 +139,7 @@ void EnergyMeterCommTask::receive_from_port(system_clock::time_point nowtp) {
 }
 
 // BP35A1から受信したイベントを処理する
-void EnergyMeterCommTask::process_event(const Bp35a1::ResEvent &ev) {
+void ElectricityMeterCommTask::process_event(const Bp35a1::ResEvent &ev) {
   switch (ev.num.u8) {
   case 0x01: // EVENT 1 :
              // NSを受信した
@@ -205,7 +206,7 @@ void EnergyMeterCommTask::process_event(const Bp35a1::ResEvent &ev) {
 }
 
 // ノードプロファイルクラスのEchonetLiteフレームを処理する
-void EnergyMeterCommTask::process_node_profile_class_frame(
+void ElectricityMeterCommTask::process_node_profile_class_frame(
     const EchonetLiteFrame &frame) {
   for (const EchonetLiteProp &prop : frame.edata.props) {
     switch (prop.epc) {
@@ -233,7 +234,7 @@ void EnergyMeterCommTask::process_node_profile_class_frame(
 }
 
 // BP35A1から受信したERXUDPイベントを処理する
-void EnergyMeterCommTask::process_erxudp(
+void ElectricityMeterCommTask::process_erxudp(
     std::chrono::system_clock::time_point at, const Bp35a1::ResErxudp &ev) {
   // EchonetLiteFrameに変換
   EchonetLiteFrame frame;
@@ -249,9 +250,9 @@ void EnergyMeterCommTask::process_erxudp(
     if (frame.edata.seoj.s == NodeProfileClass::EchonetLiteEOJ) {
       // ノードプロファイルクラス
       process_node_profile_class_frame(frame);
-    } else if (frame.edata.seoj.s == SmartElectricEnergyMeter::EchonetLiteEOJ) {
+    } else if (frame.edata.seoj.s == ElectricityMeter::EchonetLiteEOJ) {
       // 低圧スマート電力量計クラス
-      namespace M = SmartElectricEnergyMeter;
+      namespace M = ElectricityMeter;
       for (auto rx : EchonetLite::process_echonet_lite_frame(frame)) {
         if (auto *p = std::get_if<M::Coefficient>(&rx)) {
           Application::getElectricPowerData().whm_coefficient = *p;
@@ -292,8 +293,8 @@ void EnergyMeterCommTask::process_erxudp(
 }
 
 // スマートメーターに最初の要求を出す
-void EnergyMeterCommTask::send_first_request() {
-  using E = SmartElectricEnergyMeter::EchonetLiteEPC;
+void ElectricityMeterCommTask::send_first_request() {
+  using E = ElectricityMeter::EchonetLiteEPC;
   std::vector<E> epcs = {
       E::Operation_status,            // 動作状態
       E::Installation_location,       // 設置場所
@@ -319,8 +320,8 @@ void EnergyMeterCommTask::send_first_request() {
 }
 
 // スマートメーターに定期的な要求を出す
-void EnergyMeterCommTask::send_periodical_request() {
-  using E = SmartElectricEnergyMeter::EchonetLiteEPC;
+void ElectricityMeterCommTask::send_periodical_request() {
+  using E = ElectricityMeter::EchonetLiteEPC;
   std::vector<E> epcs = {
       E::Measured_instantaneous_power,    // 瞬時電力要求
       E::Measured_instantaneous_currents, // 瞬時電流要求
