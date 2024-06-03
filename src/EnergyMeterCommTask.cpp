@@ -247,7 +247,7 @@ void EnergyMeterCommTask::process_erxudp(
     } else if (frame.edata.seoj.s == SmartElectricEnergyMeter::EchonetLiteEOJ) {
       // 低圧スマート電力量計クラス
       namespace M = SmartElectricEnergyMeter;
-      for (auto rx : M::process_echonet_lite_frame(frame)) {
+      for (auto rx : process_echonet_lite_frame(frame)) {
         if (auto *p = std::get_if<M::Coefficient>(&rx)) {
           Application::getElectricPowerData().whm_coefficient = *p;
         } else if (std::get_if<M::EffectiveDigits>(&rx)) {

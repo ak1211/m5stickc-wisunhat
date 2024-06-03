@@ -67,7 +67,7 @@ std::string Telemetry::to_json_message(const DeviceId &deviceId,
     doc["measured_at"] = opt_iso8601.value();
   }
   // 積算電力量(kwh)
-  M::KiloWattHour kwh = M::cumlative_kilo_watt_hour({cwh, coeff, unit});
+  M::KiloWattHour kwh = cumlative_kilo_watt_hour({cwh, coeff, unit});
   doc["cumlative_kwh"] = kwh.count();
   std::string output;
   serializeJson(doc, output);
