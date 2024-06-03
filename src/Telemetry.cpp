@@ -68,7 +68,7 @@ std::string Telemetry::to_json_message(const DeviceId &deviceId,
   }
   // 積算電力量(kwh)
   M::KiloWattHour kwh =
-      EchonetLite::cumlative_kilo_watt_hour({cwh, coeff, unit});
+      EchonetLite::cumlative_kilo_watt_hour(cwh, coeff, unit);
   doc["cumlative_kwh"] = kwh.count();
   std::string output;
   serializeJson(doc, output);

@@ -42,11 +42,10 @@ public:
   static std::vector<ReceivedMessage>
   process_echonet_lite_frame(const EchonetLiteFrame &frame);
   // 積算電力量
-  static SmartElectricEnergyMeter::KiloWattHour cumlative_kilo_watt_hour(
-      std::tuple<SmartElectricEnergyMeter::CumulativeWattHour,
-                 SmartElectricEnergyMeter::Coefficient,
-                 SmartElectricEnergyMeter::Unit>
-          in);
+  static SmartElectricEnergyMeter::KiloWattHour
+  cumlative_kilo_watt_hour(SmartElectricEnergyMeter::CumulativeWattHour cwh,
+                           SmartElectricEnergyMeter::Coefficient coeff,
+                           SmartElectricEnergyMeter::Unit unit);
   // 電力量
   static std::string to_string_cumlative_kilo_watt_hour(
       SmartElectricEnergyMeter::CumulativeWattHour cwh,

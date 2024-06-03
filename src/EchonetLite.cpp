@@ -347,11 +347,9 @@ EchonetLite::process_echonet_lite_frame(const EchonetLiteFrame &frame) {
 
 // 積算電力量
 SmartElectricEnergyMeter::KiloWattHour EchonetLite::cumlative_kilo_watt_hour(
-    std::tuple<SmartElectricEnergyMeter::CumulativeWattHour,
-               SmartElectricEnergyMeter::Coefficient,
-               SmartElectricEnergyMeter::Unit>
-        in) {
-  auto &[cwh, coeff, unit] = in;
+    SmartElectricEnergyMeter::CumulativeWattHour cwh,
+    SmartElectricEnergyMeter::Coefficient coeff,
+    SmartElectricEnergyMeter::Unit unit) {
   // 係数
   auto powers_of_10 = unit.get_powers_of_10().value_or(0);
   // KWhへの乗数
