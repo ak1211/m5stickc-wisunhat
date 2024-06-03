@@ -315,45 +315,6 @@ void ElectricityMeterCommTask::process_erxudp(system_clock::time_point at,
     // 低圧スマート電力量計クラス
     process_electricity_meter_class_frame(at, frame);
   }
-
-#if 0
-  for (auto rx : EchonetLite::pickup_electricity_meter_data(frame)) {
-    if (auto *p = std::get_if<ElectricityMeter::Coefficient>(&rx)) {
-      Application::getElectricPowerData().whm_coefficient = *p;
-    } else if (std::get_if<ElectricityMeter::EffectiveDigits>(&rx)) {
-      // no operation
-    } else if (auto *p = std::get_if<ElectricityMeter::Unit>(&rx)) {
-      Application::getElectricPowerData().whm_unit = *p;
-    } else if (auto *p = std::get_if<ElectricityMeter::InstantAmpere>(&rx)) {
-      Application::getElectricPowerData().instant_ampere =
-          std::make_pair(at, *p);
-      // 送信バッファへ追加する
-      if (auto tele = Application::getTelemetry(); tele) {
-        tele->enqueue(std::make_pair(at, *p));
-      }
-    } else if (auto *p = std::get_if<ElectricityMeter::InstantWatt>(&rx)) {
-      Application::getElectricPowerData().instant_watt = std::make_pair(at, *p);
-      // 送信バッファへ追加する
-      if (auto tele = Application::getTelemetry(); tele) {
-        tele->enqueue(std::make_pair(at, *p));
-      }
-    } else if (auto *p =
-                   std::get_if<ElectricityMeter::CumulativeWattHour>(&rx)) {
-      if (auto unit = Application::getElectricPowerData().whm_unit) {
-        auto coeff =
-            Application::getElectricPowerData().whm_coefficient.value_or(
-                M::Coefficient{});
-        Application::getElectricPowerData().cumlative_watt_hour =
-            std::make_tuple(*p, coeff, *unit);
-        // 送信バッファへ追加する
-        if (auto tele = Application::getTelemetry(); tele) {
-          tele->enqueue(std::make_tuple(*p, coeff, *unit));
-        }
-      }
-    }
-  }
-  //
-#endif
 }
 
 // スマートメーターに最初の要求を出す
