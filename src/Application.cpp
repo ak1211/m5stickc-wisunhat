@@ -158,7 +158,7 @@ bool Application::startup() {
       std::bind(&Application::start_wifi, this, std::placeholders::_1),
       std::bind(&Application::synchronize_ntp, this, std::placeholders::_1),
       std::bind(&Application::start_telemetry, this, std::placeholders::_1),
-      std::bind(&Application::start_energy_meter_communication, this,
+      std::bind(&Application::start_electricity_meter_communication, this,
                 std::placeholders::_1),
   };
 
@@ -506,7 +506,7 @@ bool Application::start_telemetry(std::ostream &os) {
 }
 
 //
-bool Application::start_energy_meter_communication(std::ostream &os) {
+bool Application::start_electricity_meter_communication(std::ostream &os) {
   {
     std::ostringstream ss;
     ss << "start meter communication";
