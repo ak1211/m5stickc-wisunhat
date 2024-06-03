@@ -40,11 +40,14 @@ AWS IoTからダウンロードした証明書ファイル
 
 以上のAWS IoT 証明書ファイルを`data/`におく。  
 
-AWS IoTからダウンロードした証明書ファイル(public.pem.keyは不要)は長いのでリネームする。  
+AWS IoTからダウンロードした証明書ファイル(public.pem.keyは不要)  
+こんなの
 
 - `AmazonRootCA1.pem`
 - `6*************************************************************76-certificate.pem.crt`
 - `6*************************************************************76-private.pem.key`  
+
+は長いので適当にリネームする。  
 
 ## 接続情報の書込み
 PlatformIO で Upload Filesystem Image すると`data/`ディレクトリの内容がM5Stickにアップロードされる。

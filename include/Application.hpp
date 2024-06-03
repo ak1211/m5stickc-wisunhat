@@ -59,7 +59,7 @@ public:
   }
   //
   static std::shared_ptr<ElectricityMeterCommTask> getEnergyMeterCommTask() {
-    return getInstance()->_energy_meter_comm_task;
+    return getInstance()->_electricity_meter_comm_task;
   }
   //
   static Gui &getGui() { return getInstance()->_gui; }
@@ -99,7 +99,7 @@ private:
   //
   std::shared_ptr<Telemetry> _telemetry;
   //
-  std::shared_ptr<ElectricityMeterCommTask> _energy_meter_comm_task;
+  std::shared_ptr<ElectricityMeterCommTask> _electricity_meter_comm_task;
   //
   TaskHandle_t _rtos_lvgl_task_handle{};
   //

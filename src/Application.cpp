@@ -35,8 +35,8 @@ void Application::task_handler() {
     start_wifi(ostream);
   } else {
     //
-    if (_energy_meter_comm_task) {
-      _energy_meter_comm_task->task_handler();
+    if (_electricity_meter_comm_task) {
+      _electricity_meter_comm_task->task_handler();
     }
     //
     if (_telemetry) {
@@ -537,12 +537,12 @@ bool Application::start_electricity_meter_communication(std::ostream &os) {
   }
 
   //
-  _energy_meter_comm_task.reset(
+  _electricity_meter_comm_task.reset(
       new ElectricityMeterCommTask{Serial2, rb_id, rb_password});
   //
-  if (_energy_meter_comm_task) {
+  if (_electricity_meter_comm_task) {
     // スマートメーターへ接続確立を試みる
-    return _energy_meter_comm_task->begin(os, TIMEOUT);
+    return _electricity_meter_comm_task->begin(os, TIMEOUT);
   }
 
   return true;
