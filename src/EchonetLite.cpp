@@ -20,8 +20,6 @@
 #include <variant>
 #include <vector>
 
-#include <M5Unified.h>
-
 // ECHONET Lite フレームからペイロードを作る
 std::variant<EchonetLite::SerializeOk, EchonetLite::SerializeError>
 EchonetLite::serializeFromEchonetLiteFrame(std::vector<uint8_t> &destination,
@@ -159,190 +157,206 @@ insufficient_inputs:
   return DeserializeError{ss.str()};
 }
 
-//
-// 低圧スマート電力量計クラスのイベントを処理する
-//
-std::vector<EchonetLite::ReceivedMessage>
-EchonetLite::process_echonet_lite_frame(const EchonetLiteFrame &frame) {
-  std::vector<ReceivedMessage> result{};
-  // EDATAは複数送られてくる
-  for (const EchonetLiteProp &prop : frame.edata.props) {
-    // EchonetLiteプロパティ
-    switch (prop.epc) {
-    case 0x80: {                  // 動作状態
-      if (prop.edt.size() == 1) { // 1バイト
-        enum class OpStatus : uint8_t {
-          ON = 0x30,
-          OFF = 0x31,
-        };
-        switch (static_cast<OpStatus>(prop.edt[0])) {
-        case OpStatus::ON:
-          M5_LOGD("operation status : ON");
-          break;
-        case OpStatus::OFF:
-          M5_LOGD("operation status : OFF");
-          break;
-        }
-      } else {
-        M5_LOGD("pdc is should be 1 bytes, this is "
-                "%d bytes.",
-                prop.edt.size());
+// ECHONET Lite プロパティから低圧スマート電力量計クラスのデーターを得る
+std::variant<EchonetLite::PickupOk, EchonetLite::PickupIgnored,
+             EchonetLite::PickupError>
+EchonetLite::pickup_electricity_meter_data(const EchonetLiteProp &prop) {
+  // EchonetLiteプロパティ
+  switch (prop.epc) {
+  case 0x80: {                  // 動作状態
+    if (prop.edt.size() == 1) { // 1バイト
+      enum class OpStatus : uint8_t {
+        ON = 0x30,
+        OFF = 0x31,
+      };
+      switch (static_cast<OpStatus>(prop.edt[0])) {
+      case OpStatus::ON:
+        return PickupIgnored{"operation status : ON"};
+      case OpStatus::OFF:
+        return PickupIgnored{"operation status : OFF"};
       }
-    } break;
-    case 0x81: {                  // 設置場所
-      if (prop.edt.size() == 1) { // 1バイト
-        uint8_t a = prop.edt[0];
-        M5_LOGD("installation location: 0x%02X", a);
-      } else if (prop.edt.size() == 17) { // 17バイト
-        M5_LOGD("installation location");
-      } else {
-        M5_LOGD("pdc is should be 1 or 17 bytes, "
-                "this is %d bytes.",
-                prop.edt.size());
-      }
-    } break;
-    case 0x88: {                  // 異常発生状態
-      if (prop.edt.size() == 1) { // 1バイト
-        enum class FaultStatus : uint8_t {
-          FaultOccurred = 0x41,
-          NoFault = 0x42,
-        };
-        switch (static_cast<FaultStatus>(prop.edt[0])) {
-        case FaultStatus::FaultOccurred:
-          M5_LOGD("FaultStatus::FaultOccurred");
-          break;
-        case FaultStatus::NoFault:
-          M5_LOGD("FaultStatus::NoFault");
-          break;
-        }
-      } else {
-        M5_LOGD("pdc is should be 1 bytes, this is "
-                "%d bytes.",
-                prop.edt.size());
-      }
-    } break;
-    case 0x8A: {                  // メーカーコード
-      if (prop.edt.size() == 3) { // 3バイト
-        uint8_t a = prop.edt[0];
-        uint8_t b = prop.edt[1];
-        uint8_t c = prop.edt[2];
-        M5_LOGD("Manufacturer: 0x%02X%02X%02X", a, b, c);
-      } else {
-        M5_LOGD("pdc is should be 3 bytes, this is "
-                "%d bytes.",
-                prop.edt.size());
-      }
-    } break;
-    case 0xD3: { // 係数
-      auto coeff = ElectricityMeter::Coefficient{};
-      if (prop.edt.size() == 4) { // 4バイト
-        coeff = ElectricityMeter::Coefficient(
-            {prop.edt[0], prop.edt[1], prop.edt[2], prop.edt[3]});
-      } else {
-        // 係数が無い場合は1倍となる
-        coeff = ElectricityMeter::Coefficient{};
-      }
-      M5_LOGD("coefficient the %d", +coeff.coefficient);
-      result.push_back(coeff);
-    } break;
-    case 0xD7: {                  // 積算電力量有効桁数
-      if (prop.edt.size() == 1) { // 1バイト
-        auto digits = ElectricityMeter::EffectiveDigits(prop.edt[0]);
-        M5_LOGD("%d effective digits.", +digits.digits);
-        result.push_back(digits);
-      } else {
-        M5_LOGD("pdc is should be 1 bytes, this is "
-                "%d bytes.",
-                prop.edt.size());
-      }
-    } break;
-    case 0xE1: { // 積算電力量単位 (正方向、逆方向計測値)
-      if (prop.edt.size() == 1) { // 1バイト
-        auto unit = ElectricityMeter::Unit(prop.edt[0]);
-        if (auto desc = unit.get_description()) {
-          M5_LOGD("value %s", desc->c_str());
-        } else {
-          M5_LOGD("invalid unit.");
-        }
-        result.push_back(unit);
-      } else {
-        M5_LOGD("pdc is should be 1 bytes, this is "
-                "%d bytes.",
-                prop.edt.size());
-      }
-    } break;
-    case 0xE5: {                  // 積算履歴収集日１
-      if (prop.edt.size() == 1) { // 1バイト
-        uint8_t day = prop.edt[0];
-        M5_LOGD("day of historical 1: (%d)", day);
-      } else {
-        M5_LOGD("pdc is should be 1 bytes, this is "
-                "%d bytes.",
-                prop.edt.size());
-      }
-    } break;
-    case 0xE7: {                  // 瞬時電力値
-      if (prop.edt.size() == 4) { // 4バイト
-        auto watt = ElectricityMeter::InstantWatt(
-            {prop.edt[0], prop.edt[1], prop.edt[2], prop.edt[3]});
-        M5_LOGD("%s", to_string(watt).c_str());
-        result.push_back(watt);
-      } else {
-        M5_LOGD("pdc is should be 4 bytes, this is "
-                "%d bytes.",
-                prop.edt.size());
-      }
-    } break;
-    case 0xE8: {                  // 瞬時電流値
-      if (prop.edt.size() == 4) { // 4バイト
-        auto ampere = ElectricityMeter::InstantAmpere(
-            {prop.edt[0], prop.edt[1], prop.edt[2], prop.edt[3]});
-        M5_LOGD("%s", to_string(ampere).c_str());
-        result.push_back(ampere);
-      } else {
-        M5_LOGD("pdc is should be 4 bytes, this is "
-                "%d bytes.",
-                prop.edt.size());
-      }
-    } break;
-    case 0xEA: {                   // 定時積算電力量
-      if (prop.edt.size() == 11) { // 11バイト
-        std::array<uint8_t, 11> memory;
-        std::copy_n(prop.edt.begin(), memory.size(), memory.begin());
-        //
-        auto cwh = ElectricityMeter::CumulativeWattHour(memory);
-        M5_LOGD("%s", to_string(cwh).c_str());
-        result.push_back(cwh);
-      } else {
-        M5_LOGD("pdc is should be 11 bytes, this is "
-                "%d bytes.",
-                prop.edt.size());
-      }
-    } break;
-    case 0xED: {                  // 積算履歴収集日２
-      if (prop.edt.size() == 7) { // 7バイト
-        uint8_t a = prop.edt[0];
-        uint8_t b = prop.edt[1];
-        uint8_t c = prop.edt[2];
-        uint8_t d = prop.edt[3];
-        uint8_t e = prop.edt[4];
-        uint8_t f = prop.edt[5];
-        uint8_t g = prop.edt[6];
-        M5_LOGD("day of historical 2: "
-                "[%02X,%02X,%02X,%02X,%02X,%02X,%02X]",
-                a, b, c, d, e, f, g);
-      } else {
-        M5_LOGD("pdc is should be 7 bytes, this is "
-                "%d bytes.",
-                prop.edt.size());
-      }
-    } break;
-    default:
-      M5_LOGD("unknown epc: 0x%X", prop.epc);
-      break;
+    } else {
+      std::ostringstream ss;
+      ss << "pdc is should be 1 bytes, this is " << +prop.edt.size()
+         << " bytes.";
+      return PickupError{ss.str()};
     }
+  } break;
+  case 0x81: {                  // 設置場所
+    if (prop.edt.size() == 1) { // 1バイト
+      uint8_t a = prop.edt[0];
+      std::ostringstream ss;
+      ss << std::hex << "installation location: 0x" << a;
+      return PickupIgnored{ss.str()};
+    } else if (prop.edt.size() == 17) { // 17バイト
+      return PickupIgnored{"installation location"};
+    } else {
+      std::ostringstream ss;
+      ss << "pdc is should be 1 or 17 bytes, this is " << +prop.edt.size()
+         << " bytes.";
+      return PickupError{ss.str()};
+    }
+  } break;
+  case 0x88: {                  // 異常発生状態
+    if (prop.edt.size() == 1) { // 1バイト
+      enum class FaultStatus : uint8_t {
+        FaultOccurred = 0x41,
+        NoFault = 0x42,
+      };
+      switch (static_cast<FaultStatus>(prop.edt[0])) {
+      case FaultStatus::FaultOccurred:
+        return PickupIgnored{"FaultStatus::FaultOccurred"};
+      case FaultStatus::NoFault:
+        return PickupIgnored{"FaultStatus::NoFault"};
+      }
+    } else {
+      std::ostringstream ss;
+      ss << "pdc is should be 1 bytes, this is " << +prop.edt.size()
+         << " bytes.";
+      return PickupError{ss.str()};
+    }
+  } break;
+  case 0x8A: {                  // メーカーコード
+    if (prop.edt.size() == 3) { // 3バイト
+      uint8_t a = prop.edt[0];
+      uint8_t b = prop.edt[1];
+      uint8_t c = prop.edt[2];
+      std::ostringstream ss;
+      ss << "Manufacturer: 0x";
+      ss << std::hex << std::setw(2) << a;
+      ss << std::hex << std::setw(2) << b;
+      ss << std::hex << std::setw(2) << c;
+      return PickupIgnored{ss.str()};
+    } else {
+      std::ostringstream ss;
+      ss << "pdc is should be 3 bytes, this is " << +prop.edt.size()
+         << " bytes.";
+      return PickupError{ss.str()};
+    }
+  } break;
+  case 0xD3: { // 係数
+    auto coeff = ElectricityMeter::Coefficient{};
+    if (prop.edt.size() == 4) { // 4バイト
+      coeff = ElectricityMeter::Coefficient(
+          {prop.edt[0], prop.edt[1], prop.edt[2], prop.edt[3]});
+    } else {
+      // 係数が無い場合は1倍となる
+      coeff = ElectricityMeter::Coefficient{};
+    }
+    return PickupOk{coeff};
+  } break;
+  case 0xD7: {                  // 積算電力量有効桁数
+    if (prop.edt.size() == 1) { // 1バイト
+      auto digits = ElectricityMeter::EffectiveDigits(prop.edt[0]);
+      return PickupOk{digits};
+    } else {
+      std::ostringstream ss;
+      ss << "pdc is should be 1 bytes, this is " << +prop.edt.size()
+         << " bytes.";
+      return PickupError{ss.str()};
+    }
+  } break;
+  case 0xE1: { // 積算電力量単位 (正方向、逆方向計測値)
+    if (prop.edt.size() == 1) { // 1バイト
+      auto unit = ElectricityMeter::Unit(prop.edt[0]);
+      if (auto desc = unit.get_description()) {
+        /* nothing to do */
+      } else {
+        return PickupError{"invalid unit."};
+      }
+      return PickupOk{unit};
+    } else {
+      std::ostringstream ss;
+      ss << "pdc is should be 1 bytes, this is " << +prop.edt.size()
+         << " bytes.";
+      return PickupError{ss.str()};
+    }
+  } break;
+  case 0xE5: {                  // 積算履歴収集日１
+    if (prop.edt.size() == 1) { // 1バイト
+      uint8_t day = prop.edt[0];
+      std::ostringstream ss;
+      ss << "day of historical 1: " << +day;
+      return PickupIgnored{ss.str()};
+    } else {
+      std::ostringstream ss;
+      ss << "pdc is should be 1 bytes, this is " << +prop.edt.size()
+         << " bytes.";
+      return PickupError{ss.str()};
+    }
+  } break;
+  case 0xE7: {                  // 瞬時電力値
+    if (prop.edt.size() == 4) { // 4バイト
+      auto watt = ElectricityMeter::InstantWatt(
+          {prop.edt[0], prop.edt[1], prop.edt[2], prop.edt[3]});
+      return PickupOk{watt};
+    } else {
+      std::ostringstream ss;
+      ss << "pdc is should be 4 bytes, this is " << +prop.edt.size()
+         << " bytes.";
+      return PickupError{ss.str()};
+    }
+  } break;
+  case 0xE8: {                  // 瞬時電流値
+    if (prop.edt.size() == 4) { // 4バイト
+      auto ampere = ElectricityMeter::InstantAmpere(
+          {prop.edt[0], prop.edt[1], prop.edt[2], prop.edt[3]});
+      return PickupOk{ampere};
+    } else {
+      std::ostringstream ss;
+      ss << "pdc is should be 4 bytes, this is " << +prop.edt.size()
+         << " bytes.";
+      return PickupError{ss.str()};
+    }
+  } break;
+  case 0xEA: {                   // 定時積算電力量
+    if (prop.edt.size() == 11) { // 11バイト
+      std::array<uint8_t, 11> memory;
+      std::copy_n(prop.edt.begin(), memory.size(), memory.begin());
+      //
+      auto cwh = ElectricityMeter::CumulativeWattHour(memory);
+      return PickupOk{cwh};
+    } else {
+      std::ostringstream ss;
+      ss << "pdc is should be 11 bytes, this is " << +prop.edt.size()
+         << " bytes.";
+      return PickupError{ss.str()};
+    }
+  } break;
+  case 0xED: {                  // 積算履歴収集日２
+    if (prop.edt.size() == 7) { // 7バイト
+      uint8_t a = prop.edt[0];
+      uint8_t b = prop.edt[1];
+      uint8_t c = prop.edt[2];
+      uint8_t d = prop.edt[3];
+      uint8_t e = prop.edt[4];
+      uint8_t f = prop.edt[5];
+      uint8_t g = prop.edt[6];
+      std::ostringstream ss;
+      ss << "day of historical 2: [";
+      ss << std::hex << std::setw(2) << a << ", ";
+      ss << std::hex << std::setw(2) << b << ", ";
+      ss << std::hex << std::setw(2) << c << ", ";
+      ss << std::hex << std::setw(2) << d << ", ";
+      ss << std::hex << std::setw(2) << e << ", ";
+      ss << std::hex << std::setw(2) << f << ", ";
+      ss << std::hex << std::setw(2) << g << "]";
+      return PickupIgnored{ss.str()};
+    } else {
+      std::ostringstream ss;
+      ss << "pdc is should be 7 bytes, this is " << +prop.edt.size()
+         << " bytes.";
+      return PickupError{ss.str()};
+    }
+  } break;
+  default:
+    std::ostringstream ss;
+    ss << std::hex << "unknown epc: 0x" << +prop.epc;
+    return PickupError{ss.str()};
+    break;
   }
-  return result;
+  //
+  return PickupError{"unknown"};
 }
 
 // 積算電力量

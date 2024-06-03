@@ -233,9 +233,70 @@ void ElectricityMeterCommTask::process_node_profile_class_frame(
   }
 }
 
+// 低圧スマート電力量計クラスのEchonetLiteフレームを処理する
+void ElectricityMeterCommTask::process_electricity_meter_class_frame(
+    system_clock::time_point at, const EchonetLiteFrame &frame) {
+  // 低圧スマート電力量計クラス
+  for (auto &prop : frame.edata.props) {
+    auto result = EchonetLite::pickup_electricity_meter_data(prop);
+    if (auto *pOk = std::get_if<EchonetLite::PickupOk>(&result); pOk) {
+      process_electricity_meter_data(at, pOk->data);
+    } else if (auto *pignored =
+                   std::get_if<EchonetLite::PickupIgnored>(&result);
+               pignored) {
+      // 無視
+      M5_LOGD("%s", pignored->message.c_str());
+    } else if (auto *perror = std::get_if<EchonetLite::PickupError>(&result);
+               perror) {
+      // エラー
+      M5_LOGE("%s", perror->reason.c_str());
+    }
+  }
+}
+
+// 低圧スマート電力量計のデータを処理する
+void ElectricityMeterCommTask::process_electricity_meter_data(
+    system_clock::time_point at,
+    EchonetLite::ElectricityMeterData electricity_data) {
+  if (auto *p = std::get_if<ElectricityMeter::Coefficient>(&electricity_data)) {
+    Application::getElectricPowerData().whm_coefficient = *p;
+  } else if (std::get_if<ElectricityMeter::EffectiveDigits>(
+                 &electricity_data)) {
+    // no operation
+  } else if (auto *p = std::get_if<ElectricityMeter::Unit>(&electricity_data)) {
+    Application::getElectricPowerData().whm_unit = *p;
+  } else if (auto *p = std::get_if<ElectricityMeter::InstantAmpere>(
+                 &electricity_data)) {
+    Application::getElectricPowerData().instant_ampere = std::make_pair(at, *p);
+    // 送信バッファへ追加する
+    if (auto tele = Application::getTelemetry(); tele) {
+      tele->enqueue(std::make_pair(at, *p));
+    }
+  } else if (auto *p = std::get_if<ElectricityMeter::InstantWatt>(
+                 &electricity_data)) {
+    Application::getElectricPowerData().instant_watt = std::make_pair(at, *p);
+    // 送信バッファへ追加する
+    if (auto tele = Application::getTelemetry(); tele) {
+      tele->enqueue(std::make_pair(at, *p));
+    }
+  } else if (auto *p = std::get_if<ElectricityMeter::CumulativeWattHour>(
+                 &electricity_data)) {
+    if (auto unit = Application::getElectricPowerData().whm_unit) {
+      auto coeff = Application::getElectricPowerData().whm_coefficient.value_or(
+          ElectricityMeter::Coefficient{});
+      Application::getElectricPowerData().cumlative_watt_hour =
+          std::make_tuple(*p, coeff, *unit);
+      // 送信バッファへ追加する
+      if (auto tele = Application::getTelemetry(); tele) {
+        tele->enqueue(std::make_tuple(*p, coeff, *unit));
+      }
+    }
+  }
+}
+
 // BP35A1から受信したERXUDPイベントを処理する
-void ElectricityMeterCommTask::process_erxudp(
-    std::chrono::system_clock::time_point at, const Bp35a1::ResErxudp &ev) {
+void ElectricityMeterCommTask::process_erxudp(system_clock::time_point at,
+                                              const Bp35a1::ResErxudp &ev) {
   // EchonetLiteFrameに変換
   EchonetLiteFrame frame;
   auto result = EchonetLite::deserializeToEchonetLiteFrame(frame, ev.data);
@@ -243,53 +304,56 @@ void ElectricityMeterCommTask::process_erxudp(
     // エラー
     M5_LOGE("%s", perror->reason.c_str());
     return;
-  } else {
-    //  EchonetLiteフレームだった
-    M5_LOGD("%s", to_string(frame).c_str());
-    //
-    if (frame.edata.seoj.s == NodeProfileClass::EchonetLiteEOJ) {
-      // ノードプロファイルクラス
-      process_node_profile_class_frame(frame);
-    } else if (frame.edata.seoj.s == ElectricityMeter::EchonetLiteEOJ) {
-      // 低圧スマート電力量計クラス
-      namespace M = ElectricityMeter;
-      for (auto rx : EchonetLite::process_echonet_lite_frame(frame)) {
-        if (auto *p = std::get_if<M::Coefficient>(&rx)) {
-          Application::getElectricPowerData().whm_coefficient = *p;
-        } else if (std::get_if<M::EffectiveDigits>(&rx)) {
-          // no operation
-        } else if (auto *p = std::get_if<M::Unit>(&rx)) {
-          Application::getElectricPowerData().whm_unit = *p;
-        } else if (auto *p = std::get_if<M::InstantAmpere>(&rx)) {
-          Application::getElectricPowerData().instant_ampere =
-              std::make_pair(at, *p);
-          // 送信バッファへ追加する
-          if (auto tele = Application::getTelemetry(); tele) {
-            tele->enqueue(std::make_pair(at, *p));
-          }
-        } else if (auto *p = std::get_if<M::InstantWatt>(&rx)) {
-          Application::getElectricPowerData().instant_watt =
-              std::make_pair(at, *p);
-          // 送信バッファへ追加する
-          if (auto tele = Application::getTelemetry(); tele) {
-            tele->enqueue(std::make_pair(at, *p));
-          }
-        } else if (auto *p = std::get_if<M::CumulativeWattHour>(&rx)) {
-          if (auto unit = Application::getElectricPowerData().whm_unit) {
-            auto coeff =
-                Application::getElectricPowerData().whm_coefficient.value_or(
-                    M::Coefficient{});
-            Application::getElectricPowerData().cumlative_watt_hour =
-                std::make_tuple(*p, coeff, *unit);
-            // 送信バッファへ追加する
-            if (auto tele = Application::getTelemetry(); tele) {
-              tele->enqueue(std::make_tuple(*p, coeff, *unit));
-            }
-          }
+  }
+  //  EchonetLiteフレームだった
+  M5_LOGD("%s", to_string(frame).c_str());
+  //
+  if (frame.edata.seoj.s == NodeProfileClass::EchonetLiteEOJ) {
+    // ノードプロファイルクラス
+    process_node_profile_class_frame(frame);
+  } else if (frame.edata.seoj.s == ElectricityMeter::EchonetLiteEOJ) {
+    // 低圧スマート電力量計クラス
+    process_electricity_meter_class_frame(at, frame);
+  }
+
+#if 0
+  for (auto rx : EchonetLite::pickup_electricity_meter_data(frame)) {
+    if (auto *p = std::get_if<ElectricityMeter::Coefficient>(&rx)) {
+      Application::getElectricPowerData().whm_coefficient = *p;
+    } else if (std::get_if<ElectricityMeter::EffectiveDigits>(&rx)) {
+      // no operation
+    } else if (auto *p = std::get_if<ElectricityMeter::Unit>(&rx)) {
+      Application::getElectricPowerData().whm_unit = *p;
+    } else if (auto *p = std::get_if<ElectricityMeter::InstantAmpere>(&rx)) {
+      Application::getElectricPowerData().instant_ampere =
+          std::make_pair(at, *p);
+      // 送信バッファへ追加する
+      if (auto tele = Application::getTelemetry(); tele) {
+        tele->enqueue(std::make_pair(at, *p));
+      }
+    } else if (auto *p = std::get_if<ElectricityMeter::InstantWatt>(&rx)) {
+      Application::getElectricPowerData().instant_watt = std::make_pair(at, *p);
+      // 送信バッファへ追加する
+      if (auto tele = Application::getTelemetry(); tele) {
+        tele->enqueue(std::make_pair(at, *p));
+      }
+    } else if (auto *p =
+                   std::get_if<ElectricityMeter::CumulativeWattHour>(&rx)) {
+      if (auto unit = Application::getElectricPowerData().whm_unit) {
+        auto coeff =
+            Application::getElectricPowerData().whm_coefficient.value_or(
+                M::Coefficient{});
+        Application::getElectricPowerData().cumlative_watt_hour =
+            std::make_tuple(*p, coeff, *unit);
+        // 送信バッファへ追加する
+        if (auto tele = Application::getTelemetry(); tele) {
+          tele->enqueue(std::make_tuple(*p, coeff, *unit));
         }
       }
     }
   }
+  //
+#endif
 }
 
 // スマートメーターに最初の要求を出す

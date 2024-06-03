@@ -61,6 +61,13 @@ private:
   void process_event(const Bp35a1::ResEvent &ev);
   // ノードプロファイルクラスのEchonetLiteフレームを処理する
   void process_node_profile_class_frame(const EchonetLiteFrame &frame);
+  // 低圧スマート電力量計クラスのEchonetLiteフレームを処理する
+  void process_electricity_meter_class_frame(
+      std::chrono::system_clock::time_point at, const EchonetLiteFrame &frame);
+  // 低圧スマート電力量計のデータを処理する
+  void process_electricity_meter_data(
+      std::chrono::system_clock::time_point at,
+      EchonetLite::ElectricityMeterData electricity_data);
   // BP35A1から受信したERXUDPイベントを処理する
   void process_erxudp(std::chrono::system_clock::time_point at,
                       const Bp35a1::ResErxudp &ev);

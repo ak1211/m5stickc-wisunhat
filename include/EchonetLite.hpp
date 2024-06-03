@@ -31,13 +31,26 @@ public:
   deserializeToEchonetLiteFrame(EchonetLiteFrame &destination,
                                 const std::vector<uint8_t> &data);
   // スマートメーターから受信した値
-  using ReceivedMessage = std::variant<
+  using ElectricityMeterData = std::variant<
       ElectricityMeter::Coefficient, ElectricityMeter::EffectiveDigits,
       ElectricityMeter::Unit, ElectricityMeter::InstantWatt,
       ElectricityMeter::InstantAmpere, ElectricityMeter::CumulativeWattHour>;
-  // 低圧スマート電力量計クラスのイベントを処理する
-  static std::vector<ReceivedMessage>
-  process_echonet_lite_frame(const EchonetLiteFrame &frame);
+  //
+  struct PickupOk {
+    ElectricityMeterData data;
+    PickupOk(ElectricityMeterData in) : data{in} {};
+  };
+  struct PickupIgnored {
+    std::string message;
+    PickupIgnored(std::string in) : message{in} {}
+  };
+  struct PickupError {
+    std::string reason;
+    PickupError(std::string in) : reason{in} {}
+  };
+  // ECHONET Lite フレームから低圧スマート電力量計クラスのデーターを得る
+  static std::variant<PickupOk, PickupIgnored, PickupError>
+  pickup_electricity_meter_data(const EchonetLiteProp &prop);
   // 積算電力量
   static ElectricityMeter::KiloWattHour
   cumlative_kilo_watt_hour(ElectricityMeter::CumulativeWattHour cwh,
