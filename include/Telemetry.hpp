@@ -70,17 +70,15 @@ public:
   //
   using MessageId = uint32_t;
   //
-  using PayloadInstantAmpere =
-      std::pair<std::chrono::system_clock::time_point,
-                SmartElectricEnergyMeter::InstantAmpere>;
+  using PayloadInstantAmpere = std::pair<std::chrono::system_clock::time_point,
+                                         ElectricityMeter::InstantAmpere>;
   //
   using PayloadInstantWatt = std::pair<std::chrono::system_clock::time_point,
-                                       SmartElectricEnergyMeter::InstantWatt>;
+                                       ElectricityMeter::InstantWatt>;
   //
   using PayloadCumlativeWattHour =
-      std::tuple<SmartElectricEnergyMeter::CumulativeWattHour,
-                 SmartElectricEnergyMeter::Coefficient,
-                 SmartElectricEnergyMeter::Unit>;
+      std::tuple<ElectricityMeter::CumulativeWattHour,
+                 ElectricityMeter::Coefficient, ElectricityMeter::Unit>;
   // 送信用
   using Payload = std::variant<PayloadInstantAmpere, PayloadInstantWatt,
                                PayloadCumlativeWattHour>;
@@ -114,12 +112,10 @@ public:
   bool isConnected() {
     return _mqtt_client ? _mqtt_client->connected() : false;
   }
-  // MQTT接続検査
-  bool check_mqtt(std::ostream &os, std::chrono::seconds timeout);
   // 送信用キューに積む
   void enqueue(const Payload &&in);
   // MQTT送受信
-  bool loop_mqtt();
+  bool task_handler();
 
 private:
   //

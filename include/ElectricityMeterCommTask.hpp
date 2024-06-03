@@ -12,11 +12,11 @@
 //
 // スマートメーターとの通信
 //
-class EnergyMeterCommTask final {
+class ElectricityMeterCommTask final {
 public:
   constexpr static auto RECONNECT_TIMEOUT = std::chrono::seconds{30};
-  EnergyMeterCommTask(Stream &comm_port, std::string route_b_id,
-                      std::string route_b_password)
+  ElectricityMeterCommTask(Stream &comm_port, std::string route_b_id,
+                           std::string route_b_password)
       : _bp35a1{comm_port},
         _route_b_id{route_b_id},
         _route_b_password{route_b_password},
@@ -61,6 +61,13 @@ private:
   void process_event(const Bp35a1::ResEvent &ev);
   // ノードプロファイルクラスのEchonetLiteフレームを処理する
   void process_node_profile_class_frame(const EchonetLiteFrame &frame);
+  // 低圧スマート電力量計クラスのEchonetLiteフレームを処理する
+  void process_electricity_meter_class_frame(
+      std::chrono::system_clock::time_point at, const EchonetLiteFrame &frame);
+  // 低圧スマート電力量計のデータを処理する
+  void process_electricity_meter_data(
+      std::chrono::system_clock::time_point at,
+      EchonetLite::ElectricityMeterData electricity_data);
   // BP35A1から受信したERXUDPイベントを処理する
   void process_erxudp(std::chrono::system_clock::time_point at,
                       const Bp35a1::ResErxudp &ev);

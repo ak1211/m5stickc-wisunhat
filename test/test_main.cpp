@@ -13,5 +13,5 @@ void test_always_ok(void) { TEST_ASSERT_EQUAL(true, true); }
 int main(int argc, char **argv) {
   UNITY_BEGIN();
   RUN_TEST(test_always_ok);
-  UNITY_END();
+  return UNITY_END();
 }

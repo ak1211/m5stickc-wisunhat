@@ -11,6 +11,8 @@
 #include <string>
 #include <variant>
 
+#include <M5Unified.h>
+
 //
 //
 //
@@ -32,10 +34,9 @@ public:
   bool connect(std::ostream &os, Bp35a1::SmartMeterIdentifier smart_meter_ident,
                std::chrono::seconds timeout);
   // 要求を送る
-  bool send_request(
-      const Bp35a1::SmartMeterIdentifier &smart_meter_ident,
-      EchonetLiteTransactionId tid,
-      const std::vector<SmartElectricEnergyMeter::EchonetLiteEPC> epcs);
+  bool send_request(const Bp35a1::SmartMeterIdentifier &smart_meter_ident,
+                    EchonetLiteTransactionId tid,
+                    const std::vector<ElectricityMeter::EchonetLiteEPC> epcs);
   // 受信
   std::optional<Response> receive_response();
 
