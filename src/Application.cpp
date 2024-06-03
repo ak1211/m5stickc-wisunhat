@@ -11,11 +11,13 @@
 #include <esp_sntp.h>
 #include <functional>
 #include <future>
+#include <string>
 
 #include <M5Unified.h>
 
 using namespace std::chrono;
 using namespace std::chrono_literals;
+using namespace std::string_literals;
 
 Application *Application::_instance{nullptr};
 
@@ -38,7 +40,7 @@ void Application::task_handler() {
     }
     //
     if (_telemetry) {
-      _telemetry->loop_mqtt();
+      _telemetry->task_handler();
     }
     //
     if (M5.Power.getBatteryLevel() < 100 &&
@@ -397,7 +399,7 @@ bool Application::start_wifi(std::ostream &os) {
   // WiFi APとの接続待ち
   auto timeover{steady_clock::now() + TIMEOUT};
   while (WiFi.status() != WL_CONNECTED && steady_clock::now() < timeover) {
-    std::this_thread::sleep_for(10s);
+    std::this_thread::sleep_for(100ms);
   }
 
   return WiFi.status() == WL_CONNECTED;
@@ -536,7 +538,7 @@ bool Application::start_energy_meter_communication(std::ostream &os) {
 
   //
   _energy_meter_comm_task.reset(
-      new EnergyMeterCommTask{Serial2, rb_id, rb_password});
+      new ElectricityMeterCommTask{Serial2, rb_id, rb_password});
   //
   if (_energy_meter_comm_task) {
     // スマートメーターへ接続確立を試みる

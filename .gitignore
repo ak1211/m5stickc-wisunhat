@@ -5,4 +5,5 @@
 .vscode/launch.json
 .vscode/ipch
 include/credentials.h
+data/*
 data/settings.json
