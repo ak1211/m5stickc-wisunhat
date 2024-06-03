@@ -38,7 +38,7 @@ void Application::task_handler() {
     }
     //
     if (_telemetry) {
-      _telemetry->loop_mqtt();
+      _telemetry->task_handler();
     }
     //
     if (M5.Power.getBatteryLevel() < 100 &&
@@ -397,7 +397,7 @@ bool Application::start_wifi(std::ostream &os) {
   // WiFi APとの接続待ち
   auto timeover{steady_clock::now() + TIMEOUT};
   while (WiFi.status() != WL_CONNECTED && steady_clock::now() < timeover) {
-    std::this_thread::sleep_for(10s);
+    std::this_thread::sleep_for(100ms);
   }
 
   return WiFi.status() == WL_CONNECTED;

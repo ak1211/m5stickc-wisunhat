@@ -114,12 +114,10 @@ public:
   bool isConnected() {
     return _mqtt_client ? _mqtt_client->connected() : false;
   }
-  // MQTT接続検査
-  bool check_mqtt(std::ostream &os, std::chrono::seconds timeout);
   // 送信用キューに積む
   void enqueue(const Payload &&in);
   // MQTT送受信
-  bool loop_mqtt();
+  bool task_handler();
 
 private:
   //

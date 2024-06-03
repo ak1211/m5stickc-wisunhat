@@ -156,28 +156,14 @@ void Telemetry::enqueue(const Payload &&in) {
   _sending_fifo_queue.push(in);
 }
 
-// MQTT接続検査
-bool Telemetry::check_mqtt(std::ostream &os, std::chrono::seconds timeout) {
-  if (isConnected()) {
-    return true;
-  } else {
-    // MQTT再接続シーケンス
-    std::ostringstream ss;
-    ss << "MQTT reconnect, state: "
-       << (_mqtt_client ? strMqttState(*_mqtt_client) : "")
-       << ", reason: " << (_https_client ? httpsLastError(*_https_client) : "");
-    os << ss.str() << std::endl;
-    M5_LOGI("%s", ss.str().c_str());
-    return begin(os, timeout);
-  }
-}
-
 // MQTT送受信
-bool Telemetry::loop_mqtt() {
-  if (!_mqtt_client || !_mqtt_client->connected()) {
+bool Telemetry::task_handler() {
+  if (!isConnected()) {
     // 再接続
     StringBufWithDialogue buf{"Reconnect MQTT"};
     std::ostream ostream(&buf);
+    ostream << "MQTT reconnect" << std::endl;
+    M5_LOGI("MQTT reconnect");
     return begin(ostream, RECONNECT_TIMEOUT);
   }
   // MQTT受信

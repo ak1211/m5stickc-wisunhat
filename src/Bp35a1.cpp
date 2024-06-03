@@ -8,6 +8,7 @@
 
 using namespace std::chrono;
 using namespace std::chrono_literals;
+using namespace std::string_literals;
 
 // 受信メッセージを破棄する
 void Bp35a1Class::clear_read_buffer() {
@@ -356,19 +357,20 @@ bool Bp35a1Class::connect(std::ostream &os,
     return false;
   }
   // PANA認証要求結果を受け取る
-  const auto timeover = std::chrono::steady_clock::now() + timeout;
+  const auto timeover = steady_clock::now() + timeout;
   do {
     // いったん止める
     std::this_thread::sleep_for(100ms);
     //
-    if (auto opt_res = receive_response()) {
+    if (auto opt_res = receive_response(); opt_res) {
       // 何か受け取ったみたい
       const Response &resp = opt_res.value();
       std::visit([](const auto &x) { M5_LOGD("%s", to_string(x).c_str()); },
                  resp);
-      if (const auto *eventp = std::get_if<Bp35a1::ResEvent>(&resp)) {
+      if (const Bp35a1::ResEvent *pevent = std::get_if<Bp35a1::ResEvent>(&resp);
+          pevent) {
         // イベント番号
-        switch (eventp->num.u8) {
+        switch (pevent->num.u8) {
         case 0x24: {
           // EVENT 24 :
           // PANAによる接続過程でエラーが発生した(接続が完了しなかった)
@@ -391,7 +393,7 @@ bool Bp35a1Class::connect(std::ostream &os,
         }
       }
     }
-  } while (std::chrono::steady_clock::now() < timeover);
+  } while (steady_clock::now() < timeover);
   //
   return false;
 }

@@ -28,7 +28,7 @@ public:
   //
   constexpr static auto APPLICATION_TASK_STACK_SIZE = size_t{8192};
   //
-  constexpr static auto TIMEOUT = std::chrono::seconds{30};
+  constexpr static auto TIMEOUT = std::chrono::seconds{60};
   // time zone = Asia_Tokyo(UTC+9)
   constexpr static auto TZ_TIME_ZONE = std::string_view{"JST-9"};
   //
