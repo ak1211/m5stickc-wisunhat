@@ -303,7 +303,13 @@ bool Bp35a1Class::send_request(
         return result;
       });
   // ECHONET Lite フレームからペイロードを作る
-  std::vector<uint8_t> payload = serializeFromEchonetLiteFrame(frame);
+  std::vector<uint8_t> payload;
+  auto result = EchonetLite::serializeFromEchonetLiteFrame(payload, frame);
+  if (auto *perror = std::get_if<EchonetLite::SerializeError>(&result)) {
+    // エラー
+    M5_LOGE("%s", perror->reason.c_str());
+    return false;
+  }
   //
   std::ostringstream oss;
   oss << "SKSENDTO"                            //

@@ -444,7 +444,7 @@ void Widget::CumlativeWattHour::showValue(
     const std::optional<Repository::CumlativeWattHour> cwh) {
   if (_value_label_obj) {
     if (cwh.has_value()) {
-      auto cumlative_kwh = cumlative_kilo_watt_hour(*cwh).count();
+      auto cumlative_kwh = EchonetLite::cumlative_kilo_watt_hour(*cwh).count();
       lv_style_set_text_align(&_value_label_style, LV_TEXT_ALIGN_RIGHT);
       lv_label_set_text_fmt(_value_label_obj.get(), "%.2f", cumlative_kwh);
     } else {

@@ -23,8 +23,9 @@
 #include <M5Unified.h>
 
 // ECHONET Lite フレームからペイロードを作る
-std::vector<uint8_t>
-serializeFromEchonetLiteFrame(const EchonetLiteFrame &frame) {
+std::variant<EchonetLite::SerializeOk, EchonetLite::SerializeError>
+EchonetLite::serializeFromEchonetLiteFrame(std::vector<uint8_t> &destination,
+                                           const EchonetLiteFrame &frame) {
   std::vector<uint8_t> octets;
   // bytes#1 and bytes#2
   // EHD: ECHONET Lite 電文ヘッダー
@@ -54,8 +55,10 @@ serializeFromEchonetLiteFrame(const EchonetLiteFrame &frame) {
   // OPC: 処理プロパティ数
   octets.push_back(static_cast<uint8_t>(frame.edata.props.size()));
   if (frame.edata.opc != frame.edata.props.size()) {
-    M5_LOGD("size mismatched: OPC:%d, SIZE():%d", frame.edata.opc,
-            frame.edata.props.size());
+    std::ostringstream ss;
+    ss << "size mismatched: " << "OPC:" << +frame.edata.opc
+       << ", SIZE():" << +frame.edata.props.size();
+    return SerializeError{ss.str()};
   }
   //
   // 以降,ECHONET Liteプロパティ
@@ -68,17 +71,23 @@ serializeFromEchonetLiteFrame(const EchonetLiteFrame &frame) {
     // PDC: EDTのバイト数
     octets.push_back(prop.edt.size());
     if (prop.pdc != prop.edt.size()) {
-      M5_LOGD("size mismatched: PDC:%d, SIZE():%d", prop.pdc, prop.edt.size());
+      std::ostringstream ss;
+      ss << "size mismatched: " << "PDC:" << +prop.pdc
+         << ", SIZE():" << +prop.edt.size();
+      return SerializeError{ss.str()};
     }
     // EDT: データ
     std::copy(prop.edt.cbegin(), prop.edt.cend(), std::back_inserter(octets));
   }
-  return octets;
+  //
+  destination.swap(octets);
+  return SerializeOk{};
 }
 
 // ペイロードからECHONET Lite フレームを取り出す
-std::optional<EchonetLiteFrame>
-deserializeToEchonetLiteFrame(const std::vector<uint8_t> &data) {
+std::variant<EchonetLite::DeserializeOk, EchonetLite::DeserializeError>
+EchonetLite::deserializeToEchonetLiteFrame(EchonetLiteFrame &destination,
+                                           const std::vector<uint8_t> &data) {
   EchonetLiteFrame frame;
   auto it = data.cbegin();
   //
@@ -90,8 +99,9 @@ deserializeToEchonetLiteFrame(const std::vector<uint8_t> &data) {
   frame.ehd = EchonetLiteEHeader({*it++, *it++});
   if (frame.ehd != EchonetLiteEHD) {
     // ECHONET Lite 電文形式でないので
-    M5_LOGD("Unknown EHD: %s", std::string(frame.ehd).c_str());
-    return std::nullopt;
+    std::ostringstream ss;
+    ss << "Unknown EHD: " << std::string(frame.ehd);
+    return DeserializeError{ss.str()};
   }
   // bytes#3 and bytes#4
   // TID: トランザクションID
@@ -139,17 +149,21 @@ deserializeToEchonetLiteFrame(const std::vector<uint8_t> &data) {
     //
     frame.edata.props.push_back(std::move(prop));
   }
-  return std::make_optional(frame);
+  //
+  destination = frame;
+  return DeserializeOk{};
+
 insufficient_inputs:
-  M5_LOGD("insufficient input. This is %d bytes.", data.size());
-  return std::nullopt;
+  std::ostringstream ss;
+  ss << "insufficient input. This is " << data.size() << " bytes.";
+  return DeserializeError{ss.str()};
 }
 
 //
 // 低圧スマート電力量計クラスのイベントを処理する
 //
 std::vector<SmartElectricEnergyMeter::ReceivedMessage>
-process_echonet_lite_frame(const EchonetLiteFrame &frame) {
+EchonetLite::process_echonet_lite_frame(const EchonetLiteFrame &frame) {
   std::vector<SmartElectricEnergyMeter::ReceivedMessage> result{};
   // EDATAは複数送られてくる
   for (const EchonetLiteProp &prop : frame.edata.props) {
@@ -332,7 +346,7 @@ process_echonet_lite_frame(const EchonetLiteFrame &frame) {
 }
 
 // 積算電力量
-SmartElectricEnergyMeter::KiloWattHour cumlative_kilo_watt_hour(
+SmartElectricEnergyMeter::KiloWattHour EchonetLite::cumlative_kilo_watt_hour(
     std::tuple<SmartElectricEnergyMeter::CumulativeWattHour,
                SmartElectricEnergyMeter::Coefficient,
                SmartElectricEnergyMeter::Unit>
@@ -347,7 +361,7 @@ SmartElectricEnergyMeter::KiloWattHour cumlative_kilo_watt_hour(
 }
 
 // 電力量
-std::string to_string_cumlative_kilo_watt_hour(
+std::string EchonetLite::to_string_cumlative_kilo_watt_hour(
     SmartElectricEnergyMeter::CumulativeWattHour cwh,
     std::optional<SmartElectricEnergyMeter::Coefficient> opt_coeff,
     SmartElectricEnergyMeter::Unit unit) {

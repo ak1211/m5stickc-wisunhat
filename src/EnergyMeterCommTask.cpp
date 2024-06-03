@@ -236,8 +236,13 @@ void EnergyMeterCommTask::process_node_profile_class_frame(
 void EnergyMeterCommTask::process_erxudp(
     std::chrono::system_clock::time_point at, const Bp35a1::ResErxudp &ev) {
   // EchonetLiteFrameに変換
-  if (auto opt = deserializeToEchonetLiteFrame(ev.data)) {
-    const EchonetLiteFrame &frame = opt.value();
+  EchonetLiteFrame frame;
+  auto result = EchonetLite::deserializeToEchonetLiteFrame(frame, ev.data);
+  if (auto *perror = std::get_if<EchonetLite::DeserializeError>(&result)) {
+    // エラー
+    M5_LOGE("%s", perror->reason.c_str());
+    return;
+  } else {
     //  EchonetLiteフレームだった
     M5_LOGD("%s", to_string(frame).c_str());
     //
@@ -247,7 +252,7 @@ void EnergyMeterCommTask::process_erxudp(
     } else if (frame.edata.seoj.s == SmartElectricEnergyMeter::EchonetLiteEOJ) {
       // 低圧スマート電力量計クラス
       namespace M = SmartElectricEnergyMeter;
-      for (auto rx : process_echonet_lite_frame(frame)) {
+      for (auto rx : EchonetLite::process_echonet_lite_frame(frame)) {
         if (auto *p = std::get_if<M::Coefficient>(&rx)) {
           Application::getElectricPowerData().whm_coefficient = *p;
         } else if (std::get_if<M::EffectiveDigits>(&rx)) {
