@@ -1,3 +1,4 @@
+#include "EchonetLite.hpp"
 #include <unity.h>
 
 void setUp(void) {
