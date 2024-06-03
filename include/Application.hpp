@@ -113,7 +113,7 @@ private:
   //
   bool start_telemetry(std::ostream &os);
   //
-  bool start_energy_meter_communication(std::ostream &os);
+  bool start_electricity_meter_communication(std::ostream &os);
   //
   static void time_sync_notification_callback(struct timeval *time_val);
   //
