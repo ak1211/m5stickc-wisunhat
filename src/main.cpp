@@ -23,4 +23,4 @@ void setup() {
 }
 
 // Arduinoのloop()関数
-void loop() { /* nothing to do */ }
+void loop() { Application::getInstance()->task_handler(); }

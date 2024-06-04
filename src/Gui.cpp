@@ -13,24 +13,20 @@
 
 #include <M5Unified.h>
 
-//
-lv_color_t Gui::LvglUseArea::draw_buf_1[];
-lv_color_t Gui::LvglUseArea::draw_buf_2[];
+uint32_t Gui::LvglUseArea::draw_buf_1[];
 
 //
-void Gui::lvgl_use_display_flush_callback(lv_disp_drv_t *disp_drv,
+void Gui::lvgl_use_display_flush_callback(lv_display_t *disp,
                                           const lv_area_t *area,
-                                          lv_color_t *color_p) {
-  M5GFX &gfx = *static_cast<M5GFX *>(disp_drv->user_data);
+                                          uint8_t *px_map) {
+  M5GFX *gfx = static_cast<M5GFX *>(lv_display_get_user_data(disp));
 
-  int32_t width = area->x2 - area->x1 + 1;
-  int32_t height = area->y2 - area->y1 + 1;
-  gfx.startWrite();
-  gfx.setAddrWindow(area->x1, area->y1, width, height);
-  gfx.writePixels(reinterpret_cast<uint16_t *>(color_p), width * height, true);
-  gfx.endWrite();
-
-  lv_disp_flush_ready(disp_drv);
+  uint32_t width = (area->x2 - area->x1 + 1);
+  uint32_t height = (area->y2 - area->y1 + 1);
+  lv_draw_sw_rgb565_swap(px_map, width * height);
+  gfx->pushImageDMA<uint16_t>(area->x1, area->y1, width, height,
+                              reinterpret_cast<uint16_t *>(px_map));
+  lv_display_flush_ready(disp);
 }
 
 //
@@ -53,7 +49,7 @@ void Gui::periodic_timer_callback(lv_timer_t *arg) {
     if (current != next) {
       gui->_gfx.setRotation(next);
       // force redraw
-      lv_obj_invalidate(lv_scr_act());
+      lv_obj_invalidate(lv_screen_active());
     }
     gravity_dir_counter = 0;
   }
@@ -76,19 +72,13 @@ bool Gui::begin() {
   // LVGL init
   M5_LOGD("initializing LVGL");
   lv_init();
-  lv_disp_draw_buf_init(&_lvgl_use.draw_buf_dsc, _lvgl_use.draw_buf_1,
-                        _lvgl_use.draw_buf_2, std::size(_lvgl_use.draw_buf_1));
-
-  // LVGL display driver
-  lv_disp_drv_init(&_lvgl_use.disp_drv);
-  _lvgl_use.disp_drv.user_data = &_gfx;
-  _lvgl_use.disp_drv.hor_res = _gfx.width();
-  _lvgl_use.disp_drv.ver_res = _gfx.height();
-  _lvgl_use.disp_drv.flush_cb = lvgl_use_display_flush_callback;
-  _lvgl_use.disp_drv.draw_buf = &_lvgl_use.draw_buf_dsc;
-
-  // register the display driver
-  lv_disp_drv_register(&_lvgl_use.disp_drv);
+  lv_tick_set_cb([]() -> uint32_t { return millis(); });
+  _lvgl_use.display = lv_display_create(_gfx.width(), _gfx.height());
+  lv_display_set_user_data(_lvgl_use.display, &_gfx);
+  lv_display_set_flush_cb(_lvgl_use.display, lvgl_use_display_flush_callback);
+  lv_display_set_buffers(_lvgl_use.display, _lvgl_use.draw_buf_1, nullptr,
+                         std::size(_lvgl_use.draw_buf_1),
+                         LV_DISPLAY_RENDER_MODE_PARTIAL);
 
   // set timer callback
   _periodic_timer.reset(
@@ -97,7 +87,7 @@ bool Gui::begin() {
                           PERIODIC_TIMER_INTERVAL)
                           .count(),
                       this),
-      lv_timer_del);
+      lv_timer_delete);
 
   return true;
 }
@@ -110,7 +100,7 @@ void Gui::startUi() {
   lv_style_set_bg_color(&_tileview_style,
                         lv_palette_lighten(LV_PALETTE_GREEN, 2));
   // tileview init
-  _tileview_obj.reset(lv_tileview_create(nullptr), lv_obj_del);
+  _tileview_obj.reset(lv_tileview_create(nullptr), lv_obj_delete);
   if (_tileview_obj) {
     lv_obj_add_style(_tileview_obj.get(), &_tileview_style, LV_PART_MAIN);
 
@@ -121,7 +111,7 @@ void Gui::startUi() {
     _tiles.emplace_back(std::make_unique<Widget::InstantAmpere>(iampere));
     _tiles.emplace_back(std::make_unique<Widget::CumlativeWattHour>(cwatthour));
     _active_tile_itr = _tiles.begin();
-    lv_scr_load(_tileview_obj.get());
+    lv_screen_load(_tileview_obj.get());
     // set update timer callback
     _update_timer.reset(
         lv_timer_create(update_timer_callback,
@@ -129,7 +119,7 @@ void Gui::startUi() {
                             UPDATE_TIMER_INTERVAL)
                             .count(),
                         this),
-        lv_timer_del);
+        lv_timer_delete);
   }
 
   home();
@@ -162,12 +152,13 @@ Widget::Dialogue::Dialogue(const std::string &title_text)
   lv_style_set_text_align(&_message_label_style, LV_TEXT_ALIGN_LEFT);
 
   // create
-  auto width = lv_disp_get_physical_hor_res(lv_obj_get_disp(lv_scr_act()));
-  auto height = lv_disp_get_physical_ver_res(lv_obj_get_disp(lv_scr_act()));
-  _dialogue_obj.reset(lv_obj_create(lv_scr_act()), lv_obj_del);
+  auto width = lv_display_get_physical_horizontal_resolution(nullptr);
+  auto height = lv_display_get_physical_vertical_resolution(nullptr);
+  _dialogue_obj.reset(lv_obj_create(lv_screen_active()), lv_obj_delete);
   if (_dialogue_obj) {
-    _title_label_obj.reset(lv_label_create(_dialogue_obj.get()), lv_obj_del);
-    _message_label_obj.reset(lv_label_create(_dialogue_obj.get()), lv_obj_del);
+    _title_label_obj.reset(lv_label_create(_dialogue_obj.get()), lv_obj_delete);
+    _message_label_obj.reset(lv_label_create(_dialogue_obj.get()),
+                             lv_obj_delete);
   }
 
   // set style
@@ -184,7 +175,6 @@ Widget::Dialogue::Dialogue(const std::string &title_text)
     lv_obj_set_width(_title_label_obj.get(),
                      lv_obj_get_content_width(_dialogue_obj.get()));
     lv_obj_set_height(_title_label_obj.get(), _title_label_font.line_height);
-    lv_label_set_recolor(_title_label_obj.get(), true);
     lv_label_set_long_mode(_title_label_obj.get(), LV_LABEL_LONG_WRAP);
     lv_obj_align(_title_label_obj.get(), LV_ALIGN_TOP_LEFT, 0, 0);
     lv_label_set_text(_title_label_obj.get(), title_text.c_str());
@@ -196,7 +186,6 @@ Widget::Dialogue::Dialogue(const std::string &title_text)
     lv_obj_set_width(_message_label_obj.get(),
                      lv_obj_get_content_width(_dialogue_obj.get()));
     lv_obj_set_height(_message_label_obj.get(), LV_SIZE_CONTENT);
-    lv_label_set_recolor(_message_label_obj.get(), true);
     lv_obj_align_to(_message_label_obj.get(), _title_label_obj.get(),
                     LV_ALIGN_OUT_BOTTOM_LEFT, 0, 8);
     lv_label_set_text(_message_label_obj.get(), "");
@@ -255,18 +244,18 @@ Widget::TileBase::TileBase(Widget::InitArg init)
     auto &[_, col_id, row_id, dir] = init;
     _tile_obj.reset(
         lv_tileview_add_tile(_tileview_obj.get(), col_id, row_id, dir),
-        lv_obj_del);
+        lv_obj_delete);
   }
   if (_tile_obj) {
-    _title_label_obj.reset(lv_label_create(_tile_obj.get()), lv_obj_del);
-    _value_label_obj.reset(lv_label_create(_tile_obj.get()), lv_obj_del);
-    _time_label_obj.reset(lv_label_create(_tile_obj.get()), lv_obj_del);
+    _title_label_obj.reset(lv_label_create(_tile_obj.get()), lv_obj_delete);
+    _value_label_obj.reset(lv_label_create(_tile_obj.get()), lv_obj_delete);
+    _time_label_obj.reset(lv_label_create(_tile_obj.get()), lv_obj_delete);
   }
 
   // set style
   if (_tile_obj) {
     lv_obj_set_style_pad_all(_tile_obj.get(), 8, LV_PART_MAIN);
-    lv_obj_clear_flag(_tile_obj.get(), LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(_tile_obj.get(), LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_update_layout(_tile_obj.get());
   }
   //
@@ -276,7 +265,6 @@ Widget::TileBase::TileBase(Widget::InitArg init)
     lv_obj_set_size(_title_label_obj.get(),
                     lv_obj_get_content_width(_tile_obj.get()), 30);
     lv_obj_align(_title_label_obj.get(), LV_ALIGN_TOP_LEFT, 0, 0);
-    lv_label_set_recolor(_title_label_obj.get(), true);
   }
   //
   if (_value_label_obj && _title_label_obj && _tile_obj) {
@@ -290,7 +278,6 @@ Widget::TileBase::TileBase(Widget::InitArg init)
     //
     lv_label_set_long_mode(_value_label_obj.get(),
                            LV_LABEL_LONG_SCROLL_CIRCULAR);
-    lv_label_set_recolor(_value_label_obj.get(), true);
   }
   //
   if (_time_label_obj && _value_label_obj && _tile_obj) {
@@ -300,14 +287,13 @@ Widget::TileBase::TileBase(Widget::InitArg init)
                     _time_label_font.line_height);
     lv_obj_align_to(_time_label_obj.get(), _value_label_obj.get(),
                     LV_ALIGN_OUT_BOTTOM_LEFT, 0, 8);
-    lv_label_set_recolor(_time_label_obj.get(), true);
   }
 }
 
 //
 bool Widget::TileBase::isActiveTile() const {
   if (_tileview_obj && _tile_obj) {
-    return _tile_obj.get() == lv_tileview_get_tile_act(_tileview_obj.get());
+    return _tile_obj.get() == lv_tileview_get_tile_active(_tileview_obj.get());
   } else {
     M5_LOGE("null");
     return false;
@@ -317,7 +303,7 @@ bool Widget::TileBase::isActiveTile() const {
 //
 void Widget::TileBase::setActiveTile() {
   if (_tileview_obj && _tile_obj) {
-    lv_obj_set_tile(_tileview_obj.get(), _tile_obj.get(), LV_ANIM_OFF);
+    lv_tileview_set_tile(_tileview_obj.get(), _tile_obj.get(), LV_ANIM_OFF);
   } else {
     M5_LOGE("null");
   }

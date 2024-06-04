@@ -168,15 +168,12 @@ private:
   // LVGL use area
   struct LvglUseArea {
     // LVGL draw buffer
-    static lv_color_t
-        draw_buf_1[LVGL_BUFFER_ONE_SIZE_OF_BYTES / sizeof(lv_color_t)];
-    static lv_color_t
-        draw_buf_2[LVGL_BUFFER_ONE_SIZE_OF_BYTES / sizeof(lv_color_t)];
-    lv_disp_draw_buf_t draw_buf_dsc;
-    lv_disp_drv_t disp_drv;
+    static uint32_t
+        draw_buf_1[LVGL_BUFFER_ONE_SIZE_OF_BYTES / sizeof(uint32_t)];
+    lv_display_t *display;
   } _lvgl_use;
   //
-  static void lvgl_use_display_flush_callback(lv_disp_drv_t *disp_drv,
+  static void lvgl_use_display_flush_callback(lv_display_t *disp,
                                               const lv_area_t *area,
-                                              lv_color_t *color_p);
+                                              uint8_t *px_map);
 };

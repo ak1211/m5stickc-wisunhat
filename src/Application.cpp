@@ -198,7 +198,7 @@ bool Application::startup() {
   xTaskCreatePinnedToCore(
       [](void *arg) -> void {
         while (true) {
-          lv_task_handler();
+          lv_timer_handler();
           std::this_thread::sleep_for(10ms);
         }
       },
@@ -224,18 +224,19 @@ bool Application::startup() {
   //
   _gui.startUi();
 
-  // create RTOS task for this Application
-  xTaskCreatePinnedToCore(
-      [](void *user_context) -> void {
-        assert(user_context);
-        while (true) {
-          Application *app = static_cast<Application *>(user_context);
-          assert(app);
-          app->task_handler();
-        }
-      },
-      "Task:Application", APPLICATION_TASK_STACK_SIZE, this, 1,
-      &_rtos_application_task_handle, ARDUINO_RUNNING_CORE);
+  if constexpr (false) {
+    // create RTOS task for this Application
+    xTaskCreatePinnedToCore(
+        [](void *user_context) -> void {
+          assert(user_context);
+          while (true) {
+            Application *app = static_cast<Application *>(user_context);
+            app->task_handler();
+          }
+        },
+        "Task:Application", APPLICATION_TASK_STACK_SIZE, this, 1,
+        &_rtos_application_task_handle, ARDUINO_RUNNING_CORE);
+  }
 
   return true;
 }
