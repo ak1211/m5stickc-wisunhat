@@ -30,8 +30,10 @@ struct EchonetLiteEHeader final {
     oss << *this;
     return oss.str();
   }
-  bool operator==(const EchonetLiteEHeader &rhs) { return this->u8 == rhs.u8; }
-  bool operator!=(const EchonetLiteEHeader &rhs) { return !(*this == rhs); }
+  bool operator==(const EchonetLiteEHeader &rhs) const { return u8 == rhs.u8; }
+  bool operator!=(const EchonetLiteEHeader &rhs) const {
+    return !(*this == rhs);
+  }
 };
 static_assert(sizeof(EchonetLiteEHeader) == 2);
 inline std::ostream &operator<<(std::ostream &os,
@@ -61,17 +63,15 @@ union EchonetLiteObjectCode {
   constexpr EchonetLiteObjectCode(std::array<uint8_t, 3> init = {})
       : u8{init} {}
   operator std::string();
+  bool operator==(const EchonetLiteObjectCode &rhs) const {
+    return u8 == rhs.u8;
+  }
+  bool operator!=(const EchonetLiteObjectCode &rhs) const {
+    return !(*this == rhs);
+  }
 };
 static_assert(sizeof(EchonetLiteObjectCode) == 3);
-//
-inline bool operator==(const EchonetLiteObjectCode &left,
-                       const EchonetLiteObjectCode &right) {
-  return left.u8 == right.u8;
-}
-inline bool operator!=(const EchonetLiteObjectCode &left,
-                       const EchonetLiteObjectCode &right) {
-  return !(left.u8 == right.u8);
-}
+
 inline std::ostream &operator<<(std::ostream &os,
                                 const EchonetLiteObjectCode &in) {
   auto save = os.flags();
@@ -99,6 +99,12 @@ struct EchonetLiteTransactionId final {
     std::ostringstream oss;
     oss << *this;
     return oss.str();
+  }
+  bool operator==(const EchonetLiteTransactionId &rhs) const {
+    return u8 == rhs.u8;
+  }
+  bool operator!=(const EchonetLiteTransactionId &rhs) const {
+    return !(*this == rhs);
   }
 };
 static_assert(sizeof(EchonetLiteTransactionId) == 2);
@@ -166,11 +172,15 @@ static_assert(sizeof(EchonetLiteEPC) == 1);
 struct EchonetLiteSEOJ {
   EchonetLiteObjectCode s;
   constexpr EchonetLiteSEOJ(EchonetLiteObjectCode in = {}) : s{in} {};
+  bool operator==(const EchonetLiteSEOJ &rhs) const { return s == rhs.s; }
+  bool operator!=(const EchonetLiteSEOJ &rhs) const { return !(*this == rhs); }
 };
 // 相手元ECHONET Liteオブジェクト指定
 struct EchonetLiteDEOJ {
   EchonetLiteObjectCode d;
   constexpr EchonetLiteDEOJ(EchonetLiteObjectCode in = {}) : d{in} {};
+  bool operator==(const EchonetLiteDEOJ &rhs) const { return d == rhs.d; }
+  bool operator!=(const EchonetLiteDEOJ &rhs) const { return !(*this == rhs); }
 };
 
 // ECHONET Liteプロパティ
@@ -178,6 +188,10 @@ struct EchonetLiteProp final {
   uint8_t epc;              // ECHONET Liteプロパティ
   uint8_t pdc;              // EDTのバイト数
   std::vector<uint8_t> edt; // プロパティ値データ
+  bool operator==(const EchonetLiteProp &rhs) const {
+    return epc == rhs.epc && pdc == rhs.pdc && edt == rhs.edt;
+  }
+  bool operator!=(const EchonetLiteProp &rhs) const { return !(*this == rhs); }
 };
 
 // ECHONET Lite データ (EDATA)
@@ -187,6 +201,11 @@ struct EchonetLiteData final {
   EchonetLiteESV esv;   // ECHONET Liteサービス
   uint8_t opc;          // 処理プロパティ数
   std::vector<EchonetLiteProp> props; // ECHONET Liteプロパティ
+  bool operator==(const EchonetLiteData &rhs) const {
+    return seoj == rhs.seoj && deoj == rhs.deoj && esv == rhs.esv &&
+           opc == rhs.opc && props == rhs.props;
+  }
+  bool operator!=(const EchonetLiteData &rhs) const { return !(*this == rhs); }
 };
 
 // ECHONET Lite フレーム
@@ -194,6 +213,10 @@ struct EchonetLiteFrame final {
   EchonetLiteEHeader ehd;       // ECHONET Lite 電文ヘッダー
   EchonetLiteTransactionId tid; // トランザクションID
   EchonetLiteData edata;        // ECHONET Lite データ (EDATA)
+  bool operator==(const EchonetLiteFrame &rhs) const {
+    return ehd == rhs.ehd && tid == rhs.tid && edata == rhs.edata;
+  }
+  bool operator!=(const EchonetLiteFrame &rhs) const { return !(*this == rhs); }
 };
 
 //

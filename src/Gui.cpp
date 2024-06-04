@@ -108,7 +108,7 @@ void Gui::startUi() {
   lv_style_init(&_tileview_style);
   lv_style_set_bg_opa(&_tileview_style, LV_OPA_COVER);
   lv_style_set_bg_color(&_tileview_style,
-                        lv_palette_lighten(LV_PALETTE_GREEN, 2));
+                        lv_palette_lighten(LV_PALETTE_RED, 4));
   // tileview init
   _tileview_obj.reset(lv_tileview_create(nullptr), lv_obj_del);
   if (_tileview_obj) {
@@ -394,11 +394,8 @@ void Widget::InstantAmpere::showValue(
       int32_t t_dA = value.ampereT.count() % 10;
       //
       lv_style_set_text_align(&_value_label_style, LV_TEXT_ALIGN_RIGHT);
-      lv_color32_t c32{
-          .full = lv_color_to32(lv_palette_lighten(LV_PALETTE_ORANGE, 4))};
-      lv_label_set_text_fmt(_value_label_obj.get(),
-                            "R%ld.%ld#%02x%02x%02x /#T%ld.%ld", r_A, r_dA,
-                            c32.ch.red, c32.ch.green, c32.ch.blue, t_A, t_dA);
+      lv_label_set_text_fmt(_value_label_obj.get(), "R%ld.%ldT%ld.%ld", r_A,
+                            r_dA, t_A, t_dA);
     } else {
       lv_style_set_text_align(&_value_label_style, LV_TEXT_ALIGN_CENTER);
       lv_label_set_text(_value_label_obj.get(), "Now loading");

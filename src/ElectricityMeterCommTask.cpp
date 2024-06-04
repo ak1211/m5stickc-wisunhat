@@ -20,7 +20,7 @@ using namespace std::chrono_literals;
 bool ElectricityMeterCommTask::begin(std::ostream &os,
                                      std::chrono::seconds timeout) {
   bool ok{true};
-  ok = ok ? find_energy_meter(os, timeout) : false;
+  ok = ok ? finding_elctricity_meter(os, timeout) : false;
   ok = ok ? connect(os, timeout) : false;
   //
   send_first_request();
@@ -58,11 +58,11 @@ void ElectricityMeterCommTask::task_handler() {
 }
 
 // 接続対象のスマートメーターを探す
-bool ElectricityMeterCommTask::find_energy_meter(std::ostream &os,
-                                                 std::chrono::seconds timeout) {
+bool ElectricityMeterCommTask::finding_elctricity_meter(
+    std::ostream &os, std::chrono::seconds timeout) {
   {
     std::ostringstream ss;
-    ss << "Find a smart energy meter";
+    ss << "Finding electricity meter";
     os << ss.str() << std::endl;
     M5_LOGD("%s", ss.str().c_str());
   }
@@ -88,7 +88,7 @@ bool ElectricityMeterCommTask::connect(std::ostream &os,
                                        std::chrono::seconds timeout) {
   if (!_smart_meter_identifier) {
     // 接続対象のスマートメーターを探す
-    find_energy_meter(os, timeout);
+    finding_elctricity_meter(os, timeout);
   }
   if (_smart_meter_identifier) {
     // スマートメーターに接続要求を送る
@@ -303,17 +303,19 @@ void ElectricityMeterCommTask::process_erxudp(system_clock::time_point at,
   if (auto *perror = std::get_if<EchonetLite::DeserializeError>(&result)) {
     // エラー
     M5_LOGE("%s", perror->reason.c_str());
-    return;
-  }
-  //  EchonetLiteフレームだった
-  M5_LOGD("%s", to_string(frame).c_str());
-  //
-  if (frame.edata.seoj.s == NodeProfileClass::EchonetLiteEOJ) {
-    // ノードプロファイルクラス
-    process_node_profile_class_frame(frame);
-  } else if (frame.edata.seoj.s == ElectricityMeter::EchonetLiteEOJ) {
-    // 低圧スマート電力量計クラス
-    process_electricity_meter_class_frame(at, frame);
+  } else if (auto *perror = std::get_if<EchonetLite::DeserializeOk>(&result)) {
+    //  EchonetLiteフレームだった
+    M5_LOGD("%s", to_string(frame).c_str());
+    //
+    if (frame.edata.seoj.s == NodeProfileClass::EchonetLiteEOJ) {
+      // ノードプロファイルクラス
+      process_node_profile_class_frame(frame);
+    } else if (frame.edata.seoj.s == ElectricityMeter::EchonetLiteEOJ) {
+      // 低圧スマート電力量計クラス
+      process_electricity_meter_class_frame(at, frame);
+    }
+  } else {
+    M5_LOGE("unknown event");
   }
 }
 
