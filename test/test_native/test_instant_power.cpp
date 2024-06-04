@@ -163,7 +163,12 @@ void test_serialize_deserialize_responce(void) {
 
 void test_runner() {
   UNITY_BEGIN();
+  RUN_TEST(test_serialize_request);
+  RUN_TEST(test_deserialize_request);
   RUN_TEST(test_serialize_deserialize_request);
+  //
+  RUN_TEST(test_serialize_responce);
+  RUN_TEST(test_deserialize_responce);
   RUN_TEST(test_serialize_deserialize_responce);
   UNITY_END();
 }
