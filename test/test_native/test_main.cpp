@@ -3,6 +3,9 @@
 #include <variant>
 #include <vector>
 
+namespace test_cumlative_amount_of_power {
+void test_runner();
+}
 namespace test_instant_power {
 void test_runner();
 }
@@ -20,6 +23,7 @@ void tearDown(void) {
 
 int runUnityTests(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_cumlative_amount_of_power::test_runner);
   RUN_TEST(test_instant_power::test_runner);
   RUN_TEST(test_instant_current::test_runner);
   return UNITY_END();

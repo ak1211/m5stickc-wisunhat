@@ -62,7 +62,7 @@ EchonetLiteFrame frame_Get_responce_InstantaneousCurrent() {
           {
               .seoj = ElectricityMeter::EchonetLiteEOJ, // Electricity meter
               .deoj = HomeController::EchonetLiteEOJ,   // Home controller
-              .esv = EchonetLiteESV::Get,               // Get
+              .esv = EchonetLiteESV::Get_Res,           // Get responce
               .opc = 1,                                 // 1つ
               .props =
                   {
@@ -91,7 +91,7 @@ std::vector<uint8_t> octets_Get_responce_InstantaneousCurrent() {
       0x05, // DEOJ#0
       0xFF, // DEOJ#1
       0x01, // DEO1#2
-      0x62, // ESV
+      0x72, // ESV
       0x01, // OPC
             /** PROPS#0 **/
       0xE8, // EPC

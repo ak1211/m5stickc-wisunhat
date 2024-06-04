@@ -19,7 +19,7 @@ EchonetLiteFrame frame_Get_request_InstantaneousPower() {
               .props =
                   {
                       {
-                          .epc = INSTANTANEOUS_POWER, // instant watt
+                          .epc = INSTANTANEOUS_POWER, // instant power
                           .pdc = 0,                   // EDT=0
                           .edt = {},                  // EDT is nothing
                       },
@@ -62,12 +62,12 @@ EchonetLiteFrame frame_Get_responce_InstantaneousPower() {
           {
               .seoj = ElectricityMeter::EchonetLiteEOJ, // Electricity meter
               .deoj = HomeController::EchonetLiteEOJ,   // Home controller
-              .esv = EchonetLiteESV::Get,               // Get
+              .esv = EchonetLiteESV::Get_Res,           // Get responce
               .opc = 1,                                 // 1つ
               .props =
                   {
                       {
-                          .epc = INSTANTANEOUS_POWER,      // instant watt
+                          .epc = INSTANTANEOUS_POWER,      // instant power
                           .pdc = 4,                        // EDT=4
                           .edt = {0x00, 0x00, 0x04, 0xA8}, // (0x04=4)*256
                                                            // +(0xA8=168)
@@ -78,6 +78,7 @@ EchonetLiteFrame frame_Get_responce_InstantaneousPower() {
   };
   return frame;
 }
+
 std::vector<uint8_t> octets_Get_responce_InstantaneousPower() {
   std::vector<uint8_t> ocetets{
       0x10, // EHD#0
@@ -91,7 +92,7 @@ std::vector<uint8_t> octets_Get_responce_InstantaneousPower() {
       0x05, // DEOJ#0
       0xFF, // DEOJ#1
       0x01, // DEO1#2
-      0x62, // ESV
+      0x72, // ESV
       0x01, // OPC
             /** PROPS#0 **/
       0xE7, // EPC
