@@ -101,7 +101,6 @@ std::vector<uint8_t> octets_Get_responce_InstantaneousPower() {
       0x00, // EDT#1
       0x04, // EDT#2
       0xA8, // EDT#3
-
   };
   return ocetets;
 }
