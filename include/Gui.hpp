@@ -131,6 +131,7 @@ public:
     _active_tile_itr = _tiles.begin();
     if (auto ptr = _active_tile_itr->get(); ptr) {
       ptr->setActiveTile();
+      ptr->update();
     }
   }
   //
@@ -143,6 +144,7 @@ public:
     }
     if (auto ptr = _active_tile_itr->get(); ptr) {
       ptr->setActiveTile();
+      ptr->update();
     }
   }
 
