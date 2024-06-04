@@ -48,7 +48,7 @@ private:
 
 private:
   //
-  bool find_energy_meter(std::ostream &os, std::chrono::seconds timeout);
+  bool finding_elctricity_meter(std::ostream &os, std::chrono::seconds timeout);
   //
   bool connect(std::ostream &os, std::chrono::seconds timeout);
   //

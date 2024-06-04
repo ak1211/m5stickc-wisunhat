@@ -394,11 +394,8 @@ void Widget::InstantAmpere::showValue(
       int32_t t_dA = value.ampereT.count() % 10;
       //
       lv_style_set_text_align(&_value_label_style, LV_TEXT_ALIGN_RIGHT);
-      lv_color32_t c32{
-          .full = lv_color_to32(lv_palette_lighten(LV_PALETTE_ORANGE, 4))};
-      lv_label_set_text_fmt(_value_label_obj.get(),
-                            "R%ld.%ld#%02x%02x%02x /#T%ld.%ld", r_A, r_dA,
-                            c32.ch.red, c32.ch.green, c32.ch.blue, t_A, t_dA);
+      lv_label_set_text_fmt(_value_label_obj.get(), "R%ld.%ldT%ld.%ld", r_A,
+                            r_dA, t_A, t_dA);
     } else {
       lv_style_set_text_align(&_value_label_style, LV_TEXT_ALIGN_CENTER);
       lv_label_set_text(_value_label_obj.get(), "Now loading");
