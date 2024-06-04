@@ -100,7 +100,6 @@ std::vector<uint8_t> octets_Get_responce_InstantaneousCurrent() {
       0x62, // EDT#1
       0x00, // EDT#2
       0x22, // EDT#3
-
   };
   return ocetets;
 }

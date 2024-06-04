@@ -123,7 +123,6 @@ std::vector<uint8_t> octets_Get_responce_CumlativeAmountOfPower() {
       0x01, // EDT#8
       0x2C, // EDT#9
       0xC7, // EDT#10
-
   };
   return ocetets;
 }
