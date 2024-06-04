@@ -12,6 +12,9 @@ void test_runner();
 namespace test_instant_current {
 void test_runner();
 }
+namespace test_instant_power_current {
+void test_runner();
+}
 
 void setUp(void) {
   // set stuff up here
@@ -26,6 +29,7 @@ int runUnityTests(void) {
   RUN_TEST(test_cumlative_amount_of_power::test_runner);
   RUN_TEST(test_instant_power::test_runner);
   RUN_TEST(test_instant_current::test_runner);
+  RUN_TEST(test_instant_power_current::test_runner);
   return UNITY_END();
 }
 
