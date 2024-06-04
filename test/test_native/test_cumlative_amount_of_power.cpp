@@ -128,32 +128,87 @@ std::vector<uint8_t> octets_Get_responce_CumlativeAmountOfPower() {
   return ocetets;
 }
 
-void test_serialize_deserialize1(void) {
-  auto source_frame = frame_Get_request_CumlativeAmountOfPower();
-  //
+void test_serialize_request(void) {
   std::vector<uint8_t> octets;
-  auto result =
-      EchonetLite::serializeFromEchonetLiteFrame(octets, source_frame);
+  auto result = EchonetLite::serializeFromEchonetLiteFrame(
+      octets, frame_Get_request_CumlativeAmountOfPower());
   TEST_ASSERT_NOT_NULL(std::get_if<EchonetLite::SerializeOk>(&result));
   //
   TEST_ASSERT_TRUE(octets == octets_Get_request_CumlativeAmountOfPower());
 }
 
-void test_serialize_deserialize2(void) {
-  auto source_frame = frame_Get_responce_CumlativeAmountOfPower();
+void test_deserialize_request(void) {
+  EchonetLiteFrame frame;
+  auto result = EchonetLite::deserializeToEchonetLiteFrame(
+      frame, octets_Get_request_CumlativeAmountOfPower());
+  TEST_ASSERT_NOT_NULL(std::get_if<EchonetLite::DeserializeOk>(&result));
+  TEST_ASSERT_TRUE(frame == frame_Get_request_CumlativeAmountOfPower());
+}
+
+void test_serialize_deserialize_request(void) {
+  auto source_frame = frame_Get_request_CumlativeAmountOfPower();
   //
   std::vector<uint8_t> octets;
-  auto result =
+  EchonetLiteFrame frame;
+  //
+  auto result_serialize =
       EchonetLite::serializeFromEchonetLiteFrame(octets, source_frame);
+  TEST_ASSERT_NOT_NULL(
+      std::get_if<EchonetLite::SerializeOk>(&result_serialize));
+  //
+  auto result_deserialize =
+      EchonetLite::deserializeToEchonetLiteFrame(frame, octets);
+  TEST_ASSERT_NOT_NULL(
+      std::get_if<EchonetLite::DeserializeOk>(&result_deserialize));
+  //
+  TEST_ASSERT_TRUE(frame == source_frame);
+}
+
+void test_serialize_responce(void) {
+  std::vector<uint8_t> octets;
+  auto result = EchonetLite::serializeFromEchonetLiteFrame(
+      octets, frame_Get_responce_CumlativeAmountOfPower());
   TEST_ASSERT_NOT_NULL(std::get_if<EchonetLite::SerializeOk>(&result));
   //
   TEST_ASSERT_TRUE(octets == octets_Get_responce_CumlativeAmountOfPower());
 }
 
+void test_deserialize_responce(void) {
+  EchonetLiteFrame frame;
+  auto result = EchonetLite::deserializeToEchonetLiteFrame(
+      frame, octets_Get_responce_CumlativeAmountOfPower());
+  TEST_ASSERT_NOT_NULL(std::get_if<EchonetLite::DeserializeOk>(&result));
+  TEST_ASSERT_TRUE(frame == frame_Get_responce_CumlativeAmountOfPower());
+}
+
+void test_serialize_deserialize_responce(void) {
+  auto source_frame = frame_Get_responce_CumlativeAmountOfPower();
+  //
+  std::vector<uint8_t> octets;
+  EchonetLiteFrame frame;
+  //
+  auto result_serialize =
+      EchonetLite::serializeFromEchonetLiteFrame(octets, source_frame);
+  TEST_ASSERT_NOT_NULL(
+      std::get_if<EchonetLite::SerializeOk>(&result_serialize));
+  //
+  auto result_deserialize =
+      EchonetLite::deserializeToEchonetLiteFrame(frame, octets);
+  TEST_ASSERT_NOT_NULL(
+      std::get_if<EchonetLite::DeserializeOk>(&result_deserialize));
+  //
+  TEST_ASSERT_TRUE(frame == source_frame);
+}
+
 void test_runner() {
   UNITY_BEGIN();
-  RUN_TEST(test_serialize_deserialize1);
-  RUN_TEST(test_serialize_deserialize2);
+  RUN_TEST(test_serialize_request);
+  RUN_TEST(test_deserialize_request);
+  RUN_TEST(test_serialize_deserialize_request);
+  //
+  RUN_TEST(test_serialize_responce);
+  RUN_TEST(test_deserialize_responce);
+  RUN_TEST(test_serialize_deserialize_responce);
   UNITY_END();
 }
 } // namespace test_cumlative_amount_of_power

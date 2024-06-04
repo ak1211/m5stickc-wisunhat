@@ -16,11 +16,11 @@ struct HexedU8 final {
   constexpr HexedU8(uint8_t init = 0U) : u8{init} {}
   operator std::string() const;
 };
-inline bool operator==(const HexedU8 &left, const HexedU8 &right) {
-  return left.u8 == right.u8;
+inline bool operator==(const HexedU8 &lhs, const HexedU8 &rhs) {
+  return lhs.u8 == rhs.u8;
 }
-inline bool operator!=(const HexedU8 &left, const HexedU8 &right) {
-  return left.u8 != right.u8;
+inline bool operator!=(const HexedU8 &lhs, const HexedU8 &rhs) {
+  return !(lhs == rhs);
 }
 inline std::istream &operator>>(std::istream &is, HexedU8 &v) {
   auto save = is.flags();
@@ -55,11 +55,11 @@ struct HexedU16 final {
   constexpr HexedU16(uint16_t init = 0U) : u16{init} {}
   operator std::string() const;
 };
-inline bool operator==(const HexedU16 &left, const HexedU16 &right) {
-  return left.u16 == right.u16;
+inline bool operator==(const HexedU16 &lhs, const HexedU16 &rhs) {
+  return lhs.u16 == rhs.u16;
 }
-inline bool operator!=(const HexedU16 &left, const HexedU16 &right) {
-  return left.u16 != right.u16;
+inline bool operator!=(const HexedU16 &lhs, const HexedU16 &rhs) {
+  return !(lhs == rhs);
 }
 inline std::istream &operator>>(std::istream &is, HexedU16 &v) {
   auto save = is.flags();
@@ -92,11 +92,11 @@ struct HexedU64 final {
   constexpr HexedU64(uint64_t init = 0U) : u64{init} {}
   operator std::string() const;
 };
-inline bool operator==(const HexedU64 &left, const HexedU64 &right) {
-  return left.u64 == right.u64;
+inline bool operator==(const HexedU64 &lhs, const HexedU64 &rhs) {
+  return lhs.u64 == rhs.u64;
 }
-inline bool operator!=(const HexedU64 &left, const HexedU64 &right) {
-  return left.u64 != right.u64;
+inline bool operator!=(const HexedU64 &lhs, const HexedU64 &rhs) {
+  return !(lhs == rhs);
 }
 inline std::istream &operator>>(std::istream &is, HexedU64 &v) {
   auto save = is.flags();

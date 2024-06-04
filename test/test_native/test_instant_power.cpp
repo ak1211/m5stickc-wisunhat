@@ -106,7 +106,24 @@ std::vector<uint8_t> octets_Get_responce_InstantaneousPower() {
   return ocetets;
 }
 
-void test_serialize_deserialize1(void) {
+void test_serialize_request(void) {
+  std::vector<uint8_t> octets;
+  auto result = EchonetLite::serializeFromEchonetLiteFrame(
+      octets, frame_Get_request_InstantaneousPower());
+  TEST_ASSERT_NOT_NULL(std::get_if<EchonetLite::SerializeOk>(&result));
+  //
+  TEST_ASSERT_TRUE(octets == octets_Get_request_InstantaneousPower());
+}
+
+void test_deserialize_request(void) {
+  EchonetLiteFrame frame;
+  auto result = EchonetLite::deserializeToEchonetLiteFrame(
+      frame, octets_Get_request_InstantaneousPower());
+  TEST_ASSERT_NOT_NULL(std::get_if<EchonetLite::DeserializeOk>(&result));
+  TEST_ASSERT_TRUE(frame == frame_Get_request_InstantaneousPower());
+}
+
+void test_serialize_deserialize_request(void) {
   auto source_frame = frame_Get_request_InstantaneousPower();
   //
   std::vector<uint8_t> octets;
@@ -117,7 +134,24 @@ void test_serialize_deserialize1(void) {
   TEST_ASSERT_TRUE(octets == octets_Get_request_InstantaneousPower());
 }
 
-void test_serialize_deserialize2(void) {
+void test_serialize_responce(void) {
+  std::vector<uint8_t> octets;
+  auto result = EchonetLite::serializeFromEchonetLiteFrame(
+      octets, frame_Get_responce_InstantaneousPower());
+  TEST_ASSERT_NOT_NULL(std::get_if<EchonetLite::SerializeOk>(&result));
+  //
+  TEST_ASSERT_TRUE(octets == octets_Get_responce_InstantaneousPower());
+}
+
+void test_deserialize_responce(void) {
+  EchonetLiteFrame frame;
+  auto result = EchonetLite::deserializeToEchonetLiteFrame(
+      frame, octets_Get_responce_InstantaneousPower());
+  TEST_ASSERT_NOT_NULL(std::get_if<EchonetLite::DeserializeOk>(&result));
+  TEST_ASSERT_TRUE(frame == frame_Get_responce_InstantaneousPower());
+}
+
+void test_serialize_deserialize_responce(void) {
   auto source_frame = frame_Get_responce_InstantaneousPower();
   //
   std::vector<uint8_t> octets;
@@ -130,8 +164,8 @@ void test_serialize_deserialize2(void) {
 
 void test_runner() {
   UNITY_BEGIN();
-  RUN_TEST(test_serialize_deserialize1);
-  RUN_TEST(test_serialize_deserialize2);
+  RUN_TEST(test_serialize_deserialize_request);
+  RUN_TEST(test_serialize_deserialize_responce);
   UNITY_END();
 }
 } // namespace test_instant_power
