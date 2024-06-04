@@ -303,17 +303,19 @@ void ElectricityMeterCommTask::process_erxudp(system_clock::time_point at,
   if (auto *perror = std::get_if<EchonetLite::DeserializeError>(&result)) {
     // エラー
     M5_LOGE("%s", perror->reason.c_str());
-    return;
-  }
-  //  EchonetLiteフレームだった
-  M5_LOGD("%s", to_string(frame).c_str());
-  //
-  if (frame.edata.seoj.s == NodeProfileClass::EchonetLiteEOJ) {
-    // ノードプロファイルクラス
-    process_node_profile_class_frame(frame);
-  } else if (frame.edata.seoj.s == ElectricityMeter::EchonetLiteEOJ) {
-    // 低圧スマート電力量計クラス
-    process_electricity_meter_class_frame(at, frame);
+  } else if (auto *perror = std::get_if<EchonetLite::DeserializeOk>(&result)) {
+    //  EchonetLiteフレームだった
+    M5_LOGD("%s", to_string(frame).c_str());
+    //
+    if (frame.edata.seoj.s == NodeProfileClass::EchonetLiteEOJ) {
+      // ノードプロファイルクラス
+      process_node_profile_class_frame(frame);
+    } else if (frame.edata.seoj.s == ElectricityMeter::EchonetLiteEOJ) {
+      // 低圧スマート電力量計クラス
+      process_electricity_meter_class_frame(at, frame);
+    }
+  } else {
+    M5_LOGE("unknown event");
   }
 }
 

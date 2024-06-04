@@ -98,7 +98,7 @@ void Gui::startUi() {
   lv_style_init(&_tileview_style);
   lv_style_set_bg_opa(&_tileview_style, LV_OPA_COVER);
   lv_style_set_bg_color(&_tileview_style,
-                        lv_palette_lighten(LV_PALETTE_GREEN, 2));
+                        lv_palette_lighten(LV_PALETTE_RED, 4));
   // tileview init
   _tileview_obj.reset(lv_tileview_create(nullptr), lv_obj_delete);
   if (_tileview_obj) {

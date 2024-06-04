@@ -153,7 +153,7 @@ EchonetLite::deserializeToEchonetLiteFrame(EchonetLiteFrame &destination,
 
 insufficient_inputs:
   std::ostringstream ss;
-  ss << "insufficient input. This is " << data.size() << " bytes.";
+  ss << "insufficient input. This is " << +data.size() << " bytes.";
   return DeserializeError{ss.str()};
 }
 
@@ -186,7 +186,8 @@ EchonetLite::pickup_electricity_meter_data(const EchonetLiteProp &prop) {
     if (prop.edt.size() == 1) { // 1バイト
       uint8_t a = prop.edt[0];
       std::ostringstream ss;
-      ss << std::hex << "installation location: 0x" << a;
+      ss << "installation location: 0x" << std::hex << std::setw(2)
+         << std::setfill('0') << +a;
       return PickupIgnored{ss.str()};
     } else if (prop.edt.size() == 17) { // 17バイト
       return PickupIgnored{"installation location"};
@@ -223,9 +224,9 @@ EchonetLite::pickup_electricity_meter_data(const EchonetLiteProp &prop) {
       uint8_t c = prop.edt[2];
       std::ostringstream ss;
       ss << "Manufacturer: 0x";
-      ss << std::hex << std::setw(2) << a;
-      ss << std::hex << std::setw(2) << b;
-      ss << std::hex << std::setw(2) << c;
+      ss << std::hex << std::setw(2) << std::setfill('0') << +a;
+      ss << std::hex << std::setw(2) << std::setfill('0') << +b;
+      ss << std::hex << std::setw(2) << std::setfill('0') << +c;
       return PickupIgnored{ss.str()};
     } else {
       std::ostringstream ss;
@@ -334,13 +335,13 @@ EchonetLite::pickup_electricity_meter_data(const EchonetLiteProp &prop) {
       uint8_t g = prop.edt[6];
       std::ostringstream ss;
       ss << "day of historical 2: [";
-      ss << std::hex << std::setw(2) << a << ", ";
-      ss << std::hex << std::setw(2) << b << ", ";
-      ss << std::hex << std::setw(2) << c << ", ";
-      ss << std::hex << std::setw(2) << d << ", ";
-      ss << std::hex << std::setw(2) << e << ", ";
-      ss << std::hex << std::setw(2) << f << ", ";
-      ss << std::hex << std::setw(2) << g << "]";
+      ss << std::hex << std::setw(2) << std::setfill('0') << +a << ", ";
+      ss << std::hex << std::setw(2) << std::setfill('0') << +b << ", ";
+      ss << std::hex << std::setw(2) << std::setfill('0') << +c << ", ";
+      ss << std::hex << std::setw(2) << std::setfill('0') << +d << ", ";
+      ss << std::hex << std::setw(2) << std::setfill('0') << +e << ", ";
+      ss << std::hex << std::setw(2) << std::setfill('0') << +f << ", ";
+      ss << std::hex << std::setw(2) << std::setfill('0') << +g << "]";
       return PickupIgnored{ss.str()};
     } else {
       std::ostringstream ss;
@@ -351,7 +352,8 @@ EchonetLite::pickup_electricity_meter_data(const EchonetLiteProp &prop) {
   } break;
   default:
     std::ostringstream ss;
-    ss << std::hex << "unknown epc: 0x" << +prop.epc;
+    ss << "unknown epc: 0x" << std::hex << std::setw(2) << std::setfill('0')
+       << +prop.epc;
     return PickupError{ss.str()};
     break;
   }
