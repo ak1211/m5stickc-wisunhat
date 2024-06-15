@@ -45,7 +45,14 @@ void ElectricityMeterCommTask::task_handler() {
     // 再接続
     StringBufWithDialogue buf{"Reconnect meter"};
     std::ostream ostream(&buf);
-    connect(ostream, RECONNECT_TIMEOUT);
+    if (!connect(ostream, RECONNECT_TIMEOUT)) {
+      if (!begin(ostream, RECONNECT_TIMEOUT)) {
+        ostream << "Reconnect failed, restart";
+        M5_LOGE("restart");
+        std::this_thread::sleep_for(10s);
+        esp_restart();
+      }
+    }
   } else {
     auto now_tp = system_clock::now();
     if (now_tp >= _next_send_request_in_tp) {
@@ -111,6 +118,11 @@ bool ElectricityMeterCommTask::connect(std::ostream &os,
 // 受信
 void ElectricityMeterCommTask::receive_from_port(
     system_clock::time_point nowtp) {
+  if (!_pana_session_established) {
+    M5_LOGE("PANA session not established.");
+    return;
+  }
+
   // (あれば)連続でスマートメーターからのメッセージを受信する
   for (auto count = 0; count < 25; ++count) {
     if (auto resp = _bp35a1.receive_response()) {
@@ -348,6 +360,10 @@ void ElectricityMeterCommTask::send_first_request() {
 
 // スマートメーターに定期的な要求を出す
 void ElectricityMeterCommTask::send_periodical_request() {
+  if (!_pana_session_established) {
+    M5_LOGE("PANA session not established.");
+    return;
+  }
   using E = ElectricityMeter::EchonetLiteEPC;
   std::vector<E> epcs = {
       E::Measured_instantaneous_power,    // 瞬時電力要求
