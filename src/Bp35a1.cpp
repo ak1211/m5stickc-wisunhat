@@ -334,6 +334,15 @@ bool Bp35a1Class::send_request(
   return has_ok(RETRY_TIMEOUT);
 }
 
+// SKTERM要求を送る
+bool Bp35a1Class::terminate(std::chrono::seconds timeout) {
+  write_with_crln("SKTERM"s);
+  if (!has_ok(timeout)) {
+    return false;
+  }
+  return true;
+}
+
 // 接続(PANA認証)要求を送る
 bool Bp35a1Class::connect(std::ostream &os,
                           Bp35a1::SmartMeterIdentifier smart_meter_ident,

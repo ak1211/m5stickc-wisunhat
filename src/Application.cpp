@@ -277,7 +277,7 @@ bool Application::read_settings_json(std::ostream &os) {
       if (condition_under_test) {
         ss << "check \"" << name << "\" is good";
         os << ss.str() << std::endl;
-        M5_LOGE("%s", ss.str().c_str());
+        M5_LOGI("%s", ss.str().c_str());
         return true;
       } else {
         ss << "Error; \"" << name << "\" is undefined";

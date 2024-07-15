@@ -21,7 +21,7 @@ bool ElectricityMeterCommTask::begin(std::ostream &os,
                                      std::chrono::seconds timeout) {
   bool ok{true};
   ok = ok ? finding_elctricity_meter(os, timeout) : false;
-  ok = ok ? connect(os, timeout) : false;
+  ok = ok ? connect_to_meter(os, timeout) : false;
   //
   send_first_request();
   //
@@ -42,16 +42,11 @@ void ElectricityMeterCommTask::adjust_timing(
 // 測定関数
 void ElectricityMeterCommTask::task_handler() {
   if (!_pana_session_established) {
-    // 再接続
-    StringBufWithDialogue buf{"Reconnect meter"};
-    std::ostream ostream(&buf);
-    if (!connect(ostream, RECONNECT_TIMEOUT)) {
-      if (!begin(ostream, RECONNECT_TIMEOUT)) {
-        ostream << "Reconnect failed, restart";
-        M5_LOGE("restart");
-        std::this_thread::sleep_for(10s);
-        esp_restart();
-      }
+    // セッションが切れたので再接続を試みる
+    if (!reconnect_to_meter()) {
+      M5_LOGE("restart");
+      std::this_thread::sleep_for(1s);
+      esp_restart();
     }
   } else {
     auto now_tp = system_clock::now();
@@ -91,8 +86,8 @@ bool ElectricityMeterCommTask::finding_elctricity_meter(
 }
 
 // スマートメーターとのセッションを開始する。
-bool ElectricityMeterCommTask::connect(std::ostream &os,
-                                       std::chrono::seconds timeout) {
+bool ElectricityMeterCommTask::connect_to_meter(std::ostream &os,
+                                                std::chrono::seconds timeout) {
   if (!_smart_meter_identifier) {
     // 接続対象のスマートメーターを探す
     finding_elctricity_meter(os, timeout);
@@ -113,6 +108,23 @@ bool ElectricityMeterCommTask::connect(std::ostream &os,
     }
   }
   return _pana_session_established;
+}
+
+// スマートメーターと再接続する。
+bool ElectricityMeterCommTask::reconnect_to_meter() {
+  StringBufWithDialogue buf{"Reconnect meter"};
+  std::ostream ostream(&buf);
+  // SKTERMを送信する
+  if (_bp35a1.terminate(RECONNECT_TIMEOUT)) {
+    if (connect_to_meter(ostream, RECONNECT_TIMEOUT)) {
+      if (begin(ostream, RECONNECT_TIMEOUT)) {
+        ostream << "Reconnect succeed";
+        return true;
+      }
+    }
+  }
+  ostream << "Reconnect failed";
+  return false;
 }
 
 // 受信

@@ -30,6 +30,8 @@ public:
   startup_and_find_meter(std::ostream &os, const std::string &route_b_id,
                          const std::string &route_b_password,
                          std::chrono::seconds timeout);
+  // SKTERM要求を送る
+  bool terminate(std::chrono::seconds timeout);
   // 接続(PANA認証)要求を送る
   bool connect(std::ostream &os, Bp35a1::SmartMeterIdentifier smart_meter_ident,
                std::chrono::seconds timeout);
