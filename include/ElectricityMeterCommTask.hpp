@@ -50,7 +50,9 @@ private:
   //
   bool finding_elctricity_meter(std::ostream &os, std::chrono::seconds timeout);
   //
-  bool connect(std::ostream &os, std::chrono::seconds timeout);
+  bool connect_to_meter(std::ostream &os, std::chrono::seconds timeout);
+  //
+  bool reconnect_to_meter();
   //
   void receive_from_port(std::chrono::system_clock::time_point nowtp);
   // スマートメーターに最初の要求を出す
